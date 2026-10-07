@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { listAgents } from "./agents.ts";
 
 /**
  * Creating an agent is an interview, like hiring: you answer the core questions, Claude asks
@@ -111,14 +112,33 @@ async function structured<T>(prompt: string, schema: Record<string, unknown>): P
   }
 }
 
-const CONTEXT = `You are helping the owner of "agentbox" set up a new AI agent teammate. agentbox runs a
-team of Claude agents (e.g. tech lead, coder, tester, devops) that share one Linux VM with the
-owner's GitHub (gh), AWS CLI, a shared Chromium signed into Microsoft Teams and other web apps,
-docker and a shell. The team's purpose is to automate the software development process.`;
+function context() {
+  const roster = listAgents();
+  const team = roster.length
+    ? roster.map((a) => `- ${a.name} — ${a.title}: ${a.summary}`).join("\n")
+    : "- (none yet; this is the first agent)";
+  return `You are helping the owner of "agentbox" set up a new AI agent teammate. agentbox runs a
+team of Claude agents that share one Linux VM with the owner's GitHub (gh), AWS CLI, a shared
+Chromium signed into Microsoft Teams and other web apps, docker and a shell. The team's purpose
+is to automate the software development process.
+
+How agents communicate (facts, do not contradict them):
+- Agent to agent: agentbox's built-in team tools. An agent delegates a task to a named teammate,
+  the task joins that teammate's queue, and the result comes back to the delegator
+  automatically. Agents can also message each other and talk in group chats with @mentions.
+  Every handoff is tracked on agentbox's task board. Agents never use Teams, email or GitHub
+  comments to talk to each other.
+- Records of the work itself live where engineers expect them: GitHub issues, PRs and reviews.
+- Microsoft Teams is only for people: status updates, release notes, and questions for the
+  owner's colleagues.
+
+The team today:
+${team}`;
+}
 
 export async function followUps(answers: Answers) {
   return structured<{ questions: { id: string; question: string; options: string[] }[] }>(
-    `${CONTEXT}
+    `${context()}
 
 The owner answered the core setup questions:
 
@@ -127,7 +147,9 @@ ${formatAnswers(answers, CORE_QUESTIONS as any)}
 Ask 2-4 follow-up questions whose answers would most change how this specific agent should
 behave. Good follow-ups pin down concrete specifics the role depends on (e.g. for a reviewer:
 which standards or checklists apply; for a deployer: which environments and how to verify; for
-a coder: branching and test conventions). Do not repeat anything already answered. Keep each
+a coder: branching and test conventions; for a coordinator: which teammates own which kinds of
+work). Suggested answers must fit how agentbox works (above); refer to existing teammates by
+name. Do not repeat anything already answered. Keep each
 question under 20 words. Offer 2-4 short suggested answers where that helps, else none.`,
     FOLLOWUP_SCHEMA,
   );
@@ -135,7 +157,7 @@ question under 20 words. Offer 2-4 short suggested answers where that helps, els
 
 export async function draft(answers: Answers, extra: { id: string; question: string }[]) {
   return structured<{ title: string; summary: string; model: string; model_reason: string; instructions: string }>(
-    `${CONTEXT}
+    `${context()}
 
 Interview with the owner:
 
@@ -153,7 +175,9 @@ sections, in order, each short and concrete:
 ## Ask the owner first  (the boundaries, as a bullet list; never act on these without approval)
 ## Reporting
 
-Use only facts from the interview. Where a detail the agent will need is missing, write a
+If the agent works with teammates, describe handoffs in terms of agentbox's team tools
+("delegate to <name>"), never Teams messages or GitHub comments. Use only facts from the
+interview and the team list. Where a detail the agent will need is missing, write a
 placeholder like [REPO NAME] rather than inventing one. No preamble or closing remarks.
 
 Choose the model: opus for judgement-heavy work (planning, architecture, code review), sonnet
