@@ -1,0 +1,41 @@
+import { EventEmitter } from "node:events";
+import { now, run } from "./db.ts";
+
+/** Everything the UI needs to stay live goes through here and out over WebSocket. */
+export type BusEvent =
+  | { type: "agent.created" | "agent.updated"; agent: any }
+  | { type: "agent.deleted"; agentId: string }
+  | { type: "agent.status"; agentId: string; status: AgentStatus; taskId?: string }
+  | { type: "task.updated"; task: any }
+  | { type: "message.created"; message: any }
+  | { type: "turn.delta"; taskId: string; agentId: string; text: string }
+  | { type: "step.updated"; step: any }
+  | { type: "usage"; usage: any };
+
+export type AgentStatus = "idle" | "working" | "limited" | "error";
+
+const emitter = new EventEmitter();
+emitter.setMaxListeners(100);
+
+// Streaming deltas are too chatty to keep; everything else is the activity log.
+const EPHEMERAL = new Set(["turn.delta"]);
+
+export function publish(event: BusEvent) {
+  if (!EPHEMERAL.has(event.type)) {
+    const e = event as any;
+    run(
+      `INSERT INTO events (ts, type, agent_id, task_id, payload) VALUES (?, ?, ?, ?, ?)`,
+      now(),
+      event.type,
+      e.agentId ?? e.agent?.id ?? e.task?.agent_id ?? e.step?.agent_id ?? null,
+      e.taskId ?? e.task?.id ?? e.step?.task_id ?? e.message?.task_id ?? null,
+      JSON.stringify(event),
+    );
+  }
+  emitter.emit("event", event);
+}
+
+export function subscribe(fn: (e: BusEvent) => void) {
+  emitter.on("event", fn);
+  return () => emitter.off("event", fn);
+}

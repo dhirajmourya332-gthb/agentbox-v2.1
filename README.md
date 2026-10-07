@@ -26,3 +26,10 @@ run if it is missing.
 In the **Terminal** tab: `claude` then `/login`, `gh auth login`, `aws configure sso`.
 In the **Screen** tab: sign into Teams and other web apps in the shared Chromium.
 Logins persist across VM restarts.
+
+## Developing
+
+```bash
+cd web && npm install && npm run dev   # UI on :5173, proxies /api to the VM on :7700
+./scripts/deploy.sh                    # ship server/ + web/ into the VM
+```

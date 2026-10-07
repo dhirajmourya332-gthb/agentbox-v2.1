@@ -1,68 +1,118 @@
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { get } from "./db.ts";
+import { subscribe } from "./bus.ts";
+import {
+  createAgent, deleteAgent, dmThreadOf, getAgent, listAgents, listMemory, readInstructions, updateAgent, writeInstructions,
+} from "./agents.ts";
+import { agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
+import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
+import { health } from "./health.ts";
 
-const run = promisify(execFile);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 7700);
+const webDist = path.resolve(here, "../../web/dist");
 
-const SERVICES = [
-  "agentbox-xvfb",
-  "agentbox-wm",
-  "agentbox-vnc",
-  "agentbox-novnc",
-  "agentbox-ttyd",
-  "agentbox-chromium",
-];
+const app = Fastify({ logger: { level: "info" } });
+await app.register(fastifyWebsocket);
 
-async function serviceState(name: string): Promise<string> {
-  try {
-    const { stdout } = await run("systemctl", ["is-active", name]);
-    return stdout.trim();
-  } catch (err: any) {
-    return (err.stdout ?? "unknown").trim() || "unknown";
+class HttpError extends Error {
+  constructor(public statusCode: number, message: string) {
+    super(message);
   }
 }
-
-async function browserState(): Promise<{ ok: boolean; version?: string }> {
-  try {
-    const res = await fetch("http://127.0.0.1:9222/json/version", { signal: AbortSignal.timeout(1500) });
-    const body = (await res.json()) as { Browser?: string };
-    return { ok: true, version: body.Browser };
-  } catch {
-    return { ok: false };
-  }
-}
-
-async function cliVersion(cmd: string, args: string[] = ["--version"]): Promise<string | null> {
-  try {
-    const { stdout } = await run(cmd, args, { timeout: 20000 });
-    return stdout.split("\n")[0].trim();
-  } catch {
-    return null;
-  }
-}
-
-const app = Fastify({ logger: true });
-
-app.get("/api/health", async () => {
-  const [services, browser, claude, gh, aws] = await Promise.all([
-    Promise.all(SERVICES.map(async (s) => [s, await serviceState(s)] as const)),
-    browserState(),
-    cliVersion("claude"),
-    cliVersion("gh"),
-    cliVersion("aws"),
-  ]);
-  return {
-    services: Object.fromEntries(services),
-    browser,
-    tools: { claude, gh, aws },
-  };
+app.setErrorHandler((err: any, _req, reply) => {
+  const status = err.statusCode ?? 400;
+  if (status >= 500) app.log.error(err);
+  reply.status(status).send({ error: err.message });
 });
 
-app.register(fastifyStatic, { root: path.resolve(here, "../../web") });
+const agentView = (a: ReturnType<typeof getAgent> & {}) => ({
+  ...a,
+  ...agentStatus(a.id),
+  dm_thread_id: dmThreadOf(a.id),
+});
+const mustAgent = (id: string) => {
+  const a = getAgent(id);
+  if (!a) throw new HttpError(404, "No such agent");
+  return a;
+};
+
+// --- system -----------------------------------------------------------------
+app.get("/api/health", health);
+app.get("/api/state", async () => ({ agents: listAgents().map(agentView), usage: currentUsage() }));
+
+// --- creating agents (the interview) ------------------------------------------
+app.get("/api/interview", async () => ({ questions: CORE_QUESTIONS, templates: TEMPLATES }));
+app.post("/api/interview/follow-ups", async (req) => followUps((req.body as any).answers ?? {}));
+app.post("/api/interview/draft", async (req) => {
+  const body = req.body as any;
+  return draft(body.answers ?? {}, body.extra ?? []);
+});
+
+// --- agents -----------------------------------------------------------------
+app.post("/api/agents", async (req) => {
+  const b = req.body as any;
+  for (const k of ["name", "title", "model", "instructions"]) {
+    if (typeof b?.[k] !== "string" || !b[k].trim()) throw new HttpError(400, `Missing ${k}`);
+  }
+  return agentView(createAgent(b));
+});
+app.get("/api/agents/:id", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  return { agent: agentView(a), instructions: readInstructions(a), memory: listMemory(a) };
+});
+app.patch("/api/agents/:id", async (req) => agentView(updateAgent(mustAgent((req.params as any).id).id, req.body as any)));
+app.put("/api/agents/:id/instructions", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  const text = (req.body as any)?.text;
+  if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Instructions can't be empty");
+  writeInstructions(a, text);
+  return { ok: true };
+});
+app.delete("/api/agents/:id", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  if (agentStatus(a.id).status === "working") throw new HttpError(409, `${a.name} is working; stop the task first`);
+  deleteAgent(a.id);
+  return { ok: true };
+});
+app.post("/api/agents/:id/reset-session", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  resetSession(a.id, dmThreadOf(a.id));
+  return { ok: true };
+});
+
+// --- conversations ----------------------------------------------------------
+app.get("/api/threads/:id", async (req) => threadView((req.params as any).id));
+app.post("/api/threads/:id/messages", async (req) => {
+  const threadId = (req.params as any).id;
+  const text = (req.body as any)?.text;
+  if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Message is empty");
+  const thread = get(`SELECT * FROM threads WHERE id = ?`, threadId);
+  if (!thread) throw new HttpError(404, "No such thread");
+  if (thread.kind !== "dm") throw new HttpError(400, "Group threads arrive in a later milestone");
+  return sendMessage(thread.agent_id, threadId, text.trim());
+});
+app.post("/api/tasks/:id/stop", async (req) => {
+  stopTask((req.params as any).id);
+  return { ok: true };
+});
+
+// --- live events ------------------------------------------------------------
+app.get("/api/events", { websocket: true }, (socket) => {
+  const off = subscribe((e) => socket.send(JSON.stringify(e)));
+  socket.on("close", off);
+});
+
+// --- UI ---------------------------------------------------------------------
+if (fs.existsSync(webDist)) {
+  await app.register(fastifyStatic, { root: webDist });
+} else {
+  app.get("/", async () => "UI not built: run scripts/deploy.sh");
+}
 
 await app.listen({ host: "0.0.0.0", port });

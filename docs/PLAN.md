@@ -35,7 +35,7 @@ macOS host
    ├── gh · git · aws · docker · node · python · playwright · xdotool
    ├── /work      shared repos (one git worktree per coding task)
    ├── /skills    skill library
-   ├── /agents/<name>/  CLAUDE.md (role) · memory/ · .claude/ (CLAUDE_CONFIG_DIR) · scratch/
+   ├── /agents/<name>/  CLAUDE.md (job description) · memory/ · .claude/skills/ · scratch/
    └── orchestrator (/opt/agentbox/app, systemd: agentbox-web)
        ├── API + WebSocket + static UI
        ├── Agent Runner  → Claude Agent SDK query({ resume, cwd, env })
@@ -65,11 +65,18 @@ cannot reach host files or keys.
 
 ## Agents
 
-- **Role and capability:** system prompt from a role template + team roster + the agent's
-  `CLAUDE.md`; per-agent model, `allowedTools`/`disallowedTools`, `maxTurns`.
+- **Hiring (creating) an agent is an interview**, like Grok Bot: pick a starting role, answer
+  7 core questions (name, main job, where it works, what great work looks like, tools,
+  what to ask first, how to report), answer 2–4 follow-ups Claude writes for that role, then
+  review and edit the job description Claude drafts. That becomes the agent's `CLAUDE.md`.
+- **Role and capability:** the Claude Code system prompt + an agentbox section (identity,
+  the shared computer, memory, reporting) + the agent's `CLAUDE.md`; per-agent model and
+  `maxTurns`. `strictMcpConfig` keeps the owner's claude.ai connectors away from agents.
 - **Full control:** `permissionMode: bypassPermissions`, passwordless sudo, `DISPLAY=:99`.
-- **Separate context:** one Claude session per (agent, thread), resumed with `resume`.
-  `CLAUDE_CONFIG_DIR=/agents/<name>/.claude` keeps transcripts and skills physically apart.
+- **Separate context:** each agent runs with its home as `cwd`, so its `CLAUDE.md` and project
+  skills load and its transcripts land in their own project folder. One Claude session per
+  (agent, thread), resumed with `resume`. (A per-agent `CLAUDE_CONFIG_DIR` was dropped: it
+  would hide the shared subscription login.)
 - **Memory:** `/agents/<name>/memory/MEMORY.md` + files; shared across that agent's threads.
 - **Browser and desktop control:**
   - Playwright MCP attached to the shared Chromium via CDP (`http://127.0.0.1:9222`)
@@ -145,8 +152,8 @@ better-sqlite3 + Drizzle, croner, zod. UI: React + Vite (static, served by Fasti
 
 | # | Milestone | Done when |
 |---|---|---|
-| 0 | Shared computer | `scripts/up.sh` builds the VM; UI at :7700 shows the screen (noVNC) and a terminal (ttyd); Chromium runs on :99 with CDP |
-| 1 | One agent end to end | Chat with coder in the UI; it runs commands and drives the browser; session survives restart |
+| 0 ✓ | Shared computer | `scripts/up.sh` builds the VM; UI at :7700 shows the screen (noVNC) and a terminal (ttyd); Chromium runs on :99 with CDP |
+| 1 ✓ | One agent end to end | Interview-based agent creation; chat with streaming and work log; runs commands and drives the shared browser; session survives restart; Stop |
 | 2 | Agents + skills | 4 role agents, each with its own home, config, sessions, memory; skill library and assignment |
 | 3 | Delegation | tech-lead → tester handoff with result returned; loop guards hold |
 | 4 | Groups | Create group, pick members and lead, @mention routing |
