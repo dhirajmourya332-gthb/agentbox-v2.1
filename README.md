@@ -7,7 +7,9 @@ to automate software development. Plan: [docs/PLAN.md](docs/PLAN.md) · UI:
 ## Run
 
 ```bash
-./scripts/up.sh      # create/start the Lima VM "agentbox", provision it, deploy the app
+./scripts/start.sh   # after a reboot: start the VM and wait until everything is healthy (--open opens the UI)
+./scripts/stop.sh    # before shutting down: stop the VM (refuses while agents are working; --force)
+./scripts/up.sh      # first-time setup: create the Lima VM "agentbox", provision it, deploy the app
 ./scripts/deploy.sh  # redeploy server/ and web/ after changes
 ./scripts/shell.sh   # shell inside the VM (or: ./scripts/shell.sh <command>)
 ```
