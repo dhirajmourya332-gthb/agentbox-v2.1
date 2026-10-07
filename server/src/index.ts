@@ -39,7 +39,7 @@ async function browserState(): Promise<{ ok: boolean; version?: string }> {
 
 async function cliVersion(cmd: string, args: string[] = ["--version"]): Promise<string | null> {
   try {
-    const { stdout } = await run(cmd, args, { timeout: 5000 });
+    const { stdout } = await run(cmd, args, { timeout: 20000 });
     return stdout.split("\n")[0].trim();
   } catch {
     return null;

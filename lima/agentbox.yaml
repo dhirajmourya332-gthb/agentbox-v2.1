@@ -22,4 +22,7 @@ portForwards:
   - guestPort: 7702
     hostPort: 7702
   - guestPortRange: [1, 65535]
+    guestIP: 0.0.0.0
+    guestIPMustBeZero: false
+    proto: any
     ignore: true
