@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# The shared browser: headed on :99, persistent profile (logins survive restarts),
+# CDP on 127.0.0.1:9222 so agents can drive it with Playwright.
+set -euo pipefail
+
+bin="$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1)"
+if [ -z "$bin" ]; then
+  echo "playwright chromium not found under ~/.cache/ms-playwright" >&2
+  exit 1
+fi
+
+# The VM is the sandbox; Ubuntu 24.04's AppArmor blocks Chromium's userns sandbox.
+exec "$bin" \
+  --no-sandbox \
+  --no-first-run \
+  --no-default-browser-check \
+  --password-store=basic \
+  --user-data-dir="$HOME/.agentbox/chrome-profile" \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --window-position=0,0 \
+  --window-size=1920,1080 \
+  --start-maximized \
+  about:blank

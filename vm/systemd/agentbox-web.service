@@ -1,0 +1,15 @@
+[Unit]
+Description=agentbox orchestrator + web UI (:7700)
+After=network.target agentbox-xvfb.service
+
+[Service]
+User=@USER@
+WorkingDirectory=/opt/agentbox/app/server
+Environment=HOME=@HOME@ DISPLAY=:99 PORT=7700 AGENTBOX_DATA=/opt/agentbox/data
+Environment=PATH=@HOME@/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

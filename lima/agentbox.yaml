@@ -1,0 +1,25 @@
+# agentbox: the single shared computer for all agents.
+# Created by scripts/up.sh, which adds the read-only repo mount (it needs an absolute path).
+minimumLimaVersion: 2.0.0
+base: template:ubuntu-24.04
+
+vmType: vz
+mountType: virtiofs
+cpus: 4
+memory: 6GiB
+disk: 60GiB
+
+# No host home mount: agents get full control of the VM, not of your Mac.
+mounts: []
+
+# Only expose the UI, screen and terminal, on 127.0.0.1. Everything else (VNC 5900,
+# Chromium CDP 9222, …) stays inside the VM. First matching rule wins.
+portForwards:
+  - guestPort: 7700
+    hostPort: 7700
+  - guestPort: 7701
+    hostPort: 7701
+  - guestPort: 7702
+    hostPort: 7702
+  - guestPortRange: [1, 65535]
+    ignore: true

@@ -1,0 +1,14 @@
+[Unit]
+Description=agentbox shared browser (Chromium on :99, CDP 127.0.0.1:9222)
+After=agentbox-wm.service
+Requires=agentbox-xvfb.service
+
+[Service]
+User=@USER@
+Environment=DISPLAY=:99 HOME=@HOME@
+ExecStart=/usr/local/bin/agentbox-chromium
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

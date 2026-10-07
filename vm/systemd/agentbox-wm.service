@@ -1,0 +1,14 @@
+[Unit]
+Description=agentbox window manager (fluxbox on :99)
+After=agentbox-xvfb.service
+Requires=agentbox-xvfb.service
+
+[Service]
+User=@USER@
+Environment=DISPLAY=:99 HOME=@HOME@
+ExecStartPre=/bin/sh -c 'for i in $(seq 50); do xdpyinfo >/dev/null 2>&1 && exit 0; sleep 0.2; done; exit 1'
+ExecStart=/usr/bin/fluxbox
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
