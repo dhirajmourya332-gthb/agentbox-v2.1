@@ -229,7 +229,7 @@ function Turn({ agent, task, steps, reply, live }: { agent: Agent; task: Task; s
   );
 }
 
-function WorkLog({ task, steps }: { task: Task; steps: Step[] }) {
+export function WorkLog({ task, steps }: { task: Task; steps: Step[] }) {
   const running = task.status === "running";
   const visible = steps.filter((s) => s.kind !== "meta");
   const [manual, setManual] = useState<boolean | null>(null);

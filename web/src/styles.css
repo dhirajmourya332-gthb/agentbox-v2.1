@@ -336,3 +336,16 @@ a.row.skill-row:hover { background: var(--raised); }
 .tree-state { width: 14px; text-align: center; font-size: 12px; color: var(--muted); }
 .tree-state.done { color: var(--ok); } .tree-state.failed, .tree-state.stopped { color: var(--bad); } .tree-state.running { color: var(--accent); }
 @media (max-width: 900px) { .board { grid-template-columns: repeat(4, 240px); } }
+
+/* Groups */
+.hash { width: 20px; text-align: center; font-weight: 600; color: var(--muted); }
+.member-stack { display: inline-flex; gap: 4px; margin-right: 4px; }
+.member { position: relative; display: inline-flex; }
+.lead-star { position: absolute; right: -4px; top: -6px; font-size: 10px; color: var(--warn); }
+.system-note { text-align: center; color: var(--muted); font-size: 12.5px; display: flex; justify-content: center; align-items: center; gap: 6px; }
+.group-intro { border: 1px dashed var(--line-strong); border-radius: var(--r-card); padding: 14px 16px; display: grid; gap: 6px; }
+.paused-bar {
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 8px 16px;
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface)); border-top: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  color: var(--text); font-size: 13px;
+}

@@ -131,6 +131,24 @@ for (const [col, type] of [
 ] as const) {
   if (!columns("tasks").includes(col)) db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
 }
+for (const [col, type] of [
+  ["purpose", "TEXT"],
+  ["lead_agent_id", "TEXT REFERENCES agents(id) ON DELETE SET NULL"],
+  ["paused_mentions", "TEXT"], // JSON agent ids waiting when a group hit its turn limit
+] as const) {
+  if (!columns("threads").includes(col)) db.exec(`ALTER TABLE threads ADD COLUMN ${col} ${type}`);
+}
+db.exec(`CREATE TABLE IF NOT EXISTS thread_members (
+  thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  PRIMARY KEY (thread_id, agent_id)
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS group_reads (
+  thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  seen_at TEXT NOT NULL,
+  PRIMARY KEY (thread_id, agent_id)
+)`);
 db.exec(`CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_task_id)`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS threads_handoff ON threads(kind, agent_id, peer_agent_id) WHERE kind = 'handoff'`);
 

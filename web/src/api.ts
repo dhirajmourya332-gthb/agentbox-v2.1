@@ -35,6 +35,9 @@ export type Step = {
   input: string | null; output: string | null; status: "running" | "done" | "error" | "stopped";
   started_at: string; finished_at: string | null;
 };
+export type Group = {
+  id: string; name: string; purpose: string; lead_agent_id: string | null; members: string[]; paused: boolean; created_at: string;
+};
 export type Thread = { id: string; kind: "dm" | "handoff" | "group"; agent_id: string; peer_agent_id: string | null; last_at: string | null };
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
 
@@ -63,7 +66,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
-  state: () => call<{ agents: Agent[]; usage: Usage | null }>("GET", "/api/state"),
+  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[] }>("GET", "/api/state"),
   health: () => call<any>("GET", "/api/health"),
   interview: () => call<{ questions: CoreQuestion[]; templates: Template[] }>("GET", "/api/interview"),
   followUps: (answers: Record<string, unknown>) =>
@@ -92,6 +95,10 @@ export const api = {
   tasks: () => call<Task[]>("GET", "/api/tasks"),
   task: (id: string) => call<{ task: Task; tree: Task[]; steps: Step[] }>("GET", `/api/tasks/${id}`),
   agentThreads: (id: string) => call<Thread[]>("GET", `/api/agents/${id}/threads`),
+  createGroup: (b: { name: string; purpose: string; members: string[]; lead: string | null }) => call<Group>("POST", "/api/groups", b),
+  updateGroup: (id: string, b: { name: string; purpose: string; members: string[]; lead: string | null }) => call<Group>("PUT", `/api/groups/${id}`, b),
+  deleteGroup: (id: string) => call("DELETE", `/api/groups/${id}`),
+  continueGroup: (id: string) => call("POST", `/api/groups/${id}/continue`),
   thread: (id: string) => call<ThreadData>("GET", `/api/threads/${id}`),
   send: (threadId: string, text: string) => call("POST", `/api/threads/${threadId}/messages`, { text }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),

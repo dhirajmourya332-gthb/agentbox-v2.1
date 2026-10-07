@@ -6,6 +6,7 @@ import { publish, type AgentStatus } from "./bus.ts";
 import { getAgent, homeOf, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillsOf } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
+import { afterAgentReply, groupPrompt, isNoReply } from "./groups.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -40,14 +41,14 @@ export const taskRow = (id: string) => get(`SELECT * FROM tasks WHERE id = ?`, i
 export type NewTask = {
   agentId: string;
   threadId: string;
-  source: "user" | "agent" | "message" | "result" | "cron";
+  source: "user" | "agent" | "message" | "result" | "cron" | "group";
   title: string;
   prompt: string;
   fromAgentId?: string | null;
   parentTaskId?: string | null;
   depth?: number;
-  /** What shows in the thread as the thing the agent is responding to. */
-  input: { author: string; content: string };
+  /** What shows in the thread as the thing the agent is responding to (null: already posted, e.g. groups). */
+  input: { author: string; content: string } | null;
 };
 
 /** Queue a turn for an agent. Turns for one agent run one at a time, in order. */
@@ -64,12 +65,14 @@ export function enqueueTask(t: NewTask) {
     task.id, task.agent_id, task.thread_id, task.source, task.title, task.prompt, task.from_agent_id,
     task.parent_task_id, task.depth, task.status, task.created_at,
   );
-  const message = { id: newId(), thread_id: t.threadId, author: t.input.author, task_id: task.id, content: t.input.content, created_at: now() };
-  run(
-    `INSERT INTO messages (id, thread_id, author, task_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    message.id, message.thread_id, message.author, message.task_id, message.content, message.created_at,
-  );
-  publish({ type: "message.created", message });
+  if (t.input) {
+    const message = { id: newId(), thread_id: t.threadId, author: t.input.author, task_id: task.id, content: t.input.content, created_at: now() };
+    run(
+      `INSERT INTO messages (id, thread_id, author, task_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      message.id, message.thread_id, message.author, message.task_id, message.content, message.created_at,
+    );
+    publish({ type: "message.created", message });
+  }
   publish({ type: "task.updated", task: taskRow(task.id) });
 
   const next = (chains.get(t.agentId) ?? Promise.resolve()).then(() => runTask(task.id)).catch((err) => {
@@ -310,7 +313,7 @@ async function runTask(taskId: string) {
 
   const runOnce = async (resume: string | undefined) => {
     const q = query({
-      prompt: task.prompt,
+      prompt: task.source === "group" ? groupPrompt(task, agent) : task.prompt,
       options: {
         cwd: homeOf(agent),
         model: agent.model,
@@ -349,8 +352,10 @@ async function runTask(taskId: string) {
       }
     }
     if (abort.signal.aborted && result?.subtype !== "success") throw new Error("aborted");
-    const content = texts.join("\n\n") || result?.result || "";
-    postAgentMessage(agent, task, content);
+    let content = texts.join("\n\n") || result?.result || "";
+    // In a group, a turn that ends with "nothing to add" isn't posted (or routed).
+    if (task.source === "group" && isNoReply(texts.at(-1) ?? content)) content = "NO_REPLY";
+    else postAgentMessage(agent, task, content);
     finishTask(taskId, {
       status: result?.subtype === "success" ? "done" : "failed",
       result: content,
@@ -358,6 +363,7 @@ async function runTask(taskId: string) {
       cost: result?.total_cost_usd,
     });
     setStatus(agent.id, "idle");
+    afterAgentReply(taskRow(taskId), content);
   } catch (err: any) {
     for (const s of steps.values()) {
       if (s.status === "running") saveStep({ ...s, status: abort.signal.aborted ? "stopped" : "error", finished_at: now() });

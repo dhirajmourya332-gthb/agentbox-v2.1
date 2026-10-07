@@ -11,6 +11,7 @@ import {
 } from "./agents.ts";
 import { agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
+import { continueGroup, createGroup, deleteGroup, getGroup, listGroups, postAsOwner, updateGroup } from "./groups.ts";
 import {
   approveDraft, deleteSkill, getDraft, getSkill, listDrafts, listSkills, rejectDraft, saveSkill, seedSkills,
   setAgentSkills, setSkillAgents, skillsOf,
@@ -49,7 +50,7 @@ const mustAgent = (id: string) => {
 
 // --- system -----------------------------------------------------------------
 app.get("/api/health", health);
-app.get("/api/state", async () => ({ agents: listAgents().map(agentView), usage: currentUsage() }));
+app.get("/api/state", async () => ({ agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups() }));
 
 // --- creating agents (the interview) ------------------------------------------
 app.get("/api/interview", async () => ({ questions: CORE_QUESTIONS, templates: TEMPLATES }));
@@ -149,7 +150,8 @@ app.post("/api/threads/:id/messages", async (req) => {
   if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Message is empty");
   const thread = get(`SELECT * FROM threads WHERE id = ?`, threadId);
   if (!thread) throw new HttpError(404, "No such thread");
-  if (thread.kind !== "dm") throw new HttpError(400, "Group threads arrive in a later milestone");
+  if (thread.kind === "group") return postAsOwner(threadId, text.trim());
+  if (thread.kind !== "dm") throw new HttpError(400, "Handoff threads between agents are read-only");
   return sendMessage(thread.agent_id, threadId, text.trim());
 });
 app.post("/api/tasks/:id/stop", async (req) => {
@@ -195,6 +197,25 @@ app.get("/api/agents/:id/threads", async (req) => {
      FROM threads WHERE agent_id = ? ORDER BY kind = 'dm' DESC, last_at DESC`,
     a.id,
   );
+});
+
+// --- groups -----------------------------------------------------------------
+const groupInput = (b: any) => ({
+  name: String(b?.name ?? ""), purpose: String(b?.purpose ?? ""),
+  members: Array.isArray(b?.members) ? b.members.map(String) : [], lead: b?.lead ? String(b.lead) : null,
+});
+app.get("/api/groups", async () => listGroups());
+app.post("/api/groups", async (req) => createGroup(groupInput(req.body)));
+app.put("/api/groups/:id", async (req) => updateGroup((req.params as any).id, groupInput(req.body)));
+app.delete("/api/groups/:id", async (req) => {
+  deleteGroup((req.params as any).id);
+  return { ok: true };
+});
+app.post("/api/groups/:id/continue", async (req) => {
+  const id = (req.params as any).id;
+  if (!getGroup(id)) throw new HttpError(404, "No such group");
+  continueGroup(id);
+  return { ok: true };
 });
 
 // --- live events ------------------------------------------------------------

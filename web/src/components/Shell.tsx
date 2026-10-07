@@ -62,7 +62,9 @@ function VmChip() {
 
 function RailLink({ to, current, icon, children }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode }) {
   const skillsArea = ["skills", "skill", "new-skill", "draft"];
-  const active = to.name === "skills"
+  const active = to.name === "group"
+    ? (current.name === "group" || current.name === "group-settings") && current.id === to.id
+    : to.name === "skills"
     ? skillsArea.includes(current.name)
     : to.name === current.name && (to.name !== "agent" || (current.name === "agent" && current.id === to.id));
   return (
@@ -74,7 +76,7 @@ function RailLink({ to, current, icon, children }: { to: Route; current: Route; 
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const { agents, usage, drafts, board } = useStore();
+  const { agents, usage, drafts, board, groups } = useStore();
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
   return (
     <div className="shell">
@@ -105,6 +107,18 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           </RailLink>
         ))}
         {agents.length === 0 && <p className="empty">No agents yet.</p>}
+
+        <div className="rail-section">
+          <span className="rail-label">Groups</span>
+          <a className="icon-btn" href="#/groups/new" aria-label="New group" title="New group"><Icon name="plus" /></a>
+        </div>
+        {groups.map((g) => (
+          <RailLink key={g.id} to={{ name: "group", id: g.id }} current={route} icon={<span className="hash" aria-hidden="true">#</span>}>
+            <span className="grow">{g.name}</span>
+            {g.paused && <span className="badge" title="Paused, waiting for you">!</span>}
+          </RailLink>
+        ))}
+        {groups.length === 0 && <p className="empty">No groups yet.</p>}
 
         <div className="rail-section"><span className="rail-label">Library</span></div>
         <RailLink to={{ name: "skills" }} current={route} icon={<Icon name="skill" />}>

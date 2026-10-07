@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
+import { api, type Agent, type Group, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
 
 type State = {
   connected: boolean;
@@ -8,6 +8,7 @@ type State = {
   usage: Usage | null;
   skills: Skill[];
   drafts: SkillDraft[];
+  groups: Group[];
   threads: Record<string, ThreadData>;
   /** Every task we've seen, for the board. */
   board: Record<string, Task>;
@@ -18,7 +19,7 @@ type State = {
 };
 
 type Action =
-  | { type: "loaded"; agents: Agent[]; usage: Usage | null; skills: Skill[]; drafts: SkillDraft[] }
+  | { type: "loaded"; agents: Agent[]; usage: Usage | null; skills: Skill[]; drafts: SkillDraft[]; groups: Group[] }
   | { type: "connected"; value: boolean }
   | { type: "thread"; id: string; data: ThreadData }
   | { type: "board"; tasks: Task[] }
@@ -33,7 +34,7 @@ const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "loaded":
-      return { ...s, loaded: true, agents: a.agents, usage: a.usage, skills: a.skills, drafts: a.drafts };
+      return { ...s, loaded: true, agents: a.agents, usage: a.usage, skills: a.skills, drafts: a.drafts, groups: a.groups };
     case "connected":
       return { ...s, connected: a.value };
     case "thread":
@@ -49,8 +50,6 @@ function reducer(s: State, a: Action): State {
           const agent = { status: "idle", ...prev, ...e.agent } as Agent;
           return { ...s, agents: upsert(s.agents, agent) };
         }
-        case "agent.deleted":
-          return { ...s, agents: s.agents.filter((x) => x.id !== e.agentId) };
         case "agent.skills":
           return { ...s, agents: s.agents.map((x) => (x.id === e.agentId ? { ...x, skills: e.skills } : x)) };
         case "skill.updated":
@@ -67,6 +66,16 @@ function reducer(s: State, a: Action): State {
             drafts: e.draft.status === "pending"
               ? upsert(s.drafts, e.draft)
               : s.drafts.filter((d) => d.id !== e.draft.id),
+          };
+        case "group.updated":
+          return { ...s, groups: upsert(s.groups, e.group) };
+        case "group.deleted":
+          return { ...s, groups: s.groups.filter((g) => g.id !== e.id) };
+        case "agent.deleted":
+          return {
+            ...s,
+            agents: s.agents.filter((x) => x.id !== e.agentId),
+            groups: s.groups.map((g) => ({ ...g, members: g.members.filter((m) => m !== e.agentId) })),
           };
         case "thread.created":
           return { ...s, threadsVersion: s.threadsVersion + 1 };
@@ -113,13 +122,13 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], threads: {}, live: {}, board: {}, threadsVersion: 0,
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], threads: {}, live: {}, board: {}, threadsVersion: 0,
   });
   const openThreads = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     const [s, k, t] = await Promise.all([api.state(), api.skills(), api.tasks()]);
-    dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts });
+    dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups });
     dispatch({ type: "board", tasks: t });
   }, []);
 
