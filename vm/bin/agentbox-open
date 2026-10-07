@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Open URLs as new tabs in the shared Chromium (visible on the Screen page).
+# Installed as $BROWSER and xdg-open so CLI login flows (gh, aws sso, claude, OAuth)
+# land in the browser everyone shares instead of failing.
+set -euo pipefail
+
+[ $# -gt 0 ] || { echo "usage: agentbox-open <url>..." >&2; exit 2; }
+
+for url in "$@"; do
+  enc="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$url")"
+  if ! curl -fsS -X PUT "http://127.0.0.1:9222/json/new?$enc" >/dev/null; then
+    echo "agentbox-open: shared browser not reachable; open manually: $url" >&2
+    exit 1
+  fi
+done

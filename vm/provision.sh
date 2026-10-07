@@ -54,9 +54,13 @@ usermod -aG docker "$AGENT_USER"
 mkdir -p /opt/agentbox/app /opt/agentbox/data /agents /work /skills
 chown -R "$AGENT_USER:$AGENT_USER" /opt/agentbox /agents /work /skills
 install -m 0755 "$SRC/vm/bin/agentbox-chromium" /usr/local/bin/agentbox-chromium
+install -m 0755 "$SRC/vm/bin/agentbox-open" /usr/local/bin/agentbox-open
+# Tools that open a browser (gh, aws sso, claude, OAuth) use the shared Chromium.
+ln -sf /usr/local/bin/agentbox-open /usr/local/bin/xdg-open
 # Every login shell (ttyd, limactl shell, agents) sees the shared display.
 cat > /etc/profile.d/agentbox.sh <<'EOF'
 export DISPLAY=:99
+export BROWSER=/usr/local/bin/agentbox-open
 export PATH="$HOME/.local/bin:$PATH"
 EOF
 
