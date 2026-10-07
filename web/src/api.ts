@@ -14,7 +14,13 @@ export type Agent = {
   taskId?: string;
   dm_thread_id: string;
   skills: string[];
+  base_agent_id?: string | null;
+  replica_no?: number | null;
+  max_replicas?: number;
+  can_scale?: number;
+  retired_at?: string | null;
 };
+export type RetiredAgent = { id: string; name: string; color: string; base_agent_id: string | null };
 
 export type Skill = { name: string; description: string; body: string; files: string[]; agents: string[]; updated_at: string };
 export type SkillDraft = {
@@ -77,7 +83,9 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
-  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder }>("GET", "/api/state"),
+  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
+  spawnReplica: (baseId: string) => call<Agent>("POST", `/api/agents/${baseId}/replicas`),
+  retireReplica: (id: string) => call("POST", `/api/agents/${id}/retire`),
   pauseAll: (stopRunning: boolean) => call("POST", "/api/pause", { stopRunning }),
   resumeAll: () => call("POST", "/api/resume"),
   control: () => call<{ paused: boolean; display: DisplayHolder; running: number }>("GET", "/api/control"),
@@ -95,7 +103,7 @@ export const api = {
     call<Agent>("POST", "/api/agents", body),
   agent: (id: string) =>
     call<{ agent: Agent; instructions: string; memory: { file: string; content: string }[] }>("GET", `/api/agents/${id}`),
-  updateAgent: (id: string, patch: Partial<Pick<Agent, "title" | "summary" | "model" | "max_turns">>) =>
+  updateAgent: (id: string, patch: Partial<Pick<Agent, "title" | "summary" | "model" | "max_turns" | "max_replicas">> & { can_scale?: boolean }) =>
     call<Agent>("PATCH", `/api/agents/${id}`, patch),
   saveInstructions: (id: string, text: string) => call("PUT", `/api/agents/${id}/instructions`, { text }),
   deleteAgent: (id: string) => call("DELETE", `/api/agents/${id}`),

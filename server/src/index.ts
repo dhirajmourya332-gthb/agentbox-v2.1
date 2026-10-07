@@ -7,11 +7,12 @@ import { fileURLToPath } from "node:url";
 import { all, get } from "./db.ts";
 import { subscribe } from "./bus.ts";
 import {
-  createAgent, deleteAgent, dmThreadOf, getAgent, listAgents, listMemory, readInstructions, updateAgent, writeInstructions,
+  createAgent, deleteAgent, dmThreadOf, getAgent, listAgents, listMemory, listRetired, readInstructions, retireReplica, spawnReplica,
+  updateAgent, writeInstructions,
 } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
 import { activity, graph } from "./activity.ts";
-import { pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
+import { openTasksOf, pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
 import {
   createRoutine, deleteRoutine, describeCron, forgetAgentRoutines, getRoutine, listRoutines, routineRuns, runRoutine, startRoutines,
@@ -58,6 +59,7 @@ const mustAgent = (id: string) => {
 app.get("/api/health", health);
 app.get("/api/state", async () => ({
   agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups(), paused: isPaused(), display: screen(),
+  retired: listRetired().map((a) => ({ id: a.id, name: a.name, color: a.color, base_agent_id: a.base_agent_id })),
 }));
 
 // --- owner controls -------------------------------------------------------------
@@ -111,14 +113,26 @@ app.get("/api/agents/:id", async (req) => {
 app.patch("/api/agents/:id", async (req) => agentView(updateAgent(mustAgent((req.params as any).id).id, req.body as any)));
 app.put("/api/agents/:id/instructions", async (req) => {
   const a = mustAgent((req.params as any).id);
+  if (a.base_agent_id) throw new HttpError(400, "Replicas use their base agent's instructions; edit those instead");
   const text = (req.body as any)?.text;
   if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Instructions can't be empty");
   writeInstructions(a, text);
   return { ok: true };
 });
+app.post("/api/agents/:id/replicas", async (req) => agentView(spawnReplica(mustAgent((req.params as any).id).id)));
+app.post("/api/agents/:id/retire", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  const open = openTasksOf(a.id);
+  if (open.length) throw new HttpError(409, `${a.name} still has ${open.length} task(s) running or queued; stop them first`);
+  retireReplica(a.id);
+  return { ok: true };
+});
 app.delete("/api/agents/:id", async (req) => {
   const a = mustAgent((req.params as any).id);
-  if (agentStatus(a.id).status === "working") throw new HttpError(409, `${a.name} is working; stop the task first`);
+  if (agentStatus(a.id).status === "working" || openTasksOf(a.id).length) throw new HttpError(409, `${a.name} is working; stop its tasks first`);
+  const busyReplica = (all(`SELECT id, name FROM agents WHERE base_agent_id = ? AND retired_at IS NULL`, a.id) as any[])
+    .find((r) => openTasksOf(r.id).length);
+  if (busyReplica) throw new HttpError(409, `${busyReplica.name} (a replica) is working; stop its tasks first`);
   deleteAgent(a.id);
   forgetAgentRoutines(a.id);
   return { ok: true };

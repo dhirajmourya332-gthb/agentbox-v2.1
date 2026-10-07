@@ -420,3 +420,8 @@ a.feed-row:hover { background: var(--surface); }
 .legend-line { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--muted); vertical-align: middle; margin-right: 4px; }
 .legend-line.accent { border-color: var(--accent); }
 .legend-line.dashed { border-top-style: dashed; }
+
+/* Replicas */
+.rail a.item.replica { padding-left: 22px; min-height: 30px; font-size: 13px; }
+.replica-mark { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid; display: grid; place-items: center; font-size: 10.5px; font-weight: 600; color: var(--text); flex: none; }
+.replica-note { padding: 8px 12px; border-radius: var(--r-ctl); background: var(--raised); font-size: 13px; }

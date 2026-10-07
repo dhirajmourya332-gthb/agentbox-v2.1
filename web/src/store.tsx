@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type DisplayHolder, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
+import { api, type Agent, type DisplayHolder, type RetiredAgent, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
 
 type State = {
   connected: boolean;
@@ -12,6 +12,7 @@ type State = {
   routines: Routine[];
   paused: boolean;
   display: DisplayHolder;
+  retired: RetiredAgent[];
   /** Bumped on any event that could change the activity feed. */
   activityVersion: number;
   threads: Record<string, ThreadData>;
@@ -24,7 +25,7 @@ type State = {
 };
 
 type Action =
-  | { type: "loaded"; agents: Agent[]; usage: Usage | null; skills: Skill[]; drafts: SkillDraft[]; groups: Group[]; paused: boolean; display: DisplayHolder }
+  | { type: "loaded"; agents: Agent[]; usage: Usage | null; skills: Skill[]; drafts: SkillDraft[]; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }
   | { type: "connected"; value: boolean }
   | { type: "thread"; id: string; data: ThreadData }
   | { type: "board"; tasks: Task[] }
@@ -40,7 +41,7 @@ const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "loaded":
-      return { ...s, loaded: true, agents: a.agents, usage: a.usage, skills: a.skills, drafts: a.drafts, groups: a.groups, paused: a.paused, display: a.display };
+      return { ...s, loaded: true, agents: a.agents, usage: a.usage, skills: a.skills, drafts: a.drafts, groups: a.groups, paused: a.paused, display: a.display, retired: a.retired };
     case "connected":
       return { ...s, connected: a.value };
     case "thread":
@@ -55,9 +56,15 @@ function reducer(s: State, a: Action): State {
       switch (e.type) {
         case "agent.created":
         case "agent.updated": {
+          if (e.agent.retired_at) return s;
           const prev = s.agents.find((x) => x.id === e.agent.id);
-          const agent = { status: "idle", ...prev, ...e.agent } as Agent;
-          return { ...s, agents: upsert(s.agents, agent) };
+          const agent = { status: "idle", skills: [], ...prev, ...e.agent } as Agent;
+          // Keep each replica right after its base agent.
+          const order = (a: Agent) => {
+            const base = a.base_agent_id ? s.agents.find((x) => x.id === a.base_agent_id) ?? a : a;
+            return `${base.created_at}|${a.base_agent_id ? String(a.replica_no ?? 0).padStart(3, "0") : "000"}`;
+          };
+          return { ...s, retired: s.retired.filter((r) => r.id !== agent.id), agents: upsert(s.agents, agent).sort((x, y) => order(x).localeCompare(order(y))) };
         }
         case "agent.skills":
           return { ...s, agents: s.agents.map((x) => (x.id === e.agentId ? { ...x, skills: e.skills } : x)) };
@@ -88,6 +95,14 @@ function reducer(s: State, a: Action): State {
           return { ...s, groups: upsert(s.groups, e.group) };
         case "group.deleted":
           return { ...s, groups: s.groups.filter((g) => g.id !== e.id) };
+        case "agent.retired": {
+          const gone = s.agents.find((x) => x.id === e.agentId);
+          return {
+            ...s,
+            agents: s.agents.filter((x) => x.id !== e.agentId),
+            retired: gone ? [...s.retired, { id: gone.id, name: gone.name, color: gone.color, base_agent_id: gone.base_agent_id ?? null }] : s.retired,
+          };
+        }
         case "agent.deleted":
           return {
             ...s,
@@ -131,6 +146,7 @@ function reducer(s: State, a: Action): State {
 }
 
 type Store = State & {
+  everyone: Agent[];
   loadThread: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -139,14 +155,14 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0,
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0,
   });
   const openThreads = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     const [s, k, t, r] = await Promise.all([api.state(), api.skills(), api.tasks(), api.routines()]);
     dispatch({ type: "routines", routines: r });
-    dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups, paused: s.paused, display: s.display });
+    dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups, paused: s.paused, display: s.display, retired: s.retired });
     dispatch({ type: "board", tasks: t });
   }, []);
 
@@ -182,7 +198,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [refresh, loadThread]);
 
-  return <Ctx.Provider value={{ ...state, loadThread, refresh }}>{children}</Ctx.Provider>;
+  // Active and retired agents, for naming things in history.
+  const everyone = [...state.agents, ...(state.retired as unknown as Agent[])];
+  return <Ctx.Provider value={{ ...state, everyone, loadThread, refresh }}>{children}</Ctx.Provider>;
 }
 
 export function useStore() {

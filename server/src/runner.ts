@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish, type AgentStatus } from "./bus.ts";
-import { getAgent, homeOf, WORK_ROOT, type Agent } from "./agents.ts";
+import { baseOf, getAgent, homeOf, listAgents, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillsOf } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
 import { afterAgentReply, groupPrompt, isNoReply } from "./groups.ts";
@@ -101,6 +101,12 @@ export function pauseAll(stopRunning: boolean) {
 
 export const runningCount = () => aborts.size;
 
+/** Tasks an agent is running or has queued. */
+export const openTasksOf = (agentId: string) =>
+  all<{ id: string; title: string; status: string }>(
+    `SELECT id, title, status FROM tasks WHERE agent_id = ? AND status IN ('running', 'queued') ORDER BY created_at`, agentId,
+  );
+
 export function stopTask(taskId: string) {
   const t = taskRow(taskId);
   if (!t) throw new Error("No such task");
@@ -124,13 +130,32 @@ function finishTask(taskId: string, f: { status: string; result?: string; error?
 // ---------------------------------------------------------------------------
 // Running one turn.
 
+function scaleNote(agent: Agent) {
+  if (!agent.can_scale) return "";
+  const pools = listAgents().filter((a) => !a.base_agent_id && (a.max_replicas ?? 0) > 0);
+  if (!pools.length) return "";
+  return `
+
+You can scale the team: ${pools.map((p) => `${p.name} (up to ${p.max_replicas} replicas)`).join(", ")}.
+When there's more independent work for one of them than it can take in parallel, spawn replicas
+(\`mcp__team__spawn_replica\`) and delegate one piece of work to each (e.g. one sub-issue per
+replica). \`mcp__team__list_agents\` (with pool="<name>") shows every replica's status and tasks;
+\`mcp__team__find_work\` finds who's on a given issue or branch. When a replica's report
+is in and nothing is queued for it, retire it (\`mcp__team__retire_replica\`); don't leave idle
+replicas running.`;
+}
+
 function systemAppend(agent: Agent) {
   return `
 # agentbox
 
 You are **${agent.name}** (${agent.title}), one agent on a team that shares a single Linux
 computer (the agentbox VM). Your role and job description are in CLAUDE.md in your home
-directory; follow them.
+directory; follow them.${agent.base_agent_id ? `
+
+You are a **replica** of ${baseOf(agent).name}: same job description, skills and memory as
+${baseOf(agent).name} and its other replicas, who may be working in parallel with you. Work only
+in the worktrees for the issues you were given, and say "${agent.name}" when you report.` : ""}${scaleNote(agent)}
 
 ## Your computer
 - Home: ${homeOf(agent)} (yours alone). Shared work area: ${WORK_ROOT} (repos live here; use a
@@ -168,7 +193,8 @@ Hand work to teammates with the team tools, never with Teams, email or GitHub co
   links, acceptance criteria, constraints such as the team's issue rules). Their report comes
   back to you automatically as a new message, often minutes later. Don't wait, sleep or poll for
   it: finish your turn and say what you handed off.
-- \`mcp__team__get_task\`: check a delegated task. \`mcp__team__list_agents\`: who's busy.
+- \`mcp__team__get_task\`: check a delegated task. \`mcp__team__find_work\`: who's on issue #N / a
+  branch. \`mcp__team__list_agents\`: who's busy (pool="coder" for one agent and its replicas).
 - \`mcp__team__send_message\`: an FYI that needs no action.
 - \`mcp__team__schedule_routine\` / \`list_routines\` / \`cancel_routine\`: recurring jobs (e.g. a
   check every 2 hours), when the owner asks for something to happen regularly.
@@ -219,6 +245,9 @@ function classify(name: string, input: any): { kind: string; label: string; summ
   if (name === "mcp__team__send_message") return { kind: "delegate", label: "Message", summary: `→ ${str(input?.to)}: ${first(str(input?.text))}` };
   if (name === "mcp__team__get_task") return { kind: "meta", label: "Check task", summary: str(input?.task_id) };
   if (name === "mcp__team__schedule_routine") return { kind: "routine", label: "Schedule", summary: `${str(input?.name)} · ${str(input?.cron)}` };
+  if (name === "mcp__team__spawn_replica") return { kind: "agent", label: "Spawn", summary: `replica of ${str(input?.of)}` };
+  if (name === "mcp__team__retire_replica") return { kind: "agent", label: "Retire", summary: str(input?.name) };
+  if (name === "mcp__team__find_work") return { kind: "meta", label: "Find work", summary: str(input?.query) };
   if (name === "mcp__team__list_agents") return { kind: "meta", label: "Team", summary: "list agents" };
   return { kind: "tool", label: name, summary: first(JSON.stringify(input ?? {})) };
 }

@@ -20,7 +20,7 @@ export function Team() {
                 <Avatar name={a.name} color={a.color} size={32} />
                 <div style={{ minWidth: 0 }}>
                   <strong>{a.name}</strong>
-                  <div className="sub">{a.title}</div>
+                  <div className="sub">{a.base_agent_id ? `Replica of ${agents.find((x) => x.id === a.base_agent_id)?.name ?? "?"}` : a.title}</div>
                 </div>
               </div>
               <div className="sub">{a.summary}</div>

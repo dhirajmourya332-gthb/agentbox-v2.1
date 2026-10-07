@@ -159,4 +159,5 @@ better-sqlite3 + Drizzle, croner, zod. UI: React + Vite (static, served by Fasti
 | 4 ✓ | Groups | Create group, pick members and lead; @mentions bring members in, unaddressed messages go to the lead; agents pass turns by @mention; per-agent read tracking; NO_REPLY; pause after 12 agent turns with Continue |
 | 5 ✓ | Routines | Cron routines per agent (presets, timezone, next-run preview, ≥15 min apart); fresh session per run with memory carrying state; overlapping and rate-limited runs skipped with the reason logged; Run now; agents can schedule routines themselves |
 | 6 ✓ | Visibility & control | Activity feed; delegation graph; live screen preview on every page; shared-screen lock enforced on browser/GUI tool calls with Take control; Pause all |
+| + ✓ | Replicas | coder#1, coder#2… share the base agent's instructions, skills and memory and run in parallel; spawned/retired by the owner or agents allowed to scale (tech-lead); per-agent cap; find_work and list_agents(pool) for cheap lookups |
 | later | | Approval gate, MS Graph MCP for Teams, per-agent GitHub identities |

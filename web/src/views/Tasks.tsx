@@ -19,11 +19,11 @@ function Who({ agent }: { agent?: Agent }) {
 }
 
 export function TaskBoard({ selected }: { selected?: string }) {
-  const { board, agents, loaded } = useStore();
+  const { board, agents, everyone, loaded } = useStore();
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [showReports, setShowReports] = useState(false);
   const [view, setView] = useState<"board" | "graph">("board");
-  const byId = (id: string | null) => agents.find((a) => a.id === id);
+  const byId = (id: string | null) => everyone.find((a) => a.id === id);
 
   const tasks = useMemo(
     () => Object.values(board)
@@ -95,7 +95,7 @@ export function TaskBoard({ selected }: { selected?: string }) {
 }
 
 function TaskDetail({ id }: { id: string }) {
-  const { agents, board } = useStore();
+  const { agents, everyone, board } = useStore();
   const [data, setData] = useState<{ task: Task; tree: Task[]; steps: Step[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const live = board[id];
@@ -103,7 +103,7 @@ function TaskDetail({ id }: { id: string }) {
     api.task(id).then(setData).catch((e) => setError(e.message));
   }, [id, live?.status]);
 
-  const byId = (aid: string | null) => agents.find((a) => a.id === aid);
+  const byId = (aid: string | null) => everyone.find((a) => a.id === aid);
   if (error) return <aside className="panel"><div className="panel-body"><div className="error-box">{error}</div></div></aside>;
   if (!data) return <aside className="panel" />;
   const { task, tree, steps } = data;
@@ -165,9 +165,9 @@ function TaskDetail({ id }: { id: string }) {
 }
 
 function TreeNode({ task, tree, current }: { task: Task; tree: Task[]; current: string }) {
-  const { agents } = useStore();
+  const { agents, everyone } = useStore();
   const kids = tree.filter((t) => t.parent_task_id === task.id);
-  const agent = agents.find((a) => a.id === task.agent_id);
+  const agent = everyone.find((a) => a.id === task.agent_id);
   const state = task.status === "done" ? "✓" : task.status === "running" ? "…" : task.status === "queued" ? "○" : "✕";
   return (
     <li>
@@ -192,7 +192,7 @@ const WINDOWS = [
 
 /** Who hands work to whom: you, routines and agents as nodes; edge width is the number of tasks. */
 function DelegationGraph({ onPick }: { onPick: (agentId: string) => void }) {
-  const { agents, activityVersion } = useStore();
+  const { agents, everyone, activityVersion } = useStore();
   const [win, setWin] = useState("7d");
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   useEffect(() => {
@@ -208,8 +208,8 @@ function DelegationGraph({ onPick }: { onPick: (agentId: string) => void }) {
     const ang = -Math.PI / 2 + (2 * Math.PI * i) / ids.length;
     return [id, { x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) }];
   }));
-  const label = (id: string) => (id === "user" ? "You" : id === "routine" ? "Routines" : agents.find((a) => a.id === id)?.name ?? "?");
-  const color = (id: string) => (id === "user" ? "var(--line-strong)" : id === "routine" ? "var(--line-strong)" : agents.find((a) => a.id === id)?.color ?? "var(--muted)");
+  const label = (id: string) => (id === "user" ? "You" : id === "routine" ? "Routines" : everyone.find((a) => a.id === id)?.name ?? "?");
+  const color = (id: string) => (id === "user" ? "var(--line-strong)" : id === "routine" ? "var(--line-strong)" : everyone.find((a) => a.id === id)?.color ?? "var(--muted)");
   const max = Math.max(1, ...edges.map((e) => e.n));
   const visible = edges.filter((e) => pos.has(e.from) && pos.has(e.to) && e.from !== e.to);
 

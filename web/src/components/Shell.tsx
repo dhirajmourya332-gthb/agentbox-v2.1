@@ -61,7 +61,7 @@ function VmChip() {
   );
 }
 
-function RailLink({ to, current, icon, children }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode }) {
+function RailLink({ to, current, icon, children, replica }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode; replica?: boolean }) {
   const skillsArea = ["skills", "skill", "new-skill", "draft"];
   const active = to.name === "routines"
     ? ["routines", "routine", "new-routine"].includes(current.name)
@@ -71,7 +71,7 @@ function RailLink({ to, current, icon, children }: { to: Route; current: Route; 
     ? skillsArea.includes(current.name)
     : to.name === current.name && (to.name !== "agent" || (current.name === "agent" && current.id === to.id));
   return (
-    <a className="item" href={href(to)} aria-current={active ? "page" : undefined}>
+    <a className={replica ? "item replica" : "item"} href={href(to)} aria-current={active ? "page" : undefined}>
       {icon}
       {children}
     </a>
@@ -108,8 +108,10 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           <a className="icon-btn" href="#/agents/new" aria-label="New agent" title="New agent"><Icon name="plus" /></a>
         </div>
         {agents.map((a) => (
-          <RailLink key={a.id} to={{ name: "agent", id: a.id }} current={route}
-            icon={<Avatar name={a.name} color={a.color} size={20} />}>
+          <RailLink key={a.id} to={{ name: "agent", id: a.id }} current={route} replica={!!a.base_agent_id}
+            icon={a.base_agent_id
+              ? <span className="replica-mark" style={{ borderColor: a.color }}>{a.replica_no}</span>
+              : <Avatar name={a.name} color={a.color} size={20} />}>
             <span className="grow">{a.name}</span>
             <StatusGlyph status={a.status} />
           </RailLink>

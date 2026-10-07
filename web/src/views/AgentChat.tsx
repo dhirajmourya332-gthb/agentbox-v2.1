@@ -11,8 +11,8 @@ const STARTERS = [
 ];
 
 export function AgentChat({ agentId, threadParam }: { agentId: string; threadParam?: string }) {
-  const { agents, threads, live, loadThread, threadsVersion } = useStore();
-  const agent = agents.find((a) => a.id === agentId);
+  const { agents, everyone, threads, live, loadThread, threadsVersion } = useStore();
+  const agent = everyone.find((a) => a.id === agentId);
   const [threadList, setThreadList] = useState<Thread[]>([]);
   useEffect(() => {
     api.agentThreads(agentId).then(setThreadList).catch(() => {});
@@ -72,11 +72,11 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
 }
 
 function ThreadTabs({ agent, threads, current }: { agent: Agent; threads: Thread[]; current?: string }) {
-  const { agents } = useStore();
+  const { agents, everyone } = useStore();
   return (
     <nav className="tabs thread-tabs" aria-label="Conversations">
       {threads.map((t) => {
-        const peer = agents.find((a) => a.id === t.peer_agent_id);
+        const peer = everyone.find((a) => a.id === t.peer_agent_id);
         const label = t.kind === "dm" ? "You" : t.kind === "routine" ? (t.name ?? "Routine") : `From ${peer?.name ?? "deleted agent"}`;
         return (
           <a key={t.id} role="tab" aria-selected={t.id === current}
@@ -153,7 +153,7 @@ function Timeline({ agent, thread, live }: {
 const SOURCE_LABEL: Record<string, string> = { agent: "handed off a task", message: "sent a message", result: "reported back" };
 
 function Input({ message, task }: { message: Message; task?: Task }) {
-  const { agents } = useStore();
+  const { agents, everyone } = useStore();
   const [open, setOpen] = useState(task?.source !== "result");
   if (message.author === "user") {
     return (
@@ -181,7 +181,7 @@ function Input({ message, task }: { message: Message; task?: Task }) {
       </div>
     );
   }
-  const from = agents.find((a) => a.id === message.author);
+  const from = everyone.find((a) => a.id === message.author);
   return (
     <div className="msg">
       {from ? <Avatar name={from.name} color={from.color} size={28} /> : <span className="avatar you-avatar" style={{ width: 28, height: 28 }} />}

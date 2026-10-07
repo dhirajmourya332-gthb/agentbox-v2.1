@@ -33,7 +33,7 @@ function Actor({ id, agents }: { id: string; agents: Agent[] }) {
 }
 
 export function Activity() {
-  const { agents, activityVersion } = useStore();
+  const { agents, everyone, activityVersion } = useStore();
   const [items, setItems] = useState<ActivityItem[] | null>(null);
   const [agent, setAgent] = useState("all");
   const [type, setType] = useState("all");
@@ -47,7 +47,7 @@ export function Activity() {
     return () => clearTimeout(t);
   }, [agent, activityVersion]);
 
-  const nameOf = (id: string | null) => (id === "user" ? "You" : agents.find((a) => a.id === id)?.name ?? "deleted agent");
+  const nameOf = (id: string | null) => (id === "user" ? "You" : everyone.find((a) => a.id === id)?.name ?? "deleted agent");
   const shown = useMemo(() => {
     const kinds = TYPES.find((t) => t.key === type)?.kinds;
     return (items ?? []).filter((i) => !kinds || kinds.includes(i.kind));
@@ -90,7 +90,7 @@ export function Activity() {
                 {header && <h2 className="feed-day">{header}</h2>}
                 <a className="feed-row" href={href}>
                   <time dateTime={i.ts}>{new Date(i.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
-                  <Actor id={i.kind === "delegated" || i.kind === "message" || i.kind === "asked" || i.kind === "routine" ? i.actor : i.agent_id ?? "user"} agents={agents} />
+                  <Actor id={i.kind === "delegated" || i.kind === "message" || i.kind === "asked" || i.kind === "routine" ? i.actor : i.agent_id ?? "user"} agents={everyone} />
                   <span className={`feed-kind ${TONE[i.kind] ?? ""}`}>{i.kind === "github" ? <Icon name="tool" size={12} /> : null}{i.kind}</span>
                   <span className="feed-text">
                     <span>{sentence}</span>

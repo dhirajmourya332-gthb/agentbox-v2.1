@@ -2,9 +2,9 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
-import { listAgents, type Agent } from "./agents.ts";
+import { getAgent, listAgents, retireReplica, spawnReplica, type Agent } from "./agents.ts";
 import { proposeSkill, skillsOf } from "./skills.ts";
-import { agentStatus, enqueueTask, taskRow } from "./runner.ts";
+import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 
 /**
@@ -19,7 +19,9 @@ const refuse = (t: string) => ({ content: [{ type: "text" as const, text: t }], 
 
 export function findAgent(nameOrSlug: string): Agent | undefined {
   const k = nameOrSlug.trim().toLowerCase().replace(/^@/, "");
-  return listAgents().find((a) => a.slug === k || a.name.toLowerCase() === k);
+  // "coder#2", "coder-2" and "coder 2" all name the same replica.
+  const alt = k.replace(/[#\s]+/g, "-");
+  return listAgents().find((a) => a.slug === k || a.name.toLowerCase() === k || a.slug === alt);
 }
 
 /** The thread where `to` works on what `from` hands it; one per pair, kept for context. */
@@ -126,13 +128,91 @@ export function teamServer(agent: Agent, taskId: string) {
     version: "1.0.0",
     instructions: "agentbox team tools: how agents on this team hand work to each other.",
     tools: [
-      tool("list_agents", "List your teammates: name, role, what they do, skills, and whether they're busy.", {}, async () => {
-        const rows = listAgents().filter((a) => a.id !== agent.id).map((a) => {
-          const queued = (get<{ n: number }>(`SELECT COUNT(*) AS n FROM tasks WHERE agent_id = ? AND status = 'queued'`, a.id)?.n ?? 0) as number;
-          return `- ${a.name} — ${a.title}: ${a.summary} [${agentStatus(a.id).status}${queued ? `, ${queued} queued` : ""}] skills: ${skillsOf(a.id).join(", ") || "none"}`;
+      tool(
+        "list_agents",
+        "List your teammates (including replicas such as coder#2): role, status, what each is working on and has queued, skills. Pass pool to list just one agent and its replicas.",
+        { pool: z.string().optional().describe("e.g. coder → coder and coder#1, coder#2…") },
+        async ({ pool }) => {
+        const base = pool ? findAgent(pool) : undefined;
+        if (pool && !base) return refuse(`No teammate called "${pool}".`);
+        const baseId = base ? base.base_agent_id ?? base.id : undefined;
+        const rows = listAgents()
+          .filter((a) => a.id !== agent.id)
+          .filter((a) => !baseId || a.id === baseId || a.base_agent_id === baseId)
+          .map((a) => {
+          const open = openTasksOf(a.id);
+          const running = open.find((t) => t.status === "running");
+          const queued = open.filter((t) => t.status === "queued");
+          const kind = a.base_agent_id ? ` (replica of ${getAgent(a.base_agent_id)?.name})` : a.max_replicas ? ` (up to ${a.max_replicas} replicas)` : "";
+          return `- ${a.name}${kind} — ${a.title}: ${agentStatus(a.id).status}` +
+            (running ? `; working on "${running.title}" (${running.id})` : "") +
+            (queued.length ? `; queued: ${queued.map((t) => `"${t.title}"`).join(", ")}` : "") +
+            (a.base_agent_id ? "" : `. ${a.summary} Skills: ${skillsOf(a.id).join(", ") || "none"}`);
         });
-        return text(rows.length ? rows.join("\n") : "You have no teammates yet.");
+        return text(rows.length ? rows.join("\n") : "No matching teammates.");
       }),
+
+      tool(
+        "find_work",
+        "Find who is working (or worked) on something: search tasks by issue number (e.g. 124 or #124), branch name or keyword. Cheaper than listing everyone.",
+        {
+          query: z.string().describe("Issue number, branch name or words from the task, e.g. '#124' or 'epic/2958'"),
+          open_only: z.boolean().optional().describe("Only running or queued tasks (default false)"),
+        },
+        async ({ query, open_only }) => {
+          // "issue #902", "#902", "fix/902-cron" → match the number 902; otherwise the text itself.
+          const q = query.match(/#?(\d{2,})/)?.[1] ?? query.trim();
+          if (!q) return refuse("Give an issue number, branch or keyword.");
+          // Match "#124" / "124" as a whole number, anything else as a substring.
+          const like = `%${q}%`;
+          const rows = all(
+            `SELECT id, agent_id, title, prompt, status, created_at, finished_at FROM tasks
+             WHERE source IN ('user', 'agent', 'cron', 'group') AND (title LIKE ? OR prompt LIKE ?) AND id != ?
+             ${open_only ? "AND status IN ('running', 'queued')" : ""}
+             ORDER BY created_at DESC LIMIT 40`,
+            like, like, taskId,
+          ).filter((t: any) => !/^\d+$/.test(q) || new RegExp(`(^|[^\\d])#?${q}([^\\d]|$)`).test(`${t.title} ${t.prompt}`))
+            .slice(0, 10);
+          if (!rows.length) return text(`No tasks mention "${query}".`);
+          return text(rows.map((t: any) => {
+            const who = getAgent(t.agent_id);
+            return `- ${who?.name ?? "deleted"}${who?.retired_at ? " (retired)" : ""}: "${t.title}" — ${t.status}, ${t.finished_at ? `finished ${t.finished_at}` : `since ${t.created_at}`} (task ${t.id})`;
+          }).join("\n"));
+        },
+      ),
+
+      tool(
+        "spawn_replica",
+        "Start a replica of a teammate (e.g. coder → coder#2) to take work in parallel. It shares their job description, skills and memory. Delegate to it by its name. Only for agents the owner allows to scale the team.",
+        { of: z.string().describe("Base agent's name, e.g. coder") },
+        async ({ of }) => {
+          if (!agent.can_scale) return refuse("You're not allowed to spawn replicas; ask the owner.");
+          const base = findAgent(of);
+          if (!base) return refuse(`No teammate called "${of}".`);
+          try {
+            const r = spawnReplica(base.id);
+            return text(`Started ${r.name}. Delegate to it with to="${r.name}".`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        },
+      ),
+
+      tool(
+        "retire_replica",
+        "Retire a replica whose work is done (its report is in and nothing is queued). Its history stays readable.",
+        { name: z.string().describe("e.g. coder#2") },
+        async ({ name }) => {
+          if (!agent.can_scale) return refuse("You're not allowed to retire replicas; ask the owner.");
+          const r = findAgent(name);
+          if (!r) return refuse(`No active agent called "${name}".`);
+          if (!r.base_agent_id) return refuse(`${r.name} isn't a replica.`);
+          const open = openTasksOf(r.id);
+          if (open.length) return refuse(`${r.name} still has ${open.length} task(s) running or queued ("${open[0].title}"). Wait for its report first.`);
+          retireReplica(r.id);
+          return text(`Retired ${r.name}.`);
+        },
+      ),
 
       tool(
         "delegate_task",
@@ -230,5 +310,9 @@ export function teamServer(agent: Agent, taskId: string) {
 
 export function rosterFor(agent: Agent) {
   const others = listAgents().filter((a) => a.id !== agent.id);
-  return others.length ? others.map((a) => `- **${a.name}** (${a.title}): ${a.summary}`).join("\n") : "- (no teammates yet)";
+  return others.length
+    ? others.map((a) => a.base_agent_id
+        ? `- **${a.name}**: replica of ${getAgent(a.base_agent_id)?.name} (same job; takes work in parallel)`
+        : `- **${a.name}** (${a.title}): ${a.summary}`).join("\n")
+    : "- (no teammates yet)";
 }

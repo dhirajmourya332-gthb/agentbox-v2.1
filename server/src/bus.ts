@@ -5,6 +5,7 @@ import { now, run } from "./db.ts";
 export type BusEvent =
   | { type: "agent.created" | "agent.updated"; agent: any }
   | { type: "agent.deleted"; agentId: string }
+  | { type: "agent.retired"; agentId: string }
   | { type: "agent.status"; agentId: string; status: AgentStatus; taskId?: string }
   | { type: "task.updated"; task: any }
   | { type: "message.created"; message: any }

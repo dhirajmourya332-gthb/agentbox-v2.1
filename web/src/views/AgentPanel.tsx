@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Agent } from "../api.ts";
-import { Icon, Markdown, relTime } from "../components/ui.tsx";
+import { Avatar, Icon, Markdown, StatusGlyph, relTime } from "../components/ui.tsx";
 import { go } from "../router.ts";
 import { useStore } from "../store.tsx";
 
@@ -39,24 +39,34 @@ export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => vo
 }
 
 function Overview({ agent }: { agent: Agent }) {
+  const { everyone } = useStore();
   const [confirmReset, setConfirmReset] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const base = agent.base_agent_id ? everyone.find((a) => a.id === agent.base_agent_id) : undefined;
   return (
     <>
+      {base && (
+        <div className="replica-note">
+          Replica #{agent.replica_no} of <a href={`#/agents/${base.id}`}>{base.name}</a>. It shares {base.name}'s instructions,
+          skills and memory, and takes work in parallel.
+        </div>
+      )}
       <p>{agent.summary}</p>
       <dl className="kv">
         <dt>Role</dt><dd>{agent.title}</dd>
         <dt>Model</dt>
         <dd>
-          <select className="text" style={{ padding: "4px 8px" }} value={agent.model} aria-label="Model"
-            onChange={(e) => api.updateAgent(agent.id, { model: e.target.value })}>
-            <option value="opus">Opus</option>
-            <option value="sonnet">Sonnet</option>
-            <option value="haiku">Haiku</option>
-          </select>
+          {base ? <>{agent.model} <span className="hint">(follows {base.name})</span></> : (
+            <select className="text" style={{ padding: "4px 8px" }} value={agent.model} aria-label="Model"
+              onChange={(e) => api.updateAgent(agent.id, { model: e.target.value })}>
+              <option value="opus">Opus</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
+            </select>
+          )}
         </dd>
         <dt>Max turns</dt><dd>{agent.max_turns} tool rounds per task</dd>
-        <dt>Home</dt><dd className="mono">/agents/{agent.slug}</dd>
+        <dt>Home</dt><dd className="mono">/agents/{base?.slug ?? agent.slug}</dd>
         <dt>Created</dt><dd>{relTime(agent.created_at)}</dd>
       </dl>
       <div className="field">
@@ -79,8 +89,85 @@ function Overview({ agent }: { agent: Agent }) {
         )}
         {note && <span className="hint">{note}</span>}
       </div>
-      <DeleteAgent agent={agent} />
+      {!base && <Replicas agent={agent} />}
+      {!base && <ScaleSwitch agent={agent} />}
+      {base ? <RetireReplica agent={agent} /> : <DeleteAgent agent={agent} />}
     </>
+  );
+}
+
+function Replicas({ agent }: { agent: Agent }) {
+  const { agents, board } = useStore();
+  const [error, setError] = useState<string | null>(null);
+  const replicas = agents.filter((a) => a.base_agent_id === agent.id);
+  const max = agent.max_replicas ?? 0;
+  const current = (id: string) => Object.values(board).find((t) => t.agent_id === id && t.status === "running");
+  return (
+    <div className="field">
+      <span style={{ fontWeight: 500 }}>Replicas</span>
+      <span className="hint">
+        Extra copies of {agent.name} ({agent.name}#1, #2…) that take work in parallel. They share its instructions, skills and
+        memory. Each running replica uses VM memory and your Claude plan.
+      </span>
+      <label className="hint" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        At most
+        <select className="text" style={{ width: "auto", padding: "2px 6px" }} value={max} aria-label="Maximum replicas"
+          onChange={(e) => api.updateAgent(agent.id, { max_replicas: Number(e.target.value) }).catch((er) => setError(er.message))}>
+          {[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        at a time{max === 0 && " (replicas off)"}
+      </label>
+      {replicas.length > 0 && (
+        <div className="rows">
+          {replicas.map((r) => {
+            const t = current(r.id);
+            return (
+              <div key={r.id} className="row" style={{ fontSize: 13, gap: 8 }}>
+                <StatusGlyph status={r.status} />
+                <a href={`#/agents/${r.id}`} style={{ minWidth: 70 }}>{r.name}</a>
+                <span className="hint" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {t ? t.title : "idle"}
+                </span>
+                <button className="btn sm ghost" disabled={r.status === "working"} title={r.status === "working" ? "Busy: wait or stop its task first" : "Retire"}
+                  onClick={() => api.retireReplica(r.id).catch((er) => setError(er.message))}>Retire</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <button className="btn sm" style={{ alignSelf: "flex-start" }} disabled={replicas.length >= max}
+        onClick={() => { setError(null); api.spawnReplica(agent.id).catch((er) => setError(er.message)); }}>
+        <Icon name="plus" size={14} />Add replica
+      </button>
+      {error && <div className="error-box">{error}</div>}
+    </div>
+  );
+}
+
+function ScaleSwitch({ agent }: { agent: Agent }) {
+  return (
+    <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+      <input type="checkbox" checked={!!agent.can_scale} style={{ marginTop: 3 }}
+        onChange={(e) => api.updateAgent(agent.id, { can_scale: e.target.checked })} />
+      <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontWeight: 500 }}>Can scale the team</span>
+        <span className="hint">{agent.name} may spawn and retire replicas of agents that allow them (within their limits).</span>
+      </span>
+    </label>
+  );
+}
+
+function RetireReplica({ agent }: { agent: Agent }) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="field" style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+      <span className="hint">Retiring removes {agent.name} from the team. Its conversations and tasks stay in the history.</span>
+      <button className="btn sm danger" style={{ alignSelf: "flex-start" }} disabled={agent.status === "working"}
+        onClick={async () => {
+          try { await api.retireReplica(agent.id); go({ name: "agent", id: agent.base_agent_id! }); } catch (e: any) { setError(e.message); }
+        }}>Retire {agent.name}</button>
+      {error && <div className="error-box">{error}</div>}
+    </div>
   );
 }
 
@@ -123,8 +210,16 @@ function Instructions({ agent, text, onSaved }: { agent: Agent; text: string; on
     return (
       <>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <span className="hint" style={{ marginRight: "auto" }}>Read by {agent.name} at the start of every task.</span>
-          <button className="btn sm" onClick={() => setEditing(true)}>Edit</button>
+          {agent.base_agent_id ? (
+            <span className="hint" style={{ marginRight: "auto" }}>
+              Shared with its base agent; edit them on <a href={`#/agents/${agent.base_agent_id}`}>the base agent</a>.
+            </span>
+          ) : (
+            <>
+              <span className="hint" style={{ marginRight: "auto" }}>Read by {agent.name}{(agent.max_replicas ?? 0) > 0 && " and its replicas"} at the start of every task.</span>
+              <button className="btn sm" onClick={() => setEditing(true)}>Edit</button>
+            </>
+          )}
         </div>
         <Markdown text={text} />
       </>
@@ -153,6 +248,14 @@ function Instructions({ agent, text, onSaved }: { agent: Agent; text: string; on
 function AgentSkills({ agent }: { agent: Agent }) {
   const { skills } = useStore();
   const [error, setError] = useState<string | null>(null);
+  if (agent.base_agent_id) {
+    return (
+      <>
+        <span className="hint">Replicas use their base agent's skills: <a href={`#/agents/${agent.base_agent_id}`}>change them there</a>.</span>
+        <div className="rows">{agent.skills.map((n) => <div key={n} className="row"><span className="mono">{n}</span></div>)}</div>
+      </>
+    );
+  }
   const toggle = async (name: string) => {
     setError(null);
     const next = agent.skills.includes(name) ? agent.skills.filter((s) => s !== name) : [...agent.skills, name];

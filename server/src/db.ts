@@ -145,6 +145,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS thread_members (
   agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   PRIMARY KEY (thread_id, agent_id)
 )`);
+// Replicas: extra copies of an agent (coder#1, coder#2…) sharing its home, instructions,
+// skills and memory, each with its own queue and conversations.
+for (const [col, type] of [
+  ["base_agent_id", "TEXT REFERENCES agents(id) ON DELETE CASCADE"],
+  ["replica_no", "INTEGER"],
+  ["home_slug", "TEXT"],
+  ["retired_at", "TEXT"],
+  ["max_replicas", "INTEGER NOT NULL DEFAULT 0"],
+  ["can_scale", "INTEGER NOT NULL DEFAULT 0"],
+] as const) {
+  if (!columns("agents").includes(col)) db.exec(`ALTER TABLE agents ADD COLUMN ${col} ${type}`);
+}
 db.exec(`CREATE TABLE IF NOT EXISTS group_reads (
   thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
   agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,

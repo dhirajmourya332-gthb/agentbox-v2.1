@@ -69,8 +69,12 @@ function listFiles(dir: string, base = dir): string[] {
 
 const assignedTo = (name: string) =>
   all<{ agent_id: string }>(`SELECT agent_id FROM agent_skills WHERE skill = ?`, name).map((r) => r.agent_id);
+/** A replica uses its base agent's skills. */
 export const skillsOf = (agentId: string) =>
-  all<{ skill: string }>(`SELECT skill FROM agent_skills WHERE agent_id = ? ORDER BY skill`, agentId)
+  all<{ skill: string }>(
+    `SELECT skill FROM agent_skills WHERE agent_id = COALESCE((SELECT base_agent_id FROM agents WHERE id = ?), ?) ORDER BY skill`,
+    agentId, agentId,
+  )
     .map((r) => r.skill)
     .filter((s) => fs.existsSync(skillFile(s)));
 
@@ -136,6 +140,7 @@ export function syncLinks(agent: Agent) {
 export function setAgentSkills(agentId: string, names: string[]) {
   const agent = getAgent(agentId);
   if (!agent) throw new Error("No such agent");
+  if (agent.base_agent_id) throw new Error("Replicas use their base agent's skills; change those instead");
   for (const n of names) if (!getSkill(n)) throw new Error(`No skill called "${n}"`);
   run(`DELETE FROM agent_skills WHERE agent_id = ?`, agentId);
   for (const n of new Set(names)) run(`INSERT INTO agent_skills (agent_id, skill) VALUES (?, ?)`, agentId, n);

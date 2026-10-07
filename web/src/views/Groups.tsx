@@ -20,7 +20,7 @@ function mentioned(text: string, members: Agent[]) {
 // ---------------------------------------------------------------------------
 
 export function GroupChat({ id }: { id: string }) {
-  const { groups, agents, threads, live, loadThread } = useStore();
+  const { groups, agents, everyone, threads, live, loadThread } = useStore();
   const group = groups.find((g) => g.id === id);
   const thread = threads[id];
   useEffect(() => {
@@ -28,8 +28,8 @@ export function GroupChat({ id }: { id: string }) {
   }, [id, loadThread]);
 
   if (!group) return <div className="page"><div className="page-inner"><p className="lede">No such group.</p></div></div>;
-  const members = group.members.map((m) => agents.find((a) => a.id === m)).filter(Boolean) as Agent[];
-  const lead = agents.find((a) => a.id === group.lead_agent_id) ?? members[0];
+  const members = group.members.map((m) => everyone.find((a) => a.id === m)).filter(Boolean) as Agent[];
+  const lead = everyone.find((a) => a.id === group.lead_agent_id) ?? members[0];
   const running = thread?.tasks.filter((t) => t.status === "running") ?? [];
 
   return (
@@ -76,7 +76,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
   group: Group; members: Agent[]; lead?: Agent;
   data: { messages: Message[]; tasks: Task[]; steps: Step[] }; live: Record<string, string>;
 }) {
-  const { agents } = useStore();
+  const { agents, everyone } = useStore();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const tasks = useMemo(() => new Map(data.tasks.map((t) => [t.id, t])), [data.tasks]);
@@ -115,7 +115,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
               </div>
             );
           }
-          const a = agents.find((x) => x.id === m.author);
+          const a = everyone.find((x) => x.id === m.author);
           const task = m.task_id ? tasks.get(m.task_id) : undefined;
           return (
             <div key={m.id} className="msg">
@@ -134,7 +134,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
           );
         })}
         {pending.map((t) => {
-          const a = agents.find((x) => x.id === t.agent_id);
+          const a = everyone.find((x) => x.id === t.agent_id);
           if (!a) return null;
           if (t.status === "queued") {
             return <p key={t.id} className="system-note"><Avatar name={a.name} color={a.color} size={16} /> {a.name} is up next</p>;
@@ -230,7 +230,7 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
 // ---------------------------------------------------------------------------
 
 export function GroupEditor({ id }: { id?: string }) {
-  const { groups, agents } = useStore();
+  const { groups, agents, everyone } = useStore();
   const existing = id ? groups.find((g) => g.id === id) : undefined;
   const [form, setForm] = useState({
     name: existing?.name ?? "", purpose: existing?.purpose ?? "",
@@ -281,7 +281,7 @@ export function GroupEditor({ id }: { id?: string }) {
             <span style={{ fontWeight: 500 }} id="g-lead">Lead</span>
             <div className="choices" role="radiogroup" aria-labelledby="g-lead">
               {form.members.map((mid) => {
-                const a = agents.find((x) => x.id === mid);
+                const a = everyone.find((x) => x.id === mid);
                 if (!a) return null;
                 return (
                   <button key={a.id} className="pill" role="radio" aria-checked={lead === a.id} aria-pressed={lead === a.id}
