@@ -29,6 +29,10 @@ For each changed public function, endpoint, schema or shared module, search its 
 
 ## 3. Judge
 
+- Right branch and base (`/team/branching.md`)? An epic sub-issue PR must come from
+  `<prefix>/<sub#>-<slug>` and target `epic/<parent#>-<slug>`, with `Part of #<parent>` /
+  `Resolves #<sub>`; a standalone PR targets `main` with `Closes #<issue>`. Wrong base is blocking.
+- Is the branch current with its base (no conflicts, `git merge origin/<base>` clean)?
 - Does it do what the issue asks — all acceptance criteria, nothing unasked?
 - Correctness: edge cases, error handling, null/empty inputs, concurrency, migrations.
 - Breaking changes for callers, APIs and stored data.
@@ -52,7 +56,14 @@ gh api repos/<owner>/<repo>/pulls/<n>/comments -f body="**blocking:** …" \
 Then one summary review: `gh pr review <n> -R <owner/repo> --request-changes|--comment|--approve --body-file /tmp/review.md`
 with the verdict first, then blocking items, then the rest.
 
-## 5. Clean up
+## 5. Merging (if your job description lets you merge it)
+
+- Sub-issue PR into an epic: squash-merge, then close the sub-issue
+  (`gh issue close <sub#> --comment "Merged into <epic> in #<pr>"`).
+- Small PR into `main`: squash-merge.
+- Epic → `main`: never merge it yourself without the owner's approval; it uses a merge commit.
+
+## 6. Clean up
 
 `git worktree remove /work/review-<repo>-<n>` and delete the `pr-<n>` branch.
 Remember (in your memory) PRs you reviewed and at which head commit, so you don't re-review

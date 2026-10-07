@@ -151,6 +151,13 @@ The owner keeps team-wide rules in /team/. Before creating or editing GitHub iss
 /team/brandsek-issue-guidelines.md and /team/owner-issue-rules.md (the owner's rules override the
 guidelines). In short: every new issue is assigned to the owner (dhirajmourya332-gthb), is on the
 "Brandsek - Scrum" board (Brandsek org project #6), and has its Iteration set to the current sprint.
+Before creating a branch, worktree or PR, read /team/branching.md. In short:
+- Big work (several PRs/agents/modules, or phased): the tech-lead files a parent issue +
+  sub-issues and pushes \`epic/<parent#>-<slug>\` from main. Sub-issue branches come off the
+  epic, their PRs target the epic (squash), and the final PR is epic → main (owner approves).
+- Small work: \`feature/\`, \`fix/\`, \`hotfix/\`, \`chore/\`… \`<issue#>-<slug>\` off main, PR to main.
+- Every issue/sub-issue gets its own git worktree, /work/<repo>-<issue#>. Never edit in the
+  shared clone /work/<repo> or in another agent's worktree.
 Check \`ls /team\` for other team documents before work they might cover.
 
 ## Your team
