@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, type CoreQuestion, type Draft, type FollowUp, type Template } from "../api.ts";
+import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
 import { Icon, Markdown, Spinner } from "../components/ui.tsx";
 
@@ -14,6 +15,13 @@ type Stage =
 const PHASES = ["Role", "Basics", "Follow-ups", "Review"];
 const phaseOf = (s: Stage) =>
   s.name === "role" ? 0 : s.name === "core" ? 1 : s.name === "follow" || (s.name === "thinking" && s.what === "follow-ups") ? 2 : 3;
+
+const SUGGESTED_SKILLS: Record<string, string[]> = {
+  "tech-lead": ["file-github-issue", "review-pr"],
+  coder: ["open-pr", "file-github-issue"],
+  tester: ["file-github-issue"],
+  devops: ["file-github-issue"],
+};
 
 const MODEL_NOTES: Record<string, string> = {
   opus: "Best judgement — planning, architecture, reviews. Uses the most of your plan.",
@@ -31,6 +39,7 @@ export function CreateAgent() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [skills, setSkills] = useState<string[]>([]);
 
   useEffect(() => {
     api.interview().then((r) => {
@@ -44,6 +53,7 @@ export function CreateAgent() {
 
   function pickRole(t: Template | null) {
     setRole(t?.id ?? "custom");
+    setSkills(SUGGESTED_SKILLS[t?.id ?? ""] ?? []);
     if (t) setAnswers((a) => ({ ...a, name: text("name") || t.name, job: t.job, done: t.done }));
     setStage({ name: "core", i: 0 });
   }
@@ -85,6 +95,7 @@ export function CreateAgent() {
         model: draft.model,
         instructions: draft.instructions,
         interview: { role, answers, followUps },
+        skills,
       });
       go({ name: "agent", id: agent.id });
     } catch (e: any) {
@@ -173,6 +184,8 @@ export function CreateAgent() {
             setName={(v) => set("name", v)}
             draft={draft}
             setDraft={setDraft}
+            skills={skills}
+            setSkills={setSkills}
             busy={busy}
             onBack={() => setStage(followUps.length ? { name: "follow", i: followUps.length - 1 } : { name: "core", i: questions.length - 1 })}
             onRedraft={makeDraft}
@@ -265,12 +278,15 @@ function Review(props: {
   setName: (v: string) => void;
   draft: Draft;
   setDraft: (d: Draft) => void;
+  skills: string[];
+  setSkills: (s: string[]) => void;
   busy: boolean;
   onBack: () => void;
   onRedraft: () => void;
   onCreate: () => void;
 }) {
   const { draft, setDraft } = props;
+  const library = useStore().skills;
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [suggested] = useState(draft.model);
   const patch = (p: Partial<Draft>) => setDraft({ ...draft, ...p });
@@ -333,6 +349,24 @@ function Review(props: {
           </span>
         )}
       </div>
+
+      {library.length > 0 && (
+        <div className="field">
+          <span style={{ fontWeight: 500 }}>Skills</span>
+          <div className="choices" role="group" aria-label="Skills">
+            {library.map((s) => {
+              const on = props.skills.includes(s.name);
+              return (
+                <button key={s.name} className="pill" aria-pressed={on} title={s.description}
+                  onClick={() => props.setSkills(on ? props.skills.filter((x) => x !== s.name) : [...props.skills, s.name])}>
+                  {on && <Icon name="check" size={14} />}<span className="mono" style={{ fontSize: 12.5 }}>{s.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          <span className="hint">Reusable procedures this agent can follow. Hover a skill to see what it's for; change them any time.</span>
+        </div>
+      )}
 
       <div className="wizard-nav">
         <button className="btn ghost" onClick={props.onBack}><Icon name="back" />Back to answers</button>

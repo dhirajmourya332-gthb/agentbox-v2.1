@@ -12,6 +12,7 @@ import { Team } from "./views/Team.tsx";
 import { CreateAgent } from "./views/CreateAgent.tsx";
 import { AgentChat } from "./views/AgentChat.tsx";
 import { Screen, System, Terminal } from "./views/Computer.tsx";
+import { DraftReview, SkillEditor, SkillsList } from "./views/Skills.tsx";
 
 function App() {
   const route = useRoute();
@@ -20,6 +21,10 @@ function App() {
       {route.name === "home" && <Team />}
       {route.name === "new-agent" && <CreateAgent />}
       {route.name === "agent" && <AgentChat key={route.id} agentId={route.id} />}
+      {route.name === "skills" && <SkillsList />}
+      {route.name === "new-skill" && <SkillEditor />}
+      {route.name === "skill" && <SkillEditor key={route.skill} name={route.skill} />}
+      {route.name === "draft" && <DraftReview key={route.id} id={route.id} />}
       {route.name === "screen" && <Screen />}
       {route.name === "terminal" && <Terminal />}
       {route.name === "system" && <System />}

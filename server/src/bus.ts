@@ -10,7 +10,11 @@ export type BusEvent =
   | { type: "message.created"; message: any }
   | { type: "turn.delta"; taskId: string; agentId: string; text: string }
   | { type: "step.updated"; step: any }
-  | { type: "usage"; usage: any };
+  | { type: "usage"; usage: any }
+  | { type: "skill.updated"; skill: any }
+  | { type: "skill.deleted"; name: string }
+  | { type: "draft.updated"; draft: any }
+  | { type: "agent.skills"; agentId: string; skills: string[] };
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 

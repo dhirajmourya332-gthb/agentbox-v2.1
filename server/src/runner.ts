@@ -1,9 +1,11 @@
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish, type AgentStatus } from "./bus.ts";
 import { getAgent, homeOf, WORK_ROOT, type Agent } from "./agents.ts";
+import { proposeSkill, skillsOf } from "./skills.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -109,6 +111,13 @@ guidelines). In short: every new issue is assigned to the owner (dhirajmourya332
 "Brandsek - Scrum" board (Brandsek org project #6), and has its Iteration set to the current sprint.
 Check \`ls /team\` for other team documents before work they might cover.
 
+## Skills
+Your assigned skills are listed by the Skill tool; use one whenever its description fits the
+task. When you finish a multi-step procedure that you or a teammate will need again (and no
+skill covers it), or the owner asks you to remember how to do something, call
+\`mcp__team__propose_skill\` with a reusable, general version of the steps. The owner reviews
+proposals before they join the library.
+
 ## Memory
 Your memory lives in ${homeOf(agent)}/memory/ with MEMORY.md as the index. Read the index when
 a task may depend on past work. When you learn something durable (a preference, a decision,
@@ -119,6 +128,29 @@ The owner reads your replies in a chat UI. Lead with the outcome, then the key d
 (links to PRs, files changed, what you verified). Keep it short. If you are blocked or need a
 decision, say exactly what you need.
 `.trim();
+}
+
+/** In-process tools agents use to work with agentbox itself. More arrive with delegation. */
+function teamServer(agent: Agent, taskId: string) {
+  return createSdkMcpServer({
+    name: "team",
+    version: "1.0.0",
+    tools: [
+      tool(
+        "propose_skill",
+        "Propose a reusable skill (a procedure you or teammates will need again) for the owner to review and add to the skill library.",
+        {
+          name: z.string().describe("kebab-case, e.g. deploy-staging"),
+          description: z.string().describe("One sentence: what it does and when to use it"),
+          body: z.string().describe("Markdown instructions: steps, commands, checks. General, not tied to this one task."),
+        },
+        async (args) => {
+          const d = proposeSkill(agent.id, taskId, args);
+          return { content: [{ type: "text", text: `Proposed skill "${d.name}". The owner will review it in agentbox.` }] };
+        },
+      ),
+    ],
+  });
 }
 
 type Step = { id: string; task_id: string; agent_id: string; seq: number; kind: string; name: string;
@@ -140,6 +172,8 @@ function classify(name: string, input: any): { kind: string; label: string; summ
   if (name === "TodoWrite") return { kind: "plan", label: "Plan", summary: `${(input?.todos ?? []).length} items` };
   if (name === "Task" || name === "Agent") return { kind: "agent", label: "Subagent", summary: first(str(input?.description ?? input?.prompt)) };
   if (name === "ToolSearch") return { kind: "meta", label: "Tool search", summary: str(input?.query) };
+  if (name === "Skill") return { kind: "skill", label: "Skill", summary: str(input?.skill ?? input?.command) };
+  if (name === "mcp__team__propose_skill") return { kind: "skill", label: "Propose", summary: str(input?.name) };
   return { kind: "tool", label: name, summary: first(JSON.stringify(input ?? {})) };
 }
 
@@ -267,8 +301,10 @@ async function runTask(taskId: string) {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         strictMcpConfig: true,
+        skills: skillsOf(agent.id),
         mcpServers: {
           browser: { type: "stdio", command: process.execPath, args: [PLAYWRIGHT_MCP, "--cdp-endpoint", CDP_ENDPOINT] },
+          team: teamServer(agent, taskId),
         },
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(agent) },
         env: { ...process.env, DISPLAY: ":99", BROWSER: "/usr/local/bin/agentbox-open" },

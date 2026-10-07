@@ -1,18 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type Message, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
+import { api, type Agent, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
 
 type State = {
   connected: boolean;
   loaded: boolean;
   agents: Agent[];
   usage: Usage | null;
+  skills: Skill[];
+  drafts: SkillDraft[];
   threads: Record<string, ThreadData>;
   /** Text streamed so far for running turns, by task id. */
   live: Record<string, string>;
 };
 
 type Action =
-  | { type: "loaded"; agents: Agent[]; usage: Usage | null }
+  | { type: "loaded"; agents: Agent[]; usage: Usage | null; skills: Skill[]; drafts: SkillDraft[] }
   | { type: "connected"; value: boolean }
   | { type: "thread"; id: string; data: ThreadData }
   | { type: "event"; e: any };
@@ -26,7 +28,7 @@ const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "loaded":
-      return { ...s, loaded: true, agents: a.agents, usage: a.usage };
+      return { ...s, loaded: true, agents: a.agents, usage: a.usage, skills: a.skills, drafts: a.drafts };
     case "connected":
       return { ...s, connected: a.value };
     case "thread":
@@ -42,6 +44,23 @@ function reducer(s: State, a: Action): State {
         }
         case "agent.deleted":
           return { ...s, agents: s.agents.filter((x) => x.id !== e.agentId) };
+        case "agent.skills":
+          return { ...s, agents: s.agents.map((x) => (x.id === e.agentId ? { ...x, skills: e.skills } : x)) };
+        case "skill.updated":
+          return {
+            ...s,
+            skills: [...s.skills.filter((k) => k.name !== e.skill.name), e.skill as Skill]
+              .sort((x, y) => x.name.localeCompare(y.name)),
+          };
+        case "skill.deleted":
+          return { ...s, skills: s.skills.filter((k) => k.name !== e.name) };
+        case "draft.updated":
+          return {
+            ...s,
+            drafts: e.draft.status === "pending"
+              ? upsert(s.drafts, e.draft)
+              : s.drafts.filter((d) => d.id !== e.draft.id),
+          };
         case "agent.status":
           return { ...s, agents: s.agents.map((x) => (x.id === e.agentId ? { ...x, status: e.status, taskId: e.taskId } : x)) };
         case "usage":
@@ -84,13 +103,13 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, threads: {}, live: {},
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], threads: {}, live: {},
   });
   const openThreads = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
-    const s = await api.state();
-    dispatch({ type: "loaded", agents: s.agents, usage: s.usage });
+    const [s, k] = await Promise.all([api.state(), api.skills()]);
+    dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts });
   }, []);
 
   const loadThread = useCallback(async (id: string) => {

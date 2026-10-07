@@ -286,3 +286,14 @@ a.card:hover { border-color: var(--line-strong); }
 .preview-box { border: 1px solid var(--line-strong); border-radius: var(--r-ctl); padding: 14px 16px; max-height: 520px; overflow: auto; background: var(--bg); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Skills */
+a.row.skill-row { color: var(--text); text-decoration: none; }
+a.row.skill-row:hover { background: var(--raised); }
+.skill-row .name { min-width: 0; flex: none; width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.skill-row .desc { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .skill-row .desc { display: none; } }
+.badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center;
+  background: var(--warn); color: #0E0F12; font-size: 11px; font-weight: 600;
+}

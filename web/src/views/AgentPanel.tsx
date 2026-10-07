@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { api, type Agent } from "../api.ts";
 import { Icon, Markdown, relTime } from "../components/ui.tsx";
 import { go } from "../router.ts";
+import { useStore } from "../store.tsx";
 
-type Tab = "overview" | "instructions" | "memory";
+type Tab = "overview" | "instructions" | "skills" | "memory";
 
 export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -18,7 +19,7 @@ export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => vo
   return (
     <aside className="panel" aria-label={`${agent.name} details`}>
       <div className="tabs" role="tablist">
-        {(["overview", "instructions", "memory"] as Tab[]).map((t) => (
+        {(["overview", "instructions", "skills", "memory"] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -30,6 +31,7 @@ export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => vo
       <div className="panel-body" role="tabpanel">
         {tab === "overview" && <Overview agent={agent} />}
         {tab === "instructions" && data && <Instructions agent={agent} text={data.instructions} onSaved={reload} />}
+        {tab === "skills" && <AgentSkills agent={agent} />}
         {tab === "memory" && data && <Memory files={data.memory} agent={agent} />}
       </div>
     </aside>
@@ -144,6 +146,35 @@ function Instructions({ agent, text, onSaved }: { agent: Agent; text: string; on
         }}>Save</button>
         <button className="btn ghost sm" onClick={() => { setDraft(text); setEditing(false); }}>Cancel</button>
       </div>
+    </>
+  );
+}
+
+function AgentSkills({ agent }: { agent: Agent }) {
+  const { skills } = useStore();
+  const [error, setError] = useState<string | null>(null);
+  const toggle = async (name: string) => {
+    setError(null);
+    const next = agent.skills.includes(name) ? agent.skills.filter((s) => s !== name) : [...agent.skills, name];
+    try { await api.setAgentSkills(agent.id, next); } catch (e: any) { setError(e.message); }
+  };
+  return (
+    <>
+      <span className="hint">{agent.name} sees only the skills switched on here, and uses one when a task matches it.</span>
+      {error && <div className="error-box">{error}</div>}
+      {skills.length === 0 && <span className="hint">The library is empty. <a href="#/skills/new">Create a skill</a>.</span>}
+      <div className="rows">
+        {skills.map((s) => (
+          <label key={s.name} className="row" style={{ alignItems: "flex-start", cursor: "pointer" }}>
+            <input type="checkbox" checked={agent.skills.includes(s.name)} onChange={() => toggle(s.name)} style={{ marginTop: 3 }} />
+            <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+              <span className="mono">{s.name}</span>
+              <span className="hint">{s.description}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <a href="#/skills" style={{ fontSize: 13 }}>Open the skill library</a>
     </>
   );
 }

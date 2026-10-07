@@ -13,6 +13,13 @@ export type Agent = {
   status: AgentStatus;
   taskId?: string;
   dm_thread_id: string;
+  skills: string[];
+};
+
+export type Skill = { name: string; description: string; body: string; files: string[]; agents: string[]; updated_at: string };
+export type SkillDraft = {
+  id: string; name: string; description: string; body: string; proposed_by: string; task_id: string | null;
+  status: "pending" | "approved" | "rejected"; created_at: string;
 };
 
 export type Message = { id: string; thread_id: string; author: string; task_id: string | null; content: string; created_at: string };
@@ -61,7 +68,7 @@ export const api = {
     call<{ questions: FollowUp[] }>("POST", "/api/interview/follow-ups", { answers }),
   draft: (answers: Record<string, unknown>, extra: FollowUp[]) =>
     call<Draft>("POST", "/api/interview/draft", { answers, extra }),
-  createAgent: (body: { name: string; title: string; summary: string; model: string; instructions: string; interview: unknown }) =>
+  createAgent: (body: { name: string; title: string; summary: string; model: string; instructions: string; interview: unknown; skills: string[] }) =>
     call<Agent>("POST", "/api/agents", body),
   agent: (id: string) =>
     call<{ agent: Agent; instructions: string; memory: { file: string; content: string }[] }>("GET", `/api/agents/${id}`),
@@ -70,6 +77,16 @@ export const api = {
   saveInstructions: (id: string, text: string) => call("PUT", `/api/agents/${id}/instructions`, { text }),
   deleteAgent: (id: string) => call("DELETE", `/api/agents/${id}`),
   resetSession: (id: string) => call("POST", `/api/agents/${id}/reset-session`),
+  setAgentSkills: (id: string, skills: string[]) => call<Agent>("PUT", `/api/agents/${id}/skills`, { skills }),
+  skills: () => call<{ skills: Skill[]; drafts: SkillDraft[] }>("GET", "/api/skills"),
+  skill: (name: string) => call<Skill>("GET", `/api/skills/${name}`),
+  createSkill: (b: { name: string; description: string; body: string; agents: string[] }) => call<Skill>("POST", "/api/skills", b),
+  updateSkill: (name: string, b: { description: string; body: string; agents: string[] }) => call<Skill>("PUT", `/api/skills/${name}`, b),
+  deleteSkill: (name: string) => call("DELETE", `/api/skills/${name}`),
+  skillDraft: (id: string) => call<{ draft: SkillDraft; existing: Skill | null }>("GET", `/api/skill-drafts/${id}`),
+  approveDraft: (id: string, b: { name: string; description: string; body: string; agents: string[] }) =>
+    call("POST", `/api/skill-drafts/${id}/approve`, b),
+  rejectDraft: (id: string) => call("POST", `/api/skill-drafts/${id}/reject`),
   thread: (id: string) => call<ThreadData>("GET", `/api/threads/${id}`),
   send: (threadId: string, text: string) => call("POST", `/api/threads/${threadId}/messages`, { text }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),

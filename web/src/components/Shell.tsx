@@ -61,7 +61,10 @@ function VmChip() {
 }
 
 function RailLink({ to, current, icon, children }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode }) {
-  const active = to.name === current.name && (to.name !== "agent" || (current.name === "agent" && current.id === to.id));
+  const skillsArea = ["skills", "skill", "new-skill", "draft"];
+  const active = to.name === "skills"
+    ? skillsArea.includes(current.name)
+    : to.name === current.name && (to.name !== "agent" || (current.name === "agent" && current.id === to.id));
   return (
     <a className="item" href={href(to)} aria-current={active ? "page" : undefined}>
       {icon}
@@ -71,7 +74,7 @@ function RailLink({ to, current, icon, children }: { to: Route; current: Route; 
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const { agents, usage } = useStore();
+  const { agents, usage, drafts } = useStore();
   return (
     <div className="shell">
       <header className="topbar">
@@ -97,6 +100,12 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           </RailLink>
         ))}
         {agents.length === 0 && <p className="empty">No agents yet.</p>}
+
+        <div className="rail-section"><span className="rail-label">Library</span></div>
+        <RailLink to={{ name: "skills" }} current={route} icon={<Icon name="skill" />}>
+          <span className="grow">Skills</span>
+          {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
+        </RailLink>
 
         <div className="rail-section"><span className="rail-label">Computer</span></div>
         <RailLink to={{ name: "screen" }} current={route} icon={<Icon name="screen" />}>Screen</RailLink>
