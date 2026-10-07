@@ -58,10 +58,22 @@ with the verdict first, then blocking items, then the rest.
 
 ## 5. Merging (if your job description lets you merge it)
 
-- Sub-issue PR into an epic: squash-merge, then close the sub-issue
+- Sub-issue PR into an epic: `gh pr merge <n> --squash --delete-branch`, then close the sub-issue
   (`gh issue close <sub#> --comment "Merged into <epic> in #<pr>"`).
-- Small PR into `main`: squash-merge.
+- Small PR into `main`: `gh pr merge <n> --squash --delete-branch`.
 - Epic → `main`: never merge it yourself without the owner's approval; it uses a merge commit.
+
+**Right after any merge, delete the branch and its workspace** (`/team/branching.md` §8), whoever
+created the worktree:
+
+```bash
+B=<head branch>; cd /work/<repo> && git fetch --prune origin
+WT=$(git worktree list --porcelain | awk -v b="refs/heads/$B" '/^worktree /{p=$2} $0=="branch "b{print p}')
+[ -n "$WT" ] && git worktree remove --force "$WT"
+git branch -D "$B" 2>/dev/null; git push origin --delete "$B" 2>/dev/null; git worktree prune
+```
+
+For an epic merged into `main`, do the same for the epic branch and `/work/<repo>-epic-<parent#>`.
 
 ## 6. Clean up
 

@@ -44,8 +44,9 @@ Independent sub-issues can run in parallel; dependent ones wait for their prereq
 ## 5. Review and merge into the epic
 
 Review each sub-issue PR (`review-pr` skill). Check its base is the epic. When it's approved and
-green, squash-merge it into the epic and close the sub-issue
-(`gh issue close <sub#> --comment "Merged into $EPIC in #<pr>"`).
+green, squash-merge it into the epic (`gh pr merge <n> --squash --delete-branch`), close the
+sub-issue (`gh issue close <sub#> --comment "Merged into $EPIC in #<pr>"`), and remove the
+sub-issue's worktree and local branch right away (`/team/branching.md` §8).
 
 ## 6. Keep the epic current
 
@@ -72,4 +73,6 @@ gh pr create -R Brandsek/digital_risk --base main --head "$EPIC" \
 
 Body: `Closes #<parent>`, what the epic delivers, the list of sub-issues and PRs, how it was
 tested, risks. This is always a big PR: review it, then **ask the owner to approve** before it's
-merged, with a **merge commit** (not squash). Afterwards delete the epic branch and its worktree.
+merged, with a **merge commit** (not squash). Right after the merge, clean up (`/team/branching.md`
+§8): delete the epic branch on GitHub and locally, remove `/work/digital_risk-epic-<parent#>`, and
+remove any sub-issue worktrees still left, then `git worktree prune`.
