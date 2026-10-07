@@ -31,5 +31,5 @@ Logins persist across VM restarts.
 
 ```bash
 cd web && npm install && npm run dev   # UI on :5173, proxies /api to the VM on :7700
-./scripts/deploy.sh                    # ship server/ + web/ into the VM
+./scripts/deploy.sh                    # ship server/ + web/ into the VM (refuses while agents are working; --force to override)
 ```

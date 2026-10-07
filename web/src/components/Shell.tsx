@@ -74,7 +74,8 @@ function RailLink({ to, current, icon, children }: { to: Route; current: Route; 
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const { agents, usage, drafts } = useStore();
+  const { agents, usage, drafts, board } = useStore();
+  const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
   return (
     <div className="shell">
       <header className="topbar">
@@ -87,6 +88,10 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 
       <nav className="rail" aria-label="Main">
         <RailLink to={{ name: "home" }} current={route} icon={<Icon name="team" />}>Team</RailLink>
+        <RailLink to={{ name: "tasks" }} current={route} icon={<Icon name="board" />}>
+          <span className="grow">Tasks</span>
+          {running > 0 && <span className="count" title={`${running} running or queued`}>{running}</span>}
+        </RailLink>
 
         <div className="rail-section">
           <span className="rail-label">Agents</span>

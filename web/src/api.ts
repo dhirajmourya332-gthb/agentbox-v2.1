@@ -24,9 +24,10 @@ export type SkillDraft = {
 
 export type Message = { id: string; thread_id: string; author: string; task_id: string | null; content: string; created_at: string };
 export type Task = {
-  id: string; agent_id: string; thread_id: string; source: string; prompt: string;
+  id: string; agent_id: string; thread_id: string; source: "user" | "agent" | "message" | "result" | "cron"; prompt?: string;
+  title: string | null; from_agent_id: string | null; parent_task_id: string | null; depth: number; children?: number;
   status: "queued" | "running" | "done" | "failed" | "stopped";
-  result: string | null; error: string | null; cost_usd: number | null;
+  result?: string | null; error: string | null; cost_usd?: number | null;
   created_at: string; started_at: string | null; finished_at: string | null;
 };
 export type Step = {
@@ -34,6 +35,7 @@ export type Step = {
   input: string | null; output: string | null; status: "running" | "done" | "error" | "stopped";
   started_at: string; finished_at: string | null;
 };
+export type Thread = { id: string; kind: "dm" | "handoff" | "group"; agent_id: string; peer_agent_id: string | null; last_at: string | null };
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
 
 export type Usage = {
@@ -87,6 +89,9 @@ export const api = {
   approveDraft: (id: string, b: { name: string; description: string; body: string; agents: string[] }) =>
     call("POST", `/api/skill-drafts/${id}/approve`, b),
   rejectDraft: (id: string) => call("POST", `/api/skill-drafts/${id}/reject`),
+  tasks: () => call<Task[]>("GET", "/api/tasks"),
+  task: (id: string) => call<{ task: Task; tree: Task[]; steps: Step[] }>("GET", `/api/tasks/${id}`),
+  agentThreads: (id: string) => call<Thread[]>("GET", `/api/agents/${id}/threads`),
   thread: (id: string) => call<ThreadData>("GET", `/api/threads/${id}`),
   send: (threadId: string, text: string) => call("POST", `/api/threads/${threadId}/messages`, { text }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),

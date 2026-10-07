@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { api, type Agent, type Message, type Step, type Task } from "../api.ts";
+import { api, type Agent, type Message, type Step, type Task, type Thread } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Avatar, Icon, Markdown, Spinner, StatusGlyph, duration, relTime } from "../components/ui.tsx";
 import { AgentPanel } from "./AgentPanel.tsx";
@@ -10,10 +10,15 @@ const STARTERS = [
   "Read your instructions and tell me what's unclear or missing.",
 ];
 
-export function AgentChat({ agentId }: { agentId: string }) {
-  const { agents, threads, live, loadThread } = useStore();
+export function AgentChat({ agentId, threadParam }: { agentId: string; threadParam?: string }) {
+  const { agents, threads, live, loadThread, threadsVersion } = useStore();
   const agent = agents.find((a) => a.id === agentId);
-  const threadId = agent?.dm_thread_id;
+  const [threadList, setThreadList] = useState<Thread[]>([]);
+  useEffect(() => {
+    api.agentThreads(agentId).then(setThreadList).catch(() => {});
+  }, [agentId, threadsVersion]);
+  const threadId = threadParam ?? agent?.dm_thread_id;
+  const isDm = !threadParam || threadParam === agent?.dm_thread_id;
   const thread = threadId ? threads[threadId] : undefined;
   const [panel, setPanel] = useState(() => {
     try { return localStorage.getItem("agentbox.panel") !== "closed"; } catch { return true; }
@@ -52,11 +57,36 @@ export function AgentChat({ agentId }: { agentId: string }) {
           </div>
         </header>
 
+        {threadList.length > 1 && <ThreadTabs agent={agent} threads={threadList} current={threadId} />}
         {thread ? <Timeline agent={agent} thread={thread} live={live} /> : <div className="timeline" />}
-        {threadId && <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0} />}
+        {threadId && isDm && <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0} />}
+        {threadId && !isDm && (
+          <p className="composer-hint" style={{ padding: "10px 24px 18px", margin: 0, maxWidth: "none", textAlign: "center" }}>
+            Handoffs between agents are read-only here. To talk to {agent.name}, use the <a href={`#/agents/${agent.id}`}>You</a> thread.
+          </p>
+        )}
       </section>
       {panel && <AgentPanel agent={agent} onClose={() => setPanel(false)} />}
     </>
+  );
+}
+
+function ThreadTabs({ agent, threads, current }: { agent: Agent; threads: Thread[]; current?: string }) {
+  const { agents } = useStore();
+  return (
+    <nav className="tabs thread-tabs" aria-label="Conversations">
+      {threads.map((t) => {
+        const peer = agents.find((a) => a.id === t.peer_agent_id);
+        const label = t.kind === "dm" ? "You" : `From ${peer?.name ?? "deleted agent"}`;
+        return (
+          <a key={t.id} role="tab" aria-selected={t.id === current}
+            href={t.kind === "dm" ? `#/agents/${agent.id}` : `#/agents/${agent.id}/threads/${t.id}`}>
+            {peer && <Avatar name={peer.name} color={peer.color} size={16} />}
+            {label}
+          </a>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -88,12 +118,13 @@ function Timeline({ agent, thread, live }: {
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
-  const userMessages = thread.messages.filter((m) => m.author === "user");
+  // An input is what a turn responds to: your message, a teammate's handoff, or a report coming back.
+  const inputs = thread.messages.filter((m) => !(m.task_id && tasks.get(m.task_id)?.agent_id === m.author));
 
   return (
     <div className="timeline" ref={ref} onScroll={onScroll} aria-live="polite" aria-relevant="additions">
       <div className="timeline-inner">
-        {userMessages.length === 0 && (
+        {inputs.length === 0 && (
           <div className="msg">
             <Avatar name={agent.name} color={agent.color} size={28} />
             <div>
@@ -102,23 +133,59 @@ function Timeline({ agent, thread, live }: {
             </div>
           </div>
         )}
-        {userMessages.map((m) => {
+        {inputs.map((m) => {
           const task = m.task_id ? tasks.get(m.task_id) : undefined;
           return (
             <div key={m.id} style={{ display: "contents" }}>
-              <div className="msg">
-                <span className="avatar you-avatar" style={{ width: 28, height: 28, fontSize: 12 }} aria-hidden="true">You</span>
-                <div>
-                  <div className="msg-meta"><strong>You</strong><time dateTime={m.created_at}>{relTime(m.created_at)}</time></div>
-                  <div className="prose" style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
-                </div>
-              </div>
+              <Input message={m} task={task} />
               {task && (
                 <Turn agent={agent} task={task} steps={stepsByTask.get(task.id) ?? []} reply={replies.get(task.id)} live={live[task.id]} />
               )}
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+const SOURCE_LABEL: Record<string, string> = { agent: "handed off a task", message: "sent a message", result: "reported back" };
+
+function Input({ message, task }: { message: Message; task?: Task }) {
+  const { agents } = useStore();
+  const [open, setOpen] = useState(task?.source !== "result");
+  if (message.author === "user") {
+    return (
+      <div className="msg">
+        <span className="avatar you-avatar" style={{ width: 28, height: 28, fontSize: 12 }} aria-hidden="true">You</span>
+        <div>
+          <div className="msg-meta"><strong>You</strong><time dateTime={message.created_at}>{relTime(message.created_at)}</time></div>
+          <div className="prose" style={{ whiteSpace: "pre-wrap" }}>{message.content}</div>
+        </div>
+      </div>
+    );
+  }
+  const from = agents.find((a) => a.id === message.author);
+  return (
+    <div className="msg">
+      {from ? <Avatar name={from.name} color={from.color} size={28} /> : <span className="avatar you-avatar" style={{ width: 28, height: 28 }} />}
+      <div style={{ minWidth: 0 }}>
+        <div className="msg-meta">
+          <strong>{from?.name ?? "Deleted agent"}</strong>
+          <span className="hint">{SOURCE_LABEL[task?.source ?? ""] ?? ""}</span>
+          <time dateTime={message.created_at}>{relTime(message.created_at)}</time>
+          {task && <a className="hint" href={`#/tasks/${task.id}`}>task</a>}
+        </div>
+        <div className={`handoff ${task?.source ?? ""}`}>
+          {task?.source === "result" && (
+            <button className="worklog-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+              <span className="chev"><Icon name="chevron" size={14} /></span>
+              {open ? "Hide report" : "Show report"}
+            </button>
+          )}
+          {open && <Markdown text={message.content} />}
+          {!open && <p className="hint">{message.content.split("\n")[0].replace(/\*\*/g, "")}</p>}
+        </div>
       </div>
     </div>
   );

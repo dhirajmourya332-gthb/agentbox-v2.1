@@ -4,7 +4,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { get } from "./db.ts";
+import { all, get } from "./db.ts";
 import { subscribe } from "./bus.ts";
 import {
   createAgent, deleteAgent, dmThreadOf, getAgent, listAgents, listMemory, readInstructions, updateAgent, writeInstructions,
@@ -155,6 +155,46 @@ app.post("/api/threads/:id/messages", async (req) => {
 app.post("/api/tasks/:id/stop", async (req) => {
   stopTask((req.params as any).id);
   return { ok: true };
+});
+
+// --- tasks (the board) -------------------------------------------------------
+app.get("/api/tasks", async (req) => {
+  const q = req.query as any;
+  const limit = Math.min(Number(q.limit ?? 200), 500);
+  return all(
+    `SELECT id, agent_id, thread_id, source, title, status, from_agent_id, parent_task_id, depth, error, cost_usd,
+            created_at, started_at, finished_at,
+            (SELECT COUNT(*) FROM tasks c WHERE c.parent_task_id = tasks.id AND c.source = 'agent') AS children
+     FROM tasks WHERE source != 'result' OR ? = '1'
+     ORDER BY created_at DESC LIMIT ?`,
+    String(q.results ?? "0"), limit,
+  );
+});
+app.get("/api/tasks/:id", async (req) => {
+  const id = (req.params as any).id;
+  const task = get(`SELECT * FROM tasks WHERE id = ?`, id);
+  if (!task) throw new HttpError(404, "No such task");
+  // Walk up to the root, then return the whole tree under it.
+  let root = task;
+  for (let i = 0; i < 20 && root.parent_task_id; i++) root = get(`SELECT * FROM tasks WHERE id = ?`, root.parent_task_id) ?? root;
+  const tree = all(
+    `WITH RECURSIVE t(id) AS (SELECT ? UNION ALL SELECT tasks.id FROM tasks JOIN t ON tasks.parent_task_id = t.id)
+     SELECT tasks.id, agent_id, thread_id, source, title, status, from_agent_id, parent_task_id, depth, error,
+            created_at, started_at, finished_at
+     FROM tasks JOIN t USING (id) ORDER BY created_at`,
+    root.id,
+  );
+  const steps = all(`SELECT * FROM steps WHERE task_id = ? ORDER BY seq`, id);
+  return { task, tree, steps };
+});
+app.get("/api/agents/:id/threads", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  return all(
+    `SELECT id, kind, agent_id, peer_agent_id, created_at,
+            (SELECT MAX(created_at) FROM messages WHERE thread_id = threads.id) AS last_at
+     FROM threads WHERE agent_id = ? ORDER BY kind = 'dm' DESC, last_at DESC`,
+    a.id,
+  );
 });
 
 // --- live events ------------------------------------------------------------

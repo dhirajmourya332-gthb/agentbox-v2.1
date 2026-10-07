@@ -24,8 +24,9 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 CREATE TABLE IF NOT EXISTS threads (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('dm', 'group')),
+  kind TEXT NOT NULL,            -- dm (owner ↔ agent) · handoff (agent → agent) · group
   agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+  peer_agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
   name TEXT,
   created_at TEXT NOT NULL
 );
@@ -98,6 +99,40 @@ export function get<T = Row>(sql: string, ...params: any[]): T | undefined {
 export function run(sql: string, ...params: any[]) {
   return db.prepare(sql).run(...params);
 }
+
+// --- migrations for databases created by earlier milestones -------------------
+const columns = (table: string) => all<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name);
+
+if (!columns("threads").includes("peer_agent_id")) {
+  // Drop the old CHECK on threads.kind (SQLite can't alter it in place).
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN;
+    CREATE TABLE threads_new (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+      peer_agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+      name TEXT,
+      created_at TEXT NOT NULL
+    );
+    INSERT INTO threads_new (id, kind, agent_id, name, created_at) SELECT id, kind, agent_id, name, created_at FROM threads;
+    DROP TABLE threads;
+    ALTER TABLE threads_new RENAME TO threads;
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+}
+for (const [col, type] of [
+  ["title", "TEXT"],
+  ["from_agent_id", "TEXT REFERENCES agents(id) ON DELETE SET NULL"],
+  ["parent_task_id", "TEXT REFERENCES tasks(id) ON DELETE SET NULL"],
+  ["depth", "INTEGER NOT NULL DEFAULT 0"],
+] as const) {
+  if (!columns("tasks").includes(col)) db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
+}
+db.exec(`CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_task_id)`);
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS threads_handoff ON threads(kind, agent_id, peer_agent_id) WHERE kind = 'handoff'`);
 
 // A task that was running when the server stopped can never finish; mark it.
 run(

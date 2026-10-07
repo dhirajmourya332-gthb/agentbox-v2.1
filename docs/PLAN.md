@@ -155,7 +155,7 @@ better-sqlite3 + Drizzle, croner, zod. UI: React + Vite (static, served by Fasti
 | 0 ✓ | Shared computer | `scripts/up.sh` builds the VM; UI at :7700 shows the screen (noVNC) and a terminal (ttyd); Chromium runs on :99 with CDP |
 | 1 ✓ | One agent end to end | Interview-based agent creation; chat with streaming and work log; runs commands and drives the shared browser; session survives restart; Stop |
 | 2 ✓ | Agents + skills | Any number of agents side by side, each with its own home, sessions, memory; skill library with editor, per-agent assignment, agent-proposed drafts you approve; starter skills (file-github-issue, review-pr, open-pr) |
-| 3 | Delegation | tech-lead → tester handoff with result returned; loop guards hold |
+| 3 ✓ | Delegation | Team tools (delegate_task, send_message, get_task, list_agents); reports return to the delegator automatically; per-pair handoff threads; depth/back-delegation/fan-out limits; task board with delegation chains |
 | 4 | Groups | Create group, pick members and lead, @mention routing |
 | 5 | Routines | tech-lead PR review every 2h; overlapping runs skipped |
 | 6 | Visibility | Activity feed, task board, agent graph, display-lock indicator |

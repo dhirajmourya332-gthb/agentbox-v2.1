@@ -1,11 +1,11 @@
-import { createSdkMcpServer, query, tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
+import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish, type AgentStatus } from "./bus.ts";
 import { getAgent, homeOf, WORK_ROOT, type Agent } from "./agents.ts";
-import { proposeSkill, skillsOf } from "./skills.ts";
+import { skillsOf } from "./skills.ts";
+import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -35,21 +35,36 @@ export const currentUsage = () => usage;
 const chains = new Map<string, Promise<void>>();
 const aborts = new Map<string, AbortController>();
 
-const taskRow = (id: string) => get(`SELECT * FROM tasks WHERE id = ?`, id);
+export const taskRow = (id: string) => get(`SELECT * FROM tasks WHERE id = ?`, id);
 
-export function sendMessage(agentId: string, threadId: string, text: string) {
-  const agent = getAgent(agentId);
-  if (!agent) throw new Error("No such agent");
+export type NewTask = {
+  agentId: string;
+  threadId: string;
+  source: "user" | "agent" | "message" | "result" | "cron";
+  title: string;
+  prompt: string;
+  fromAgentId?: string | null;
+  parentTaskId?: string | null;
+  depth?: number;
+  /** What shows in the thread as the thing the agent is responding to. */
+  input: { author: string; content: string };
+};
 
+/** Queue a turn for an agent. Turns for one agent run one at a time, in order. */
+export function enqueueTask(t: NewTask) {
+  if (!getAgent(t.agentId)) throw new Error("No such agent");
   const task = {
-    id: newId(), agent_id: agentId, thread_id: threadId, source: "user", prompt: text,
-    status: "queued", created_at: now(),
+    id: newId(), agent_id: t.agentId, thread_id: t.threadId, source: t.source, title: t.title.slice(0, 200),
+    prompt: t.prompt, from_agent_id: t.fromAgentId ?? null, parent_task_id: t.parentTaskId ?? null,
+    depth: t.depth ?? 0, status: "queued", created_at: now(),
   };
   run(
-    `INSERT INTO tasks (id, agent_id, thread_id, source, prompt, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    task.id, task.agent_id, task.thread_id, task.source, task.prompt, task.status, task.created_at,
+    `INSERT INTO tasks (id, agent_id, thread_id, source, title, prompt, from_agent_id, parent_task_id, depth, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    task.id, task.agent_id, task.thread_id, task.source, task.title, task.prompt, task.from_agent_id,
+    task.parent_task_id, task.depth, task.status, task.created_at,
   );
-  const message = { id: newId(), thread_id: threadId, author: "user", task_id: task.id, content: text, created_at: now() };
+  const message = { id: newId(), thread_id: t.threadId, author: t.input.author, task_id: task.id, content: t.input.content, created_at: now() };
   run(
     `INSERT INTO messages (id, thread_id, author, task_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
     message.id, message.thread_id, message.author, message.task_id, message.content, message.created_at,
@@ -57,11 +72,21 @@ export function sendMessage(agentId: string, threadId: string, text: string) {
   publish({ type: "message.created", message });
   publish({ type: "task.updated", task: taskRow(task.id) });
 
-  const next = (chains.get(agentId) ?? Promise.resolve()).then(() => runTask(task.id)).catch((err) => {
+  const next = (chains.get(t.agentId) ?? Promise.resolve()).then(() => runTask(task.id)).catch((err) => {
     console.error("task crashed", task.id, err);
   });
-  chains.set(agentId, next);
-  return { message, task };
+  chains.set(t.agentId, next);
+  return task;
+}
+
+/** The owner talking to an agent. */
+export function sendMessage(agentId: string, threadId: string, text: string) {
+  const firstLine = text.split("\n")[0];
+  return enqueueTask({
+    agentId, threadId, source: "user", prompt: text,
+    title: firstLine.length > 80 ? firstLine.slice(0, 77) + "…" : firstLine,
+    input: { author: "user", content: text },
+  });
 }
 
 export function stopTask(taskId: string) {
@@ -79,7 +104,9 @@ function finishTask(taskId: string, f: { status: string; result?: string; error?
     `UPDATE tasks SET status = ?, result = ?, error = ?, cost_usd = ?, finished_at = ? WHERE id = ?`,
     f.status, f.result ?? null, f.error ?? null, f.cost ?? null, now(), taskId,
   );
-  publish({ type: "task.updated", task: taskRow(taskId) });
+  const task = taskRow(taskId);
+  publish({ type: "task.updated", task });
+  returnResult(task);
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +138,19 @@ guidelines). In short: every new issue is assigned to the owner (dhirajmourya332
 "Brandsek - Scrum" board (Brandsek org project #6), and has its Iteration set to the current sprint.
 Check \`ls /team\` for other team documents before work they might cover.
 
+## Your team
+${rosterFor(agent)}
+
+Hand work to teammates with the team tools, never with Teams, email or GitHub comments:
+- \`mcp__team__delegate_task\`: give a teammate a task. Include everything they need (context,
+  links, acceptance criteria, constraints such as the team's issue rules). Their report comes
+  back to you automatically as a new message, often minutes later. Don't wait, sleep or poll for
+  it: finish your turn and say what you handed off.
+- \`mcp__team__get_task\`: check a delegated task. \`mcp__team__list_agents\`: who's busy.
+- \`mcp__team__send_message\`: an FYI that needs no action.
+Delegate only work that fits a teammate's job. Chains are limited to ${LIMITS.depth} handoffs deep.
+If your current task came from a teammate, your final reply is your report to them.
+
 ## Skills
 Your assigned skills are listed by the Skill tool; use one whenever its description fits the
 task. When you finish a multi-step procedure that you or a teammate will need again (and no
@@ -128,29 +168,6 @@ The owner reads your replies in a chat UI. Lead with the outcome, then the key d
 (links to PRs, files changed, what you verified). Keep it short. If you are blocked or need a
 decision, say exactly what you need.
 `.trim();
-}
-
-/** In-process tools agents use to work with agentbox itself. More arrive with delegation. */
-function teamServer(agent: Agent, taskId: string) {
-  return createSdkMcpServer({
-    name: "team",
-    version: "1.0.0",
-    tools: [
-      tool(
-        "propose_skill",
-        "Propose a reusable skill (a procedure you or teammates will need again) for the owner to review and add to the skill library.",
-        {
-          name: z.string().describe("kebab-case, e.g. deploy-staging"),
-          description: z.string().describe("One sentence: what it does and when to use it"),
-          body: z.string().describe("Markdown instructions: steps, commands, checks. General, not tied to this one task."),
-        },
-        async (args) => {
-          const d = proposeSkill(agent.id, taskId, args);
-          return { content: [{ type: "text", text: `Proposed skill "${d.name}". The owner will review it in agentbox.` }] };
-        },
-      ),
-    ],
-  });
 }
 
 type Step = { id: string; task_id: string; agent_id: string; seq: number; kind: string; name: string;
@@ -174,6 +191,10 @@ function classify(name: string, input: any): { kind: string; label: string; summ
   if (name === "ToolSearch") return { kind: "meta", label: "Tool search", summary: str(input?.query) };
   if (name === "Skill") return { kind: "skill", label: "Skill", summary: str(input?.skill ?? input?.command) };
   if (name === "mcp__team__propose_skill") return { kind: "skill", label: "Propose", summary: str(input?.name) };
+  if (name === "mcp__team__delegate_task") return { kind: "delegate", label: "Delegate", summary: `→ ${str(input?.to)}: ${str(input?.title)}` };
+  if (name === "mcp__team__send_message") return { kind: "delegate", label: "Message", summary: `→ ${str(input?.to)}: ${first(str(input?.text))}` };
+  if (name === "mcp__team__get_task") return { kind: "meta", label: "Check task", summary: str(input?.task_id) };
+  if (name === "mcp__team__list_agents") return { kind: "meta", label: "Team", summary: "list agents" };
   return { kind: "tool", label: name, summary: first(JSON.stringify(input ?? {})) };
 }
 

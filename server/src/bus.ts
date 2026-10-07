@@ -14,7 +14,8 @@ export type BusEvent =
   | { type: "skill.updated"; skill: any }
   | { type: "skill.deleted"; name: string }
   | { type: "draft.updated"; draft: any }
-  | { type: "agent.skills"; agentId: string; skills: string[] };
+  | { type: "agent.skills"; agentId: string; skills: string[] }
+  | { type: "thread.created"; thread: any };
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
