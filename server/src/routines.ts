@@ -3,6 +3,7 @@ import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 import { getAgent } from "./agents.ts";
 import { currentUsage, enqueueTask, resetSession } from "./runner.ts";
+import { isPaused } from "./control.ts";
 
 /**
  * Routines: an agent's recurring jobs ("review open PRs every 2 hours"). Each run is a normal
@@ -198,6 +199,7 @@ export function runRoutine(id: string, trigger: "schedule" | "manual") {
   if (previous && (previous.status === "queued" || previous.status === "running")) {
     return logRun(id, trigger, "skipped", "The previous run is still going", null);
   }
+  if (isPaused()) return logRun(id, trigger, "skipped", "All agents are paused", null);
   const usage = currentUsage();
   if (usage?.status === "rejected" && usage.resetsAt && usage.resetsAt * 1000 > Date.now()) {
     const until = new Date(usage.resetsAt * 1000).toISOString();

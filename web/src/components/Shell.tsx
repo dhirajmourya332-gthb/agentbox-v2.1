@@ -3,6 +3,7 @@ import { api, type Usage } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { href, type Route } from "../router.ts";
 import { Avatar, Icon, StatusGlyph } from "./ui.tsx";
+import { PauseControl, PausedBar, ScreenPip } from "./Controls.tsx";
 
 function UsageChip({ usage }: { usage: Usage | null }) {
   if (!usage) return null;
@@ -88,10 +89,13 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </a>
         <UsageChip usage={usage} />
         <VmChip />
+        <PauseControl />
       </header>
+      <div className="bar-slot"><PausedBar /></div>
 
       <nav className="rail" aria-label="Main">
         <RailLink to={{ name: "home" }} current={route} icon={<Icon name="team" />}>Team</RailLink>
+        <RailLink to={{ name: "activity" }} current={route} icon={<Icon name="activity" />}>Activity</RailLink>
         <RailLink to={{ name: "tasks" }} current={route} icon={<Icon name="board" />}>
           <span className="grow">Tasks</span>
           {running > 0 && <span className="count" title={`${running} running or queued`}>{running}</span>}
@@ -137,6 +141,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       </nav>
 
       <main className="main">{children}</main>
+      {route.name !== "screen" && <ScreenPip />}
     </div>
   );
 }

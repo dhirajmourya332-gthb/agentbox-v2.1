@@ -15,6 +15,7 @@ import { Screen, System, Terminal } from "./views/Computer.tsx";
 import { TaskBoard } from "./views/Tasks.tsx";
 import { GroupChat, GroupEditor } from "./views/Groups.tsx";
 import { RoutineEditor, RoutinesList } from "./views/Routines.tsx";
+import { Activity } from "./views/Activity.tsx";
 import { DraftReview, SkillEditor, SkillsList } from "./views/Skills.tsx";
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
       {route.name === "group" && <GroupChat key={route.id} id={route.id} />}
       {route.name === "group-settings" && <GroupEditor key={route.id} id={route.id} />}
       {route.name === "new-group" && <GroupEditor />}
+      {route.name === "activity" && <Activity />}
       {route.name === "routines" && <RoutinesList />}
       {route.name === "routine" && <RoutineEditor key={route.id} id={route.id} />}
       {route.name === "new-routine" && <RoutineEditor agentId={route.agent} />}

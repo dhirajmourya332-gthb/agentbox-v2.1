@@ -9,7 +9,9 @@ import { subscribe } from "./bus.ts";
 import {
   createAgent, deleteAgent, dmThreadOf, getAgent, listAgents, listMemory, readInstructions, updateAgent, writeInstructions,
 } from "./agents.ts";
-import { agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
+import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
+import { activity, graph } from "./activity.ts";
+import { pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
 import {
   createRoutine, deleteRoutine, describeCron, forgetAgentRoutines, getRoutine, listRoutines, routineRuns, runRoutine, startRoutines,
@@ -54,7 +56,35 @@ const mustAgent = (id: string) => {
 
 // --- system -----------------------------------------------------------------
 app.get("/api/health", health);
-app.get("/api/state", async () => ({ agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups() }));
+app.get("/api/state", async () => ({
+  agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups(), paused: isPaused(), display: screen(),
+}));
+
+// --- owner controls -------------------------------------------------------------
+app.post("/api/pause", async (req) => {
+  pauseAll((req.body as any)?.stopRunning !== false);
+  return { paused: true };
+});
+app.post("/api/resume", async () => {
+  setPaused(false);
+  return { paused: false };
+});
+app.get("/api/control", async () => ({ paused: isPaused(), display: screen(), running: runningCount() }));
+app.post("/api/display/take", async () => {
+  takeDisplay();
+  return screen();
+});
+app.post("/api/display/release", async () => {
+  releaseDisplay();
+  return { ok: true };
+});
+
+// --- activity ---------------------------------------------------------------------
+app.get("/api/activity", async (req) => {
+  const q = req.query as any;
+  return activity({ limit: Math.min(Number(q.limit ?? 150), 500), agent: q.agent || undefined });
+});
+app.get("/api/graph", async (req) => graph(String((req.query as any).since ?? "")));
 
 // --- creating agents (the interview) ------------------------------------------
 app.get("/api/interview", async () => ({ questions: CORE_QUESTIONS, templates: TEMPLATES }));

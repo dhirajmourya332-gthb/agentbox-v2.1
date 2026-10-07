@@ -1,19 +1,25 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
+import { ScreenHolder, TakeControl } from "../components/Controls.tsx";
+import { useStore } from "../store.tsx";
 
 const host = location.hostname;
 const SCREEN_URL = `http://${host}:7701/vnc.html?autoconnect=1&resize=scale&reconnect=1&show_dot=1`;
 const TERMINAL_URL = `http://${host}:7702/`;
 
 export function Screen() {
+  const { display } = useStore();
+  const mine = display?.holder === "owner";
   return (
     <section className="frame-view" aria-label="Shared screen">
       <div className="toolbar">
         <strong>Shared screen</strong>
-        <span>Display :99 · every agent works on this screen</span>
-        <a className="spacer" href={SCREEN_URL} target="_blank" rel="noopener">Open in new tab ↗</a>
+        <ScreenHolder />
+        <span className="spacer" />
+        <TakeControl />
+        <a href={SCREEN_URL} target="_blank" rel="noopener">Open in new tab ↗</a>
       </div>
-      <iframe src={SCREEN_URL} title="Shared screen of the agentbox VM" />
+      <iframe src={SCREEN_URL} title="Shared screen of the agentbox VM" className={mine ? "in-control" : undefined} />
     </section>
   );
 }

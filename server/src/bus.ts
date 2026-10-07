@@ -19,7 +19,9 @@ export type BusEvent =
   | { type: "group.updated"; group: any }
   | { type: "group.deleted"; id: string }
   | { type: "routine.updated"; routine: any }
-  | { type: "routine.deleted"; id: string };
+  | { type: "routine.deleted"; id: string }
+  | { type: "display.updated"; display: any }
+  | { type: "paused"; paused: boolean };
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 

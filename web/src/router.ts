@@ -8,6 +8,7 @@ export type Route =
   | { name: "group-settings"; id: string }
   | { name: "new-group" }
   | { name: "routines" }
+  | { name: "activity" }
   | { name: "routine"; id: string }
   | { name: "new-routine"; agent?: string }
   | { name: "new-agent" }
@@ -34,6 +35,7 @@ export function parse(hash: string): Route {
   if (parts[0] === "skills" && parts[1] === "drafts" && parts[2]) return { name: "draft", id: parts[2] };
   if (parts[0] === "skills" && parts[1]) return { name: "skill", skill: parts[1] };
   if (parts[0] === "skills") return { name: "skills" };
+  if (parts[0] === "activity") return { name: "activity" };
   if (parts[0] === "screen" || parts[0] === "terminal" || parts[0] === "system") return { name: parts[0] };
   return { name: "home" };
 }

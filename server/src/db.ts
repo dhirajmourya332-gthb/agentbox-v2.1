@@ -100,6 +100,8 @@ export function run(sql: string, ...params: any[]) {
   return db.prepare(sql).run(...params);
 }
 
+db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+
 // --- migrations for databases created by earlier milestones -------------------
 const columns = (table: string) => all<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name);
 

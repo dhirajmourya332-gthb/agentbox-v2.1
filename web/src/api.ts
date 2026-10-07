@@ -44,6 +44,11 @@ export type Routine = {
   id: string; agent_id: string; thread_id: string; name: string; cron: string; timezone: string; prompt: string;
   enabled: boolean; created_by: string; created_at: string; next_runs: string[]; describe: string; last_run: RoutineRun | null;
 };
+export type DisplayHolder = { holder: string; reason: string; since: string; last_used: string; task_id: string | null } | null;
+export type ActivityItem = {
+  id: string; ts: string; kind: string; actor: string; agent_id: string | null; title: string; detail?: string; task_id?: string | null; link?: string;
+};
+export type GraphEdge = { from: string; to: string; kind: string; n: number; last: string };
 export type RoutineInput = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean };
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
 
@@ -72,7 +77,14 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
-  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[] }>("GET", "/api/state"),
+  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder }>("GET", "/api/state"),
+  pauseAll: (stopRunning: boolean) => call("POST", "/api/pause", { stopRunning }),
+  resumeAll: () => call("POST", "/api/resume"),
+  control: () => call<{ paused: boolean; display: DisplayHolder; running: number }>("GET", "/api/control"),
+  takeDisplay: () => call("POST", "/api/display/take"),
+  releaseDisplay: () => call("POST", "/api/display/release"),
+  activity: (agent?: string) => call<ActivityItem[]>("GET", `/api/activity${agent ? `?agent=${agent}` : ""}`),
+  graph: (since: string) => call<{ edges: GraphEdge[] }>("GET", `/api/graph?since=${encodeURIComponent(since)}`),
   health: () => call<any>("GET", "/api/health"),
   interview: () => call<{ questions: CoreQuestion[]; templates: Template[] }>("GET", "/api/interview"),
   followUps: (answers: Record<string, unknown>) =>

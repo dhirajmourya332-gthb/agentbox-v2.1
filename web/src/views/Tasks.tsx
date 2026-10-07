@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Agent, type Step, type Task } from "../api.ts";
+import { api, type Agent, type GraphEdge, type Step, type Task } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Avatar, Icon, Markdown, Spinner, duration, relTime } from "../components/ui.tsx";
 
@@ -22,6 +22,7 @@ export function TaskBoard({ selected }: { selected?: string }) {
   const { board, agents, loaded } = useStore();
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [showReports, setShowReports] = useState(false);
+  const [view, setView] = useState<"board" | "graph">("board");
   const byId = (id: string | null) => agents.find((a) => a.id === id);
 
   const tasks = useMemo(
@@ -40,6 +41,10 @@ export function TaskBoard({ selected }: { selected?: string }) {
           <h1>Tasks</h1>
           <p className="lede">Everything agents are working on: your requests, handoffs between agents, and scheduled runs.</p>
           <div className="toolbar board-filters">
+            <div className="segmented" role="group" aria-label="View">
+              <button aria-pressed={view === "board"} onClick={() => setView("board")}>Board</button>
+              <button aria-pressed={view === "graph"} onClick={() => setView("graph")}>Graph</button>
+            </div>
             <label className="hint" htmlFor="tf-agent">Agent</label>
             <select id="tf-agent" className="text" style={{ width: "auto", padding: "4px 8px" }} value={agentFilter}
               onChange={(e) => setAgentFilter(e.target.value)}>
@@ -51,7 +56,8 @@ export function TaskBoard({ selected }: { selected?: string }) {
               Show reports and messages
             </label>
           </div>
-          <div className="board">
+          {view === "graph" && <DelegationGraph onPick={(id) => { setAgentFilter(id); setView("board"); }} />}
+          {view === "board" && <div className="board">
             {COLUMNS.map((c) => {
               const list = tasks.filter(c.match);
               return (
@@ -80,7 +86,7 @@ export function TaskBoard({ selected }: { selected?: string }) {
                 </section>
               );
             })}
-          </div>
+          </div>}
         </div>
       </div>
       {selected && <TaskDetail key={selected} id={selected} />}
@@ -172,5 +178,103 @@ function TreeNode({ task, tree, current }: { task: Task; tree: Task[]; current: 
       </a>
       {kids.length > 0 && <ul>{kids.map((k) => <TreeNode key={k.id} task={k} tree={tree} current={current} />)}</ul>}
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+const WINDOWS = [
+  { key: "24h", label: "24 hours", ms: 86400000 },
+  { key: "7d", label: "7 days", ms: 7 * 86400000 },
+  { key: "30d", label: "30 days", ms: 30 * 86400000 },
+  { key: "all", label: "All time", ms: 0 },
+];
+
+/** Who hands work to whom: you, routines and agents as nodes; edge width is the number of tasks. */
+function DelegationGraph({ onPick }: { onPick: (agentId: string) => void }) {
+  const { agents, activityVersion } = useStore();
+  const [win, setWin] = useState("7d");
+  const [edges, setEdges] = useState<GraphEdge[]>([]);
+  useEffect(() => {
+    const ms = WINDOWS.find((w) => w.key === win)!.ms;
+    const since = ms ? new Date(Date.now() - ms).toISOString() : "";
+    api.graph(since).then((g) => setEdges(g.edges)).catch(() => {});
+  }, [win, activityVersion]);
+
+  const W = 760, H = 460, cx = W / 2, cy = H / 2 + 10, R = 165;
+  const usesRoutine = edges.some((e) => e.from === "routine");
+  const ids = ["user", ...(usesRoutine ? ["routine"] : []), ...agents.map((a) => a.id)];
+  const pos = new Map(ids.map((id, i) => {
+    const ang = -Math.PI / 2 + (2 * Math.PI * i) / ids.length;
+    return [id, { x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) }];
+  }));
+  const label = (id: string) => (id === "user" ? "You" : id === "routine" ? "Routines" : agents.find((a) => a.id === id)?.name ?? "?");
+  const color = (id: string) => (id === "user" ? "var(--line-strong)" : id === "routine" ? "var(--line-strong)" : agents.find((a) => a.id === id)?.color ?? "var(--muted)");
+  const max = Math.max(1, ...edges.map((e) => e.n));
+  const visible = edges.filter((e) => pos.has(e.from) && pos.has(e.to) && e.from !== e.to);
+
+  return (
+    <div className="graph">
+      <div className="toolbar" style={{ border: 0, background: "none", padding: "0 0 8px" }}>
+        <span className="hint">Window</span>
+        <div className="segmented" role="group" aria-label="Time window">
+          {WINDOWS.map((w) => <button key={w.key} aria-pressed={win === w.key} onClick={() => setWin(w.key)}>{w.label}</button>)}
+        </div>
+        <span className="hint spacer">Arrow width = number of tasks. Click an agent to see its tasks.</span>
+      </div>
+      {visible.length === 0 ? (
+        <p className="hint" style={{ padding: 24 }}>No requests or handoffs in this window.</p>
+      ) : (
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Delegation graph" style={{ width: "100%", maxWidth: W }}>
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)" />
+            </marker>
+          </defs>
+          {visible.map((e) => {
+            const a = pos.get(e.from)!, b = pos.get(e.to)!;
+            const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+            // Curve each edge a little so A→B and B→A don't overlap.
+            const nx = -dy / len, ny = dx / len, bend = 24;
+            const sx = a.x + (dx / len) * 30, sy = a.y + (dy / len) * 30;
+            const ex = b.x - (dx / len) * 34, ey = b.y - (dy / len) * 34;
+            const mx = (sx + ex) / 2 + nx * bend, my = (sy + ey) / 2 + ny * bend;
+            const w = 1.5 + (5 * e.n) / max;
+            return (
+              <g key={`${e.from}-${e.to}-${e.kind}`}>
+                <path d={`M${sx},${sy} Q${mx},${my} ${ex},${ey}`} fill="none" stroke={e.kind === "delegated" ? "var(--accent)" : "var(--muted)"}
+                  strokeOpacity={0.75} strokeWidth={w} strokeDasharray={e.kind === "message" ? "4 4" : undefined} markerEnd="url(#arrow)" />
+                <text x={mx} y={my - 6} textAnchor="middle" fontSize="12" fill="var(--text)">{e.n}</text>
+                <title>{`${label(e.from)} → ${label(e.to)}: ${e.n} ${e.kind}`}</title>
+              </g>
+            );
+          })}
+          {ids.map((id) => {
+            const p = pos.get(id)!;
+            const isAgent = id !== "user" && id !== "routine";
+            return (
+              <g key={id} className={isAgent ? "graph-node clickable" : "graph-node"} transform={`translate(${p.x},${p.y})`}
+                onClick={isAgent ? () => onPick(id) : undefined} role={isAgent ? "button" : undefined}
+                tabIndex={isAgent ? 0 : undefined} aria-label={isAgent ? `Show ${label(id)}'s tasks` : undefined}
+                onKeyDown={isAgent ? (ev) => { if (ev.key === "Enter") onPick(id); } : undefined}>
+                <circle r="24" fill={color(id)} stroke="var(--bg)" strokeWidth="3" />
+                <text y="5" textAnchor="middle" fontSize="13" fontWeight="600" fill={isAgent ? "#0E0F12" : "var(--text)"}>
+                  {id === "user" ? "You" : id === "routine" ? "⏱" : label(id).slice(0, 1).toUpperCase()}
+                </text>
+                {id !== "user" && <text y="44" textAnchor="middle" fontSize="12.5" fill="var(--text)">{label(id)}</text>}
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      <ul className="sr-only">
+        {visible.map((e) => <li key={`${e.from}-${e.to}-${e.kind}`}>{label(e.from)} → {label(e.to)}: {e.n} {e.kind}</li>)}
+      </ul>
+      <p className="hint" style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <span><span className="legend-line accent" /> delegated</span>
+        <span><span className="legend-line" /> asked by you / routine</span>
+        <span><span className="legend-line dashed" /> message</span>
+      </p>
+    </div>
   );
 }

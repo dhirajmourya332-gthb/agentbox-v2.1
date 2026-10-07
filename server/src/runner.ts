@@ -7,6 +7,7 @@ import { getAgent, homeOf, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillsOf } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
 import { afterAgentReply, groupPrompt, isNoReply } from "./groups.ts";
+import { displayState, releaseDisplay, setPaused, useDisplay, whenRunning } from "./control.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -75,7 +76,7 @@ export function enqueueTask(t: NewTask) {
   }
   publish({ type: "task.updated", task: taskRow(task.id) });
 
-  const next = (chains.get(t.agentId) ?? Promise.resolve()).then(() => runTask(task.id)).catch((err) => {
+  const next = (chains.get(t.agentId) ?? Promise.resolve()).then(whenRunning).then(() => runTask(task.id)).catch((err) => {
     console.error("task crashed", task.id, err);
   });
   chains.set(t.agentId, next);
@@ -91,6 +92,14 @@ export function sendMessage(agentId: string, threadId: string, text: string) {
     input: { author: "user", content: text },
   });
 }
+
+/** Pause all: hold the queue, and optionally stop every running turn. */
+export function pauseAll(stopRunning: boolean) {
+  setPaused(true);
+  if (stopRunning) for (const a of aborts.values()) a.abort();
+}
+
+export const runningCount = () => aborts.size;
 
 export function stopTask(taskId: string) {
   const t = taskRow(taskId);
@@ -131,6 +140,9 @@ directory; follow them.
 - Shared screen: X display :99, watched live by the owner. A shared Chromium runs on it with
   the owner's web logins (e.g. Microsoft Teams). Drive it with the \`browser\` tools.
   Other agents use this browser too: open your own tab for your work and close it when done.
+  One agent drives the screen at a time: agentbox gives it to you when you use the browser (or
+  xdotool/scrot) and refuses while someone else, or the owner, has it. If refused, do headless
+  work and try again later; never wait in a loop. It's released when your turn ends.
   To open a URL from the shell use \`agentbox-open <url>\`.
 - Other GUI apps: \`xdotool\` for input, \`scrot /tmp/s.png\` then Read the image to see the screen.
 
@@ -335,6 +347,7 @@ async function runTask(taskId: string) {
         },
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(agent) },
         env: { ...process.env, DISPLAY: ":99", BROWSER: "/usr/local/bin/agentbox-open" },
+        hooks: { PreToolUse: [{ hooks: [screenGuard(agent, taskId)] }] },
       },
     });
     let result: any;
@@ -379,8 +392,37 @@ async function runTask(taskId: string) {
     setStatus(agent.id, stopped ? "idle" : limited ? "limited" : "error");
   } finally {
     aborts.delete(taskId);
+    releaseDisplay(agent.id);
   }
 }
+
+// GUI work goes through the shared screen lock: the browser tools, and shell commands that drive
+// the display. Headless work (git, gh, tests, curl) never needs it.
+const GUI_SHELL = /\b(xdotool|scrot|agentbox-open|xdg-open|wmctrl|xclip)\b/;
+
+function screenGuard(agent: Agent, taskId: string) {
+  return async (input: any) => {
+    if (input.hook_event_name !== "PreToolUse") return {};
+    const name: string = input.tool_name ?? "";
+    const gui = name.startsWith("mcp__browser__") || (name === "Bash" && GUI_SHELL.test(String(input.tool_input?.command ?? "")));
+    if (!gui) return {};
+    const reason = taskRow(taskId)?.title ?? "";
+    const held = useDisplay(agent.id, reason, taskId);
+    if (!held) return {};
+    const who = held.holder === "owner" ? "the owner (who has taken control)" : getAgent(held.holder)?.name ?? "another agent";
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "deny" as const,
+        permissionDecisionReason:
+          `The shared screen is in use by ${who} (for ${Math.max(1, Math.round((Date.now() - new Date(held.since).getTime()) / 60000))} min${held.reason ? `: ${held.reason}` : ""}). ` +
+          "Do headless work meanwhile (shell, gh, git, files), then try the screen again later. Don't wait in a loop.",
+      },
+    };
+  };
+}
+
+export { displayState };
 
 function postAgentMessage(agent: Agent, task: any, content: string) {
   const message = { id: newId(), thread_id: task.thread_id, author: agent.id, task_id: task.id, content, created_at: now() };
