@@ -154,7 +154,9 @@ behave. Good follow-ups pin down concrete specifics the role depends on (e.g. fo
 which standards or checklists apply; for a deployer: which environments and how to verify; for
 a coder: branching and test conventions; for a coordinator: which teammates own which kinds of
 work). Suggested answers must fit how agentbox works (above); refer to existing teammates by
-name. Do not repeat anything already answered. Keep each
+name. Respect the tools the owner picked: never suggest a tool or service they left out (e.g. no
+Docker or AWS suggestions if those weren't picked); where a step would normally need one, suggest
+a way around it or handing that part to a teammate. Do not repeat anything already answered. Keep each
 question under 20 words. Offer 2-4 short suggested answers where that helps, else none.`,
     FOLLOWUP_SCHEMA,
   );
@@ -180,6 +182,8 @@ sections, in order, each short and concrete:
 ## Ask the owner first  (the boundaries, as a bullet list; never act on these without approval)
 ## Reporting
 
+Only give the agent the tools the owner picked; for tools left out, add a line under "Ask the
+owner first" saying not to use them and to hand such work to a teammate or the owner instead.
 If the agent works with teammates, describe handoffs in terms of agentbox's team tools
 ("delegate to <name>"), never Teams messages or GitHub comments. Use only facts from the
 interview and the team list. Where a detail the agent will need is missing, write a
