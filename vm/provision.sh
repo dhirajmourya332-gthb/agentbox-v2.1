@@ -51,8 +51,8 @@ as_user "command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh
 
 echo "--> user, dirs, helpers"
 usermod -aG docker "$AGENT_USER"
-mkdir -p /opt/agentbox/app /opt/agentbox/data /agents /work /skills
-chown -R "$AGENT_USER:$AGENT_USER" /opt/agentbox /agents /work /skills
+mkdir -p /opt/agentbox/app /opt/agentbox/data /agents /work /skills /team
+chown -R "$AGENT_USER:$AGENT_USER" /opt/agentbox /agents /work /skills /team
 install -m 0755 "$SRC/vm/bin/agentbox-chromium" /usr/local/bin/agentbox-chromium
 install -m 0755 "$SRC/vm/bin/agentbox-open" /usr/local/bin/agentbox-open
 # Tools that open a browser (gh, aws sso, claude, OAuth) use the shared Chromium.

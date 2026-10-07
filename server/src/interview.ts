@@ -131,6 +131,11 @@ How agents communicate (facts, do not contradict them):
 - Records of the work itself live where engineers expect them: GitHub issues, PRs and reviews.
 - Microsoft Teams is only for people: status updates, release notes, and questions for the
   owner's colleagues.
+- Team-wide rules live in /team/ and every agent already gets them, so job descriptions should
+  point to them rather than restate them. Today: GitHub issues follow
+  /team/brandsek-issue-guidelines.md plus /team/owner-issue-rules.md (new issues assigned to the
+  owner, on the "Brandsek - Scrum" board, in the current sprint). The main repo is
+  Brandsek/digital_risk.
 
 The team today:
 ${team}`;

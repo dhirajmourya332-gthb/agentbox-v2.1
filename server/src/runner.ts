@@ -102,6 +102,13 @@ directory; follow them.
   To open a URL from the shell use \`agentbox-open <url>\`.
 - Other GUI apps: \`xdotool\` for input, \`scrot /tmp/s.png\` then Read the image to see the screen.
 
+## Team documents
+The owner keeps team-wide rules in /team/. Before creating or editing GitHub issues, read
+/team/brandsek-issue-guidelines.md and /team/owner-issue-rules.md (the owner's rules override the
+guidelines). In short: every new issue is assigned to the owner (dhirajmourya332-gthb), is on the
+"Brandsek - Scrum" board (Brandsek org project #6), and has its Iteration set to the current sprint.
+Check \`ls /team\` for other team documents before work they might cover.
+
 ## Memory
 Your memory lives in ${homeOf(agent)}/memory/ with MEMORY.md as the index. Read the index when
 a task may depend on past work. When you learn something durable (a preference, a decision,
