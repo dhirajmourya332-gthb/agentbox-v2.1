@@ -151,6 +151,8 @@ Hand work to teammates with the team tools, never with Teams, email or GitHub co
   it: finish your turn and say what you handed off.
 - \`mcp__team__get_task\`: check a delegated task. \`mcp__team__list_agents\`: who's busy.
 - \`mcp__team__send_message\`: an FYI that needs no action.
+- \`mcp__team__schedule_routine\` / \`list_routines\` / \`cancel_routine\`: recurring jobs (e.g. a
+  check every 2 hours), when the owner asks for something to happen regularly.
 Delegate only work that fits a teammate's job. Chains are limited to ${LIMITS.depth} handoffs deep.
 If your current task came from a teammate, your final reply is your report to them.
 
@@ -197,6 +199,7 @@ function classify(name: string, input: any): { kind: string; label: string; summ
   if (name === "mcp__team__delegate_task") return { kind: "delegate", label: "Delegate", summary: `→ ${str(input?.to)}: ${str(input?.title)}` };
   if (name === "mcp__team__send_message") return { kind: "delegate", label: "Message", summary: `→ ${str(input?.to)}: ${first(str(input?.text))}` };
   if (name === "mcp__team__get_task") return { kind: "meta", label: "Check task", summary: str(input?.task_id) };
+  if (name === "mcp__team__schedule_routine") return { kind: "routine", label: "Schedule", summary: `${str(input?.name)} · ${str(input?.cron)}` };
   if (name === "mcp__team__list_agents") return { kind: "meta", label: "Team", summary: "list agents" };
   return { kind: "tool", label: name, summary: first(JSON.stringify(input ?? {})) };
 }

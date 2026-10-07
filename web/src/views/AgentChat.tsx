@@ -62,7 +62,7 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
         {threadId && isDm && <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0} />}
         {threadId && !isDm && (
           <p className="composer-hint" style={{ padding: "10px 24px 18px", margin: 0, maxWidth: "none", textAlign: "center" }}>
-            Handoffs between agents are read-only here. To talk to {agent.name}, use the <a href={`#/agents/${agent.id}`}>You</a> thread.
+            This thread is read-only. To talk to {agent.name}, use the <a href={`#/agents/${agent.id}`}>You</a> thread.
           </p>
         )}
       </section>
@@ -77,11 +77,12 @@ function ThreadTabs({ agent, threads, current }: { agent: Agent; threads: Thread
     <nav className="tabs thread-tabs" aria-label="Conversations">
       {threads.map((t) => {
         const peer = agents.find((a) => a.id === t.peer_agent_id);
-        const label = t.kind === "dm" ? "You" : `From ${peer?.name ?? "deleted agent"}`;
+        const label = t.kind === "dm" ? "You" : t.kind === "routine" ? (t.name ?? "Routine") : `From ${peer?.name ?? "deleted agent"}`;
         return (
           <a key={t.id} role="tab" aria-selected={t.id === current}
             href={t.kind === "dm" ? `#/agents/${agent.id}` : `#/agents/${agent.id}/threads/${t.id}`}>
             {peer && <Avatar name={peer.name} color={peer.color} size={16} />}
+            {t.kind === "routine" && <Icon name="routine" size={14} />}
             {label}
           </a>
         );
@@ -161,6 +162,21 @@ function Input({ message, task }: { message: Message; task?: Task }) {
         <div>
           <div className="msg-meta"><strong>You</strong><time dateTime={message.created_at}>{relTime(message.created_at)}</time></div>
           <div className="prose" style={{ whiteSpace: "pre-wrap" }}>{message.content}</div>
+        </div>
+      </div>
+    );
+  }
+  if (message.author === "routine") {
+    return (
+      <div className="msg">
+        <span className="avatar you-avatar" style={{ width: 28, height: 28 }} aria-hidden="true"><Icon name="routine" size={14} /></span>
+        <div>
+          <div className="msg-meta">
+            <strong>Routine</strong>
+            <time dateTime={message.created_at}>{relTime(message.created_at)}</time>
+            {task && <a className="hint" href={`#/tasks/${task.id}`}>task</a>}
+          </div>
+          <Markdown text={message.content} />
         </div>
       </div>
     );

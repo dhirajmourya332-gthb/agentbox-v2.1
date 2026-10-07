@@ -157,6 +157,6 @@ better-sqlite3 + Drizzle, croner, zod. UI: React + Vite (static, served by Fasti
 | 2 ✓ | Agents + skills | Any number of agents side by side, each with its own home, sessions, memory; skill library with editor, per-agent assignment, agent-proposed drafts you approve; starter skills (file-github-issue, review-pr, open-pr) |
 | 3 ✓ | Delegation | Team tools (delegate_task, send_message, get_task, list_agents); reports return to the delegator automatically; per-pair handoff threads; depth/back-delegation/fan-out limits; task board with delegation chains |
 | 4 ✓ | Groups | Create group, pick members and lead; @mentions bring members in, unaddressed messages go to the lead; agents pass turns by @mention; per-agent read tracking; NO_REPLY; pause after 12 agent turns with Continue |
-| 5 | Routines | tech-lead PR review every 2h; overlapping runs skipped |
+| 5 ✓ | Routines | Cron routines per agent (presets, timezone, next-run preview, ≥15 min apart); fresh session per run with memory carrying state; overlapping and rate-limited runs skipped with the reason logged; Run now; agents can schedule routines themselves |
 | 6 | Visibility | Activity feed, task board, agent graph, display-lock indicator |
 | later | | Approval gate, MS Graph MCP for Teams, per-agent GitHub identities |

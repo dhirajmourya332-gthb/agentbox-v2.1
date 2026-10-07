@@ -62,7 +62,9 @@ function VmChip() {
 
 function RailLink({ to, current, icon, children }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode }) {
   const skillsArea = ["skills", "skill", "new-skill", "draft"];
-  const active = to.name === "group"
+  const active = to.name === "routines"
+    ? ["routines", "routine", "new-routine"].includes(current.name)
+    : to.name === "group"
     ? (current.name === "group" || current.name === "group-settings") && current.id === to.id
     : to.name === "skills"
     ? skillsArea.includes(current.name)
@@ -94,6 +96,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           <span className="grow">Tasks</span>
           {running > 0 && <span className="count" title={`${running} running or queued`}>{running}</span>}
         </RailLink>
+
+        <RailLink to={{ name: "routines" }} current={route} icon={<Icon name="routine" />}>Routines</RailLink>
 
         <div className="rail-section">
           <span className="rail-label">Agents</span>

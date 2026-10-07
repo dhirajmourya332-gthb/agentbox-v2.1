@@ -11,6 +11,10 @@ import {
 } from "./agents.ts";
 import { agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
+import {
+  createRoutine, deleteRoutine, describeCron, forgetAgentRoutines, getRoutine, listRoutines, routineRuns, runRoutine, startRoutines,
+  updateRoutine, validateCron,
+} from "./routines.ts";
 import { continueGroup, createGroup, deleteGroup, getGroup, listGroups, postAsOwner, updateGroup } from "./groups.ts";
 import {
   approveDraft, deleteSkill, getDraft, getSkill, listDrafts, listSkills, rejectDraft, saveSkill, seedSkills,
@@ -86,6 +90,7 @@ app.delete("/api/agents/:id", async (req) => {
   const a = mustAgent((req.params as any).id);
   if (agentStatus(a.id).status === "working") throw new HttpError(409, `${a.name} is working; stop the task first`);
   deleteAgent(a.id);
+  forgetAgentRoutines(a.id);
   return { ok: true };
 });
 app.post("/api/agents/:id/reset-session", async (req) => {
@@ -192,7 +197,7 @@ app.get("/api/tasks/:id", async (req) => {
 app.get("/api/agents/:id/threads", async (req) => {
   const a = mustAgent((req.params as any).id);
   return all(
-    `SELECT id, kind, agent_id, peer_agent_id, created_at,
+    `SELECT id, kind, agent_id, peer_agent_id, name, created_at,
             (SELECT MAX(created_at) FROM messages WHERE thread_id = threads.id) AS last_at
      FROM threads WHERE agent_id = ? ORDER BY kind = 'dm' DESC, last_at DESC`,
     a.id,
@@ -218,6 +223,34 @@ app.post("/api/groups/:id/continue", async (req) => {
   return { ok: true };
 });
 
+// --- routines -------------------------------------------------------------------
+const routineInput = (b: any) => ({
+  agent_id: String(b?.agent_id ?? ""), name: String(b?.name ?? ""), cron: String(b?.cron ?? ""),
+  timezone: String(b?.timezone ?? "UTC"), prompt: String(b?.prompt ?? ""), enabled: b?.enabled !== false,
+});
+const mustRoutine = (id: string) => {
+  const r = getRoutine(id);
+  if (!r) throw new HttpError(404, "No such routine");
+  return r;
+};
+app.get("/api/routines", async () => listRoutines());
+app.post("/api/routines", async (req) => createRoutine(routineInput(req.body), "owner"));
+app.post("/api/routines/preview", async (req) => {
+  const b = req.body as any;
+  return { next_runs: validateCron(String(b?.cron ?? ""), String(b?.timezone ?? "UTC")), describe: describeCron(String(b?.cron ?? "")) };
+});
+app.get("/api/routines/:id", async (req) => ({ routine: mustRoutine((req.params as any).id), runs: routineRuns((req.params as any).id) }));
+app.put("/api/routines/:id", async (req) => updateRoutine(mustRoutine((req.params as any).id).id, routineInput(req.body)));
+app.delete("/api/routines/:id", async (req) => {
+  deleteRoutine(mustRoutine((req.params as any).id).id);
+  return { ok: true };
+});
+app.post("/api/routines/:id/run", async (req) => {
+  const r = mustRoutine((req.params as any).id);
+  const task = runRoutine(r.id, "manual");
+  return { started: !!task, routine: getRoutine(r.id) };
+});
+
 // --- live events ------------------------------------------------------------
 app.get("/api/events", { websocket: true }, (socket) => {
   const off = subscribe((e) => socket.send(JSON.stringify(e)));
@@ -232,4 +265,5 @@ if (fs.existsSync(webDist)) {
 }
 
 seedSkills();
+startRoutines();
 await app.listen({ host: "0.0.0.0", port });

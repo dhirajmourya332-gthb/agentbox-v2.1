@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type Group, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
+import { api, type Agent, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
 
 type State = {
   connected: boolean;
@@ -9,6 +9,7 @@ type State = {
   skills: Skill[];
   drafts: SkillDraft[];
   groups: Group[];
+  routines: Routine[];
   threads: Record<string, ThreadData>;
   /** Every task we've seen, for the board. */
   board: Record<string, Task>;
@@ -23,6 +24,7 @@ type Action =
   | { type: "connected"; value: boolean }
   | { type: "thread"; id: string; data: ThreadData }
   | { type: "board"; tasks: Task[] }
+  | { type: "routines"; routines: Routine[] }
   | { type: "event"; e: any };
 
 const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T) => number) => {
@@ -39,6 +41,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, connected: a.value };
     case "thread":
       return { ...s, threads: { ...s.threads, [a.id]: a.data } };
+    case "routines":
+      return { ...s, routines: a.routines };
     case "board":
       return { ...s, board: Object.fromEntries(a.tasks.map((t) => [t.id, t])) };
     case "event": {
@@ -67,6 +71,10 @@ function reducer(s: State, a: Action): State {
               ? upsert(s.drafts, e.draft)
               : s.drafts.filter((d) => d.id !== e.draft.id),
           };
+        case "routine.updated":
+          return { ...s, routines: upsert(s.routines, e.routine) };
+        case "routine.deleted":
+          return { ...s, routines: s.routines.filter((r) => r.id !== e.id) };
         case "group.updated":
           return { ...s, groups: upsert(s.groups, e.group) };
         case "group.deleted":
@@ -122,12 +130,13 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], threads: {}, live: {}, board: {}, threadsVersion: 0,
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], threads: {}, live: {}, board: {}, threadsVersion: 0,
   });
   const openThreads = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
-    const [s, k, t] = await Promise.all([api.state(), api.skills(), api.tasks()]);
+    const [s, k, t, r] = await Promise.all([api.state(), api.skills(), api.tasks(), api.routines()]);
+    dispatch({ type: "routines", routines: r });
     dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups });
     dispatch({ type: "board", tasks: t });
   }, []);

@@ -38,7 +38,13 @@ export type Step = {
 export type Group = {
   id: string; name: string; purpose: string; lead_agent_id: string | null; members: string[]; paused: boolean; created_at: string;
 };
-export type Thread = { id: string; kind: "dm" | "handoff" | "group"; agent_id: string; peer_agent_id: string | null; last_at: string | null };
+export type Thread = { id: string; kind: "dm" | "handoff" | "group" | "routine"; agent_id: string; peer_agent_id: string | null; name: string | null; last_at: string | null };
+export type RoutineRun = { id: string; at: string; trigger: "schedule" | "manual"; outcome: "started" | "skipped"; reason: string | null; task_id: string | null; task_status: string | null; task_error?: string | null };
+export type Routine = {
+  id: string; agent_id: string; thread_id: string; name: string; cron: string; timezone: string; prompt: string;
+  enabled: boolean; created_by: string; created_at: string; next_runs: string[]; describe: string; last_run: RoutineRun | null;
+};
+export type RoutineInput = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean };
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
 
 export type Usage = {
@@ -99,6 +105,13 @@ export const api = {
   updateGroup: (id: string, b: { name: string; purpose: string; members: string[]; lead: string | null }) => call<Group>("PUT", `/api/groups/${id}`, b),
   deleteGroup: (id: string) => call("DELETE", `/api/groups/${id}`),
   continueGroup: (id: string) => call("POST", `/api/groups/${id}/continue`),
+  routines: () => call<Routine[]>("GET", "/api/routines"),
+  routine: (id: string) => call<{ routine: Routine; runs: RoutineRun[] }>("GET", `/api/routines/${id}`),
+  createRoutine: (b: RoutineInput) => call<Routine>("POST", "/api/routines", b),
+  updateRoutine: (id: string, b: RoutineInput) => call<Routine>("PUT", `/api/routines/${id}`, b),
+  deleteRoutine: (id: string) => call("DELETE", `/api/routines/${id}`),
+  runRoutine: (id: string) => call<{ started: boolean; routine: Routine }>("POST", `/api/routines/${id}/run`),
+  previewCron: (cron: string, timezone: string) => call<{ next_runs: string[]; describe: string }>("POST", "/api/routines/preview", { cron, timezone }),
   thread: (id: string) => call<ThreadData>("GET", `/api/threads/${id}`),
   send: (threadId: string, text: string) => call("POST", `/api/threads/${threadId}/messages`, { text }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),

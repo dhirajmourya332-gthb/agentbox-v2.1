@@ -5,6 +5,7 @@ import { publish } from "./bus.ts";
 import { listAgents, type Agent } from "./agents.ts";
 import { proposeSkill, skillsOf } from "./skills.ts";
 import { agentStatus, enqueueTask, taskRow } from "./runner.ts";
+import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 
 /**
  * The internal channel between agents. Agents call these tools; agentbox queues the work,
@@ -173,6 +174,41 @@ export function teamServer(agent: Agent, taskId: string) {
           .map((k: any) => `  - ${k.title} → ${listAgents().find((a) => a.id === k.agent_id)?.name}: ${k.status} (${k.id})`);
         const report = t.result ? `\nReport:\n${String(t.result).slice(0, 4000)}` : t.error ? `\nError: ${t.error}` : "";
         return text(`"${t.title ?? t.prompt.slice(0, 80)}" → ${who}: ${t.status}${kids.length ? `\nDelegated further:\n${kids.join("\n")}` : ""}${report}`);
+      }),
+
+      tool(
+        "schedule_routine",
+        "Create a recurring routine: a prompt an agent (you by default) runs on a cron schedule, e.g. checking open PRs every 2 hours. The owner can see, pause and edit it in agentbox. Runs must be at least 15 minutes apart.",
+        {
+          name: z.string().describe("Short name, e.g. 'PR review'"),
+          cron: z.string().describe("5-field cron in the owner's timezone, e.g. '0 */2 * * *' (every 2 hours) or '30 9 * * 1-5' (weekdays 09:30)"),
+          prompt: z.string().describe("What to do each run, self-contained"),
+          agent: z.string().optional().describe("Teammate who runs it; defaults to you"),
+        },
+        async (args) => {
+          const target = args.agent ? findAgent(args.agent) : agent;
+          if (!target) return refuse(`No teammate called "${args.agent}".`);
+          try {
+            const r = createRoutine({ agent_id: target.id, name: args.name, cron: args.cron, timezone: defaultTimezone(), prompt: args.prompt, enabled: true }, agent.id);
+            return text(`Scheduled "${r.name}" for ${target.name}: ${r.describe} (${r.timezone}). Next run ${r.next_runs[0] ?? "—"}. Routine id ${r.id}.`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        },
+      ),
+
+      tool("list_routines", "List the routines you run, or that you created for teammates.", {}, async () => {
+        const mine = listRoutines().filter((r) => r.agent_id === agent.id || r.created_by === agent.id);
+        if (!mine.length) return text("No routines.");
+        return text(mine.map((r) => `- ${r.id}: "${r.name}" for ${listAgents().find((a) => a.id === r.agent_id)?.name}, ${describeCron(r.cron)} (${r.timezone})${r.enabled ? "" : " [paused]"}`).join("\n"));
+      }),
+
+      tool("cancel_routine", "Delete a routine you created.", { routine_id: z.string() }, async ({ routine_id }) => {
+        const r = listRoutines().find((x) => x.id === routine_id);
+        if (!r) return refuse("No routine with that id.");
+        if (r.created_by !== agent.id) return refuse("Only the owner can remove routines you didn't create; ask them.");
+        deleteRoutine(r.id);
+        return text(`Deleted "${r.name}".`);
       }),
 
       tool(
