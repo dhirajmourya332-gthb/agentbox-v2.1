@@ -14,7 +14,13 @@ if [ -z "$status" ]; then
   exit 1
 fi
 
-# 2. Start it if needed.
+# 2. Start it if needed. "Broken" (seen after the Mac sleeps): Lima's helper lost its control socket
+# while the VM kept running; a clean stop and start fixes it.
+if [ "$status" = "Broken" ]; then
+  say "==> VM $VM_NAME is in a broken state; restarting it cleanly"
+  "$LIMACTL" stop "$VM_NAME" >"$LIMA_HOME/$VM_NAME/agentbox-stop.log" 2>&1 || "$LIMACTL" stop --force "$VM_NAME" >>"$LIMA_HOME/$VM_NAME/agentbox-stop.log" 2>&1
+  status="$(vm_status)"
+fi
 if [ "$status" = "Running" ]; then
   say "==> VM $VM_NAME is already running"
 else
