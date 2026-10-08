@@ -300,6 +300,81 @@ so repeated work (especially routines) gets fast instead of being rebuilt each t
 - Lives as long as the routine; a finished task room's folder is kept (archived), not deleted
   with the room view. Shown in the room's Documents tab; scripts open in the reader.
 
+### 10. Android app (React Native / Expo): delegate and monitor from the phone, security first
+**Requirement:** an Android app showing what the web portal shows, so the owner can start and
+delegate tasks and monitor work away from the Mac. **Security is the main concern; the app itself
+is the easy part.**
+
+**Why it's risky:** today the portal has no login at all. It's safe only because it's bound to
+127.0.0.1 on the Mac. Whoever can reach it controls agents that have full control of the VM, plus
+the signed-in GitHub, AWS and Teams sessions. Reaching it from a phone means it's no longer just
+local, so it needs a private network path and real authentication.
+
+**Security design (to confirm before building)**
+- **Network: never on the public internet.**
+  - Recommended: **Tailscale** (WireGuard, free personal plan). The phone and the Mac/VM join a
+    private tailnet. `tailscale serve` exposes only the portal API over HTTPS on the tailnet.
+  - Tailnet ACLs allow only the owner's devices. No Funnel, no router port forwarding, no public DNS.
+  - Fallback if Tailscale is unsuitable: Cloudflare Tunnel with Cloudflare Access (SSO + device
+    posture) in front. This one is internet-reachable, so it's second choice.
+  - The screen (noVNC 7701) and terminal (ttyd 7702) are **never** exposed, only the API on 7700.
+- **Authentication, even inside the tailnet (defence in depth):**
+  - **Device pairing.** The desktop portal shows a QR code with a one-time code that expires after
+    2 minutes. The phone scans it and gets a **per-device credential**, stored in the Android
+    Keystore (`expo-secure-store`). The server keeps only a hash.
+  - Short-lived access tokens with a refresh token bound to the device; every API and WebSocket
+    call is checked.
+  - Requests from localhost keep working without a login, as today (or optionally require one).
+  - Pairing attempts are rate-limited; Origin and Host checks; CSP.
+  - **Devices page** on desktop: paired devices with their last use, **Revoke**, and **Revoke all**
+    (the kill switch for a lost phone).
+- **On the phone:**
+  - Biometric or device-PIN unlock to open the app, and again after a few minutes in the background
+    (`expo-local-authentication`).
+  - No secrets in the app bundle. Screenshots blocked on sensitive screens (FLAG_SECURE).
+  - Cached data is minimal, encrypted, and wiped on revoke or logout.
+- **What the phone may do (least privilege):**
+  - Allowed: start or delegate a task, message a task, stop a task, Pause all / Resume, run or pause
+    a routine, read rooms, activity, usage and documents.
+  - Not allowed: editing agent instructions, creating or deleting agents, approving skills, Take
+    control of the screen, the terminal, or deployment approvals.
+  - Risky actions need a second biometric check.
+  - Every mobile action is written to an audit log, shown in Activity as "via phone".
+- **Notifications (optional):**
+  - Push goes through Google FCM / Expo servers, so payloads carry **no content**, only "tech-lead
+    needs your input". The app then fetches details over the tailnet.
+  - Alternative: no push, and the app polls while it's open.
+- **Agents never see or handle** device credentials; pairing and revocation are owner-only, from the
+  desktop portal.
+
+**App (after the security pieces exist)**
+- Expo (React Native, TypeScript), Android only, **sideloaded APK** (EAS or local build), not on
+  the Play Store. Reuses the web's API types.
+- Screens:
+  - Work list and task rooms (live timeline over WebSocket);
+  - task chat with composer and Stop;
+  - New task;
+  - Routines (view, run now, enable or disable);
+  - Activity;
+  - usage and pause state;
+  - document reader (read-only).
+- Light and dark themes following the system setting.
+
+**Build order:**
+1. Auth layer in the server: pairing, tokens, Devices page, audit log; tested with the web portal
+   over the tailnet.
+2. Tailscale setup and ACLs.
+3. Security review: the security agent and the owner review it, with a threat model written in
+   `docs/`.
+4. The app.
+5. Push notifications, if wanted.
+
+**Open decisions:**
+- Tailscale (recommended) or Cloudflare Tunnel + Access.
+- Push notifications or none.
+- Final list of actions allowed from the phone.
+- Whether localhost should also require a login.
+
 ## In progress
 
 _Nothing yet._
