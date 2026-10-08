@@ -388,6 +388,11 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
 - **Voice:** `POST voice/transcribe` with `{audio, mime: "audio/mp4", purpose, agent_id?}`. AAC in
   .m4a, mono, 44.1 kHz, 64 kbit/s: about 2.4 MB (3.2 MB base64) for the 5-minute cap, so the
   route's gateway body limit must exceed the 1 MB default. Timeout 180 s.
+- **Voice v2 (app 1.2.0):** the app no longer records audio or calls `voice/transcribe`. Android's
+  speech recognition runs on the phone (on-device model when installed, else Google online), and the
+  app sends only the text: `POST voice/clean` `{text (1–4000), purpose, agent_id?, lang?}` →
+  `{text, raw, cleaned}`, timeout 60 s. 503 (cleanup not configured), 404/410 (older agentbox) and
+  other failures insert the raw text with a note; longer than 4000 characters skips cleanup.
 - **Push:** `POST device/push-token {token}` on each unlock when the token changed (the last sent
   token is kept in secure storage), `DELETE device/push-token` on Forget (before
   `device/forget`) and when notification permission has been turned off. Notification taps are

@@ -65,13 +65,21 @@ wipes it locally. If agentbox couldn't be reached, also **Revoke** it in the por
   return against both the wall clock and a monotonic clock; a clock set backwards also locks).
   Locking wipes the key and all loaded data from memory.
 - Screenshots and screen recording are blocked. App backups are off. Cleartext HTTP is off.
-- Permissions: camera (QR scan only), microphone (voice notes, asked for on the first tap of the
+- Permissions: camera (QR scan only), microphone (voice input, asked for on the first tap of the
   mic) and notifications (asked for once, after pairing or on the first unlock). Images are picked
   with the system photo picker (or the system file picker on older phones), which needs no storage
   permission. No foreground service, background recording, background fetch or boot receiver
   permissions (they're in `blockedPermissions`).
-- Voice notes record only while the app is open: going to the background or locking cancels and
-  deletes the recording. The audio file is deleted as soon as it's been read for sending.
+- Voice input uses Android's own speech recognition (`expo-speech-recognition`). It runs on-device
+  when the offline model for the chosen language is installed; otherwise the audio goes to the
+  phone's online Google recognition service. The listening bar says which ("on-device" or
+  "Google"). **Settings → Voice** picks the language (English (India), English (US), Hindi), turns on
+  "On-device only" (then voice never uses the online service) and downloads the offline model.
+  Only the recognised text is sent to agentbox (`POST /m/v1/voice/clean`) to tidy up; no audio
+  reaches agentbox and no audio file is kept. It goes in the box for review and is never sent on
+  its own. Going to the background, locking or leaving the screen aborts recognition and discards
+  everything heard. The speech module's manifest entry is a `<queries>` element (package visibility
+  for the Google app and any `android.speech.RecognitionService`), not a permission.
 - Notifications say only "Something needs you" and carry ids, never text. Tapping one opens the
   app, which still asks you to unlock before showing anything.
 - Every dialog is drawn in-app, so screenshot blocking covers it too. If screenshot blocking can't

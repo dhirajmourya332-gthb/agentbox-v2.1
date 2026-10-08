@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 import * as keyring from "./keyring";
 import { api, configure, forgetDevice, isHalted, NotRecognizedError, onHalt } from "./api";
 import { clearPending, unregisterPush } from "./push";
+import { clearVoicePrefs } from "./speech";
 import { loadPairing, savePairing, unlockKey, wipeAll, type Pairing } from "./vault";
 
 /**
@@ -118,7 +119,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await forgetDevice();
     keyring.wipe();
     configure(null);
-    await wipeAll();
+    await Promise.allSettled([wipeAll(), clearVoicePrefs()]);
     setPhase({ name: "unpaired" });
   }, []);
 
