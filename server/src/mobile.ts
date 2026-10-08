@@ -72,7 +72,7 @@ const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
   ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control",
     "groups", `groups/${ID}/documents`, "progress", "attention"]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
-  ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe",
+  ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe", "voice/clean",
     `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`]
     .map((p) => ({ method: "POST" as const, re: new RegExp(`^${p}$`) })),
 ];
@@ -492,7 +492,7 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     // Marking "needs you" items seen changes nothing an agent does, and the app does it on every
     // room it opens: not audited.
     if (res.statusCode >= 200 && res.statusCode < 300 && !rest.startsWith("attention/")) {
-      let ref: string | null = rest === "voice/transcribe" ? null : rest.split("/")[1] ?? null;
+      let ref: string | null = rest.startsWith("voice/") ? null : rest.split("/")[1] ?? null;
       if (rest === "work") {
         try { ref = String(JSON.parse(res.payload).id ?? "") || null; } catch { ref = null; }
       }

@@ -225,6 +225,13 @@ export const api = {
     if (!res.ok) throw Object.assign(new Error((data as any).error ?? `${res.status} ${res.statusText}`), { status: res.status });
     return data as { text: string; raw: string; duration_s: number; cleaned: boolean };
   },
+  /** Voice v2 (CONTRACTS-v2 C): tidy up text the browser recognised. Errors carry `status`. */
+  cleanVoice: async (body: { text: string; purpose: "task" | "message"; agent_id?: string; lang?: string }, signal?: AbortSignal) => {
+    const res = await fetch("/api/voice/clean", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error((data as any).error ?? `${res.status} ${res.statusText}`), { status: res.status });
+    return data as { text: string; raw: string; cleaned: boolean };
+  },
   upload: (name: string, type: string, data: string) => call<{ path: string; name: string; size: number }>("POST", "/api/uploads", { name, type, data }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),
   progress: () => call<Progress[]>("GET", "/api/progress"),

@@ -28,7 +28,7 @@ import {
   setAgentSkills, setSkillAgents, skillsOf,
 } from "./skills.ts";
 import { health } from "./health.ts";
-import { VoiceError, transcribeVoice } from "./voice.ts";
+import { VoiceError, cleanVoice, transcribeVoice } from "./voice.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
 import { startPush, wirePush } from "./push.ts";
 import { listProgress, startProgress } from "./progress.ts";
@@ -304,6 +304,13 @@ app.post("/api/voice/transcribe", { bodyLimit: 9 * 1024 * 1024 }, async (req) =>
   try { return await transcribeVoice(req.body); } catch (e: any) {
     if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
     throw new HttpError(500, "Transcription failed");
+  }
+});
+// Voice v2: the client recognises speech itself; this only tidies the text up. Never logged.
+app.post("/api/voice/clean", async (req) => {
+  try { return await cleanVoice(req.body); } catch (e: any) {
+    if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
+    throw new HttpError(500, "Cleanup failed");
   }
 });
 app.post("/api/threads/:id/messages", async (req) => {

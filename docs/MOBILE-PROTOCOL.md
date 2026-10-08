@@ -191,7 +191,7 @@ security review.
   such task, file not found, …) becomes 410** with the API's body, so a 404 from the gateway
   always means "not authenticated or not allowed". The app treats 410 as "not found".
 - `GET` responses are streamed (`payloadAsStream`), so `/m/v1/file` handles large and binary files.
-- Body limits: 16 MB for `uploads`, 21 MB for `voice/transcribe`, 8 KB for `/m/pair/claim`, 1 MB otherwise. Over the limit:
+- Body limits: 16 MB for `uploads`, 21 MB for `voice/transcribe`, 8 KB for `/m/pair/claim`, 1 MB otherwise (including `voice/clean`). Over the limit:
   empty 404 and the connection is closed.
 - Malformed HTTP also gets a bare 404 (`clientErrorHandler`); there are no `server` or
   `x-powered-by` headers. `HEAD` routes aren't exposed.
@@ -267,6 +267,13 @@ limit (base64 of at most 15 MB of audio). It forwards to `POST /api/voice/transc
 2xx is audited "dictated by voice · via phone (…)" with no `ref_id`; the audio and text are never
 stored or logged. Errors: 400, 413, 429 (20 a minute, 2 at once), 502 (provider), 503 (no
 `/secrets/zai.env`). Tests: `server/test/voice.test.ts`.
+
+**Voice v2 (CONTRACTS-v2 C):** `POST voice/clean` is allowlisted with the default 1 MB body limit.
+It forwards to `POST /api/voice/clean` with `{text, purpose, agent_id?, lang?}` (text 1–4000
+characters, recognised on the phone) and returns `{text, raw, cleaned}`. A 2xx is audited the same
+way, "dictated by voice · via phone (…)" with no `ref_id`; the text is never stored or logged.
+Errors: 400, 413 (over 4000 characters), 429 (30 a minute), 503. Cleanup failures are a 200 with
+the raw text and `cleaned: false`. Tests: `server/test/voice-clean.test.ts`.
 
 **Testing:** `server/test/mobile-gateway.test.ts` runs against a rehearsal server; the recipe is in
 `docs/MOBILE-SETUP.md` › Testing. It includes the cross-check vector (RFC 8032 TEST 1 key,
@@ -385,7 +392,12 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
   conversation is `GET threads/:groupId` and posting is `POST threads/:groupId/messages` (both
   already allowlisted). Documents: `GET groups/:id/documents` (contract E). Room documents:
   `GET work/:id/documents`. The viewer reads text and images through `GET file`.
-- **Voice:** `POST voice/transcribe` with `{audio, mime: "audio/mp4", purpose, agent_id?}`. AAC in
+- **Voice v2:** speech is recognised on the phone by Android's `SpeechRecognizer`, then the text
+  goes to `POST voice/clean` with `{text, purpose: "task"|"message", agent_id?, lang?}` (text
+  1–4000 characters; default 1 MB body limit) → `{text, raw, cleaned}`. Insert `text` at the
+  cursor with a "use raw" action that swaps in `raw`; never auto-send. 503 means cleanup isn't
+  configured: insert the recognised text as it is. Audited "dictated by voice · via phone".
+- **Voice v1 (no longer used by the app):** `POST voice/transcribe` with `{audio, mime: "audio/mp4", purpose, agent_id?}`. AAC in
   .m4a, mono, 44.1 kHz, 64 kbit/s: about 2.4 MB (3.2 MB base64) for the 5-minute cap, so the
   route's gateway body limit must exceed the 1 MB default. Timeout 180 s.
 - **Push:** `POST device/push-token {token}` on each unlock when the token changed (the last sent
