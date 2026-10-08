@@ -289,3 +289,77 @@ task where it can.
   off the tailnet, if Funnel is on or the policy grants the node the funnel capability.
 - Agents have root in the VM, so the tailnet ACL (enforced outside the VM) is the real boundary;
   see `docs/MOBILE-SETUP.md`.
+
+**Push notifications (v2, docs/CONTRACTS-v2.md › D)**
+Supersedes "Out of scope for v1: push notifications".
+- `POST /m/v1/device/push-token` with `{"token":"ExponentPushToken[…]"}` (or `ExpoPushToken[…]`;
+  the part in brackets is 8–200 of `[A-Za-z0-9_-]`). It is signed like any other request. It is
+  gateway-only (no `/api` route), takes **active devices only** (pending gets 404), and accepts a
+  body of at most 1 KB. Replies:
+  - `204` when stored;
+  - `400 {"error":"Invalid push token"}` for a bad format or bad JSON.
+
+  A token belongs to one device: registering it again from another device moves it.
+- `DELETE /m/v1/device/push-token`, with an empty body, replies `204`, even when no token was
+  stored. It has no query string; other methods get 404.
+- The token is a column on the device row (`devices.push_token`, `push_token_at`; an additive
+  migration). Revoke, deny, forget and revoke-all delete the row, and the token with it. The portal
+  only ever sees `push: true|false` per device, never the token. Turning notifications on or off is
+  audited ("turned on notifications · via phone (…)").
+- **Sender** (`server/src/push.ts`):
+  - For each new Attention item (`onAttention`), it pushes to every **active** device with a token,
+    through Expo (`https://exp.host/--/api/v2/push/send`, a JSON array, at most 100 per request).
+  - Each message: `title: "agentbox"`; `body: "Something needs you"` or `"N things need you"`;
+    `data: { kind, room_id, attention_id }` (ids only); `priority: "high"`; `channelId: "attention"`;
+    `ttl` 1 day.
+  - **Coalescing:** at most one push per device every 30 s. Items arriving in between are counted,
+    and one push goes when the window ends, carrying the newest item's ids.
+  - An attention id is pushed once. Items already seen are skipped.
+  - **Details mode** (portal toggle, `meta.push_details = "1"`, off by default): the body becomes the
+    attention title, cleaned to one printable line of at most 160 chars, or
+    `"N things need you. Latest: <title>"`. That text passes through Expo and Google (FCM).
+  - **Tickets:** a `DeviceNotRegistered` ticket clears that token at once.
+  - **Receipts:** for `ok` tickets, receipts are fetched about 15 minutes later
+    (`/--/api/v2/push/getReceipts`, up to 1000 ids per request), and `DeviceNotRegistered` clears the
+    token. Receipt ids are kept in memory, so a restart forgets pending ones; the next failed send
+    catches a dead token anyway.
+  - **Timeouts and retries:** 10 s per request. Network errors, timeouts, 429 and 5xx are retried
+    3 times with backoff (1 s, 2 s, 4 s, plus jitter). Other 4xx are not retried. Redirects are
+    refused.
+  - **Logging:** tokens and notification text are never logged. Only HTTP status codes and Expo
+    error codes are (e.g. `push: ticket error DeviceNotRegistered`).
+  - **`EXPO_ACCESS_TOKEN`** (optional, server environment): it is sent as
+    `Authorization: Bearer …`, and only to `exp.host`. It is needed only if "Enhanced security for
+    push notifications" is turned on for the Expo project (expo.dev › project › Settings ›
+    Access tokens). Without that setting, anyone holding a device's push token could send it a
+    notification, but the token itself never leaves the server and the phone.
+  - **`AGENTBOX_PUSH_URL`** (tests only): overrides the send URL. It must be `https://…/push/send`
+    or `http://` on loopback, otherwise nothing is sent. The receipts URL is derived from it.
+    `AGENTBOX_PUSH_COALESCE_MS` and `AGENTBOX_PUSH_RECEIPT_DELAY_MS` can only shorten the
+    windows.
+- **Portal admin** (adminGuard: never via the gateway; JSON required on writes):
+  - `GET /api/devices` adds `push: boolean` per device;
+  - `GET /api/devices/push` returns `{details}`;
+  - `PUT /api/devices/push` takes `{details: boolean}`;
+  - `POST /api/devices/:id/test-push` sends "Test notification" and replies:
+    - `200` when sent;
+    - `409` when the device has no token;
+    - `429` for more than one per 5 s;
+    - `502` when the push service refused it. `DeviceNotRegistered` here also turns that device's
+      notifications off.
+- **Wiring:** `index.ts` calls `startPush(log)` (the receipt checker). The attention hook is
+  connected with `wirePush(onAttention)`.
+
+**Group routes for phones (v2, docs/CONTRACTS-v2.md › E)**
+Added to the allowlist (read only):
+- `GET /m/v1/groups` → `GET /api/groups` (the list; `GET state` already includes it);
+- `GET /m/v1/groups/:id/documents` → `GET /api/groups/:id/documents` (410 for an unknown group).
+
+Already allowed and used for groups:
+- `GET /m/v1/threads/:id` (a group's id is its thread id: messages, tasks, steps);
+- `POST /m/v1/threads/:id/messages` (posts to the group as the owner).
+
+Still 404 through the gateway:
+- `POST groups` (create), `PUT groups/:id` (edit), `DELETE groups/:id`;
+- `POST groups/:id/continue` (resume after the turn limit). It isn't in the contract; add it
+  explicitly if the app needs it.

@@ -29,6 +29,7 @@ import {
 } from "./skills.ts";
 import { health } from "./health.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
+import { startPush } from "./push.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 7700);
@@ -430,6 +431,9 @@ if (fs.existsSync(webDist)) {
 migrateToInstances((m) => app.log.info(m));
 seedSkills();
 startRoutines();
+// Push notifications to paired phones (push.ts). The attention hook is connected with
+// wirePush(onAttention) once the attention module exists (docs/CONTRACTS-v2.md › B, D).
+startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });
 // Loopback only: Lima forwards 127.0.0.1-bound guest ports to the Mac, and nothing else in the VM
 // (e.g. a tailnet interface) should reach the portal.
 await app.listen({ host: "127.0.0.1", port });

@@ -23,6 +23,8 @@ export type Device = {
   id: string; name: string; public_key: string; fingerprint: string; app_version: string | null;
   tailnet_login: string | null; status: "pending" | "active"; created_at: string; approved_at: string | null;
   last_seen_at: string | null;
+  /** Expo push token (push.ts). Never returned to the portal: it only sees `push: boolean`. */
+  push_token?: string | null; push_token_at?: string | null;
 };
 
 const sha256 = (b: Uint8Array | string) => createHash("sha256").update(b).digest();
@@ -169,12 +171,48 @@ function removeDevice(id: string) {
 export function listDevices() {
   sweep();
   const rows = all<Device>(`SELECT * FROM devices ORDER BY created_at DESC`);
-  const view = ({ public_key: _pk, ...d }: Device) => ({
+  const view = ({ public_key: _pk, push_token, push_token_at: _pt, ...d }: Device) => ({
     ...d,
+    push: !!push_token,
     expires_at: d.status === "pending" ? new Date(new Date(d.created_at).getTime() + PENDING_TTL_MS).toISOString() : null,
   });
   return { pending: rows.filter((d) => d.status === "pending").map(view), active: rows.filter((d) => d.status === "active").map(view) };
 }
+
+// --- push tokens (push.ts sends; the gateway's /m/v1/device/push-token sets them) ---------------
+
+/** ExponentPushToken[…] or ExpoPushToken[…], URL-safe characters only, bounded. */
+export const PUSH_TOKEN = /^Expo(nent)?PushToken\[[A-Za-z0-9_-]{8,200}\]$/;
+
+/** Store the calling (active) device's token. A token belongs to one device: any older copy goes. */
+export function setPushToken(id: string, token: string) {
+  if (!PUSH_TOKEN.test(token)) return false;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    run(`UPDATE devices SET push_token = NULL, push_token_at = NULL WHERE push_token = ? AND id <> ?`, token, id);
+    const ok = Number(run(`UPDATE devices SET push_token = ?, push_token_at = ? WHERE id = ? AND status = 'active'`, token, now(), id).changes) === 1;
+    db.exec("COMMIT");
+    if (ok) changed();
+    return ok;
+  } catch (e) {
+    try { db.exec("ROLLBACK"); } catch { /* closed */ }
+    throw e;
+  }
+}
+
+/** Remove a device's token; with `onlyIf`, only while it is still that token (Expo said it's dead). */
+export function clearPushToken(id: string, onlyIf?: string) {
+  const r = onlyIf === undefined
+    ? run(`UPDATE devices SET push_token = NULL, push_token_at = NULL WHERE id = ? AND push_token IS NOT NULL`, id)
+    : run(`UPDATE devices SET push_token = NULL, push_token_at = NULL WHERE id = ? AND push_token = ?`, id, onlyIf);
+  const ok = Number(r.changes) > 0;
+  if (ok) changed();
+  return ok;
+}
+
+/** Active devices that have notifications on. */
+export const pushTargets = () =>
+  all<{ id: string; push_token: string }>(`SELECT id, push_token FROM devices WHERE status = 'active' AND push_token IS NOT NULL`);
 
 export function approveDevice(id: string) {
   const d = liveDevice(id);
@@ -226,6 +264,8 @@ const AUDIT_TITLES: [RegExp, string][] = [
   [/^uploads$/, "attached an image"],
   [/^device\/forget$/, "unpaired the phone"],
   [/^file$/, "opened a file"],
+  [/^device\/push-token\/on$/, "turned on notifications"],
+  [/^device\/push-token\/off$/, "turned off notifications"],
 ];
 export const auditTitle = (path: string) => AUDIT_TITLES.find(([re]) => re.test(path))?.[1] ?? `called ${path}`;
 

@@ -204,6 +204,14 @@ CREATE TABLE IF NOT EXISTS device_audit (
 );
 CREATE INDEX IF NOT EXISTS device_audit_ts ON device_audit(ts);
 `);
+// Push notifications (push.ts): the device's Expo push token. It lives on the device row, so a
+// revoke, forget, deny or revoke-all (which delete the row) removes it too. Never sent to the portal.
+for (const [col, type] of [
+  ["push_token", "TEXT"],
+  ["push_token_at", "TEXT"],
+] as const) {
+  if (!columns("devices").includes(col)) db.exec(`ALTER TABLE devices ADD COLUMN ${col} ${type}`);
+}
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS threads_handoff ON threads(kind, agent_id, peer_agent_id) WHERE kind = 'handoff'`);
 
 // A task that was running when the server stopped can never finish; mark it.

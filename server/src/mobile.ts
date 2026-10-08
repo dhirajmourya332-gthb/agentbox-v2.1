@@ -5,8 +5,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { subscribe } from "./bus.ts";
 import {
   approveDevice, audit, cancelPairings, claimPairing, createPairing, denyDevice, gatewayStatus, listDevices,
-  liveDevice, revokeAll, revokeDevice, setManualUrl, setOnRemoved, sweep, touchDevice, type Device,
+  liveDevice, revokeAll, revokeDevice, setManualUrl, setOnRemoved, setPushToken, clearPushToken, PUSH_TOKEN, sweep, touchDevice, type Device,
 } from "./devices.ts";
+import { pushDetails, sendTestPush, setPushDetails } from "./push.ts";
 import { b64urlBytes, canonicalMessage, verifySignature } from "./signing.ts";
 
 /**
@@ -40,6 +41,7 @@ const CLAIMS_PER_MIN_ALL = 30; // all sources together
 const REQS_PER_MIN = 600;      // per device
 const SOCKETS_PER_DEVICE = 4;
 const FILE_AUDIT_MS = 10 * 60_000; // one audit row per device and file per 10 minutes
+const PUSH_TOKEN_LIMIT = 1024;     // body of POST /m/v1/device/push-token
 
 /**
  * Events a phone receives: only what its allowlisted reads already expose. state (agents, usage,
@@ -57,7 +59,10 @@ const PHONE_EVENTS = new Set([
 
 const ID = "[A-Za-z0-9_-]{1,128}";
 const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
-  ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control"]
+  // Groups (contract E): the list and a group's documents. A group's thread and posting to it are
+  // threads/:id and threads/:id/messages. Creating, editing, deleting and continuing groups stay off.
+  ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control",
+    "groups", `groups/${ID}/documents`]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
   ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads"]
     .map((p) => ({ method: "POST" as const, re: new RegExp(`^${p}$`) })),
@@ -173,6 +178,18 @@ export function registerDeviceAdmin(app: FastifyInstance, mobilePort: number) {
   app.post("/api/devices/:id/deny", opts, act(denyDevice, "pending device"));
   app.post("/api/devices/:id/revoke", opts, act(revokeDevice, "device"));
   app.post("/api/devices/revoke-all", opts, async () => ({ revoked: revokeAll() }));
+  // Push notifications (push.ts). The portal only ever learns on/off per device, never a token.
+  app.get("/api/devices/push", opts, async () => ({ details: pushDetails() }));
+  app.put("/api/devices/push", opts, async (req, reply) => {
+    const details = (req.body as any)?.details;
+    if (typeof details !== "boolean") return reply.code(400).send({ error: "details must be true or false" });
+    return { details: setPushDetails(details) };
+  });
+  app.post("/api/devices/:id/test-push", opts, async (req, reply) => {
+    const r = await sendTestPush(String((req.params as any).id));
+    if (!r.ok) return reply.code(r.status).send({ error: r.error });
+    return { ok: true };
+  });
   app.get("/api/devices/gateway", opts, async (req) => gatewayStatus(mobilePort, (req.query as any)?.fresh === "1"));
   app.put("/api/devices/gateway", opts, async (req, reply) => {
     try {
@@ -307,7 +324,8 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     if (!path.startsWith("/m/v1/") || query.length > 4096) return empty(reply);
     const rest = path.slice(6);
     const special = !query && (
-      ((rest === "whoami" || rest === "events") && req.method === "GET") || (rest === "device/forget" && req.method === "POST"));
+      ((rest === "whoami" || rest === "events") && req.method === "GET") || (rest === "device/forget" && req.method === "POST") ||
+      (rest === "device/push-token" && (req.method === "POST" || req.method === "DELETE")));
     if (!special && !allowedRoute(req.method, rest)) return empty(reply);
 
     const h = req.headers;
@@ -371,6 +389,27 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     const d = req.ab.device;
     if (!revokeDevice(d.id)) return empty(reply);
     try { audit(d, "POST", "device/forget", 204, null); } catch (e) { log.error(e, "mobile audit failed"); }
+    return reply.code(204).send();
+  });
+
+  // The app's notification registration: stores or removes the calling device's Expo push token.
+  // Gateway-only (not an /api route); active devices only (onRequest refuses pending ones).
+  gw.post("/m/v1/device/push-token", { bodyLimit: PUSH_TOKEN_LIMIT }, async (req, reply) => {
+    if (!req.ab?.sigOk || req.ab.device.status !== "active") return empty(reply);
+    let token: unknown = null;
+    try { token = JSON.parse(Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "")?.token; } catch { /* below */ }
+    if (typeof token !== "string" || !PUSH_TOKEN.test(token)) {
+      return reply.code(400).header("content-type", "application/json").send(JSON.stringify({ error: "Invalid push token" }));
+    }
+    if (!setPushToken(req.ab.device.id, token)) return empty(reply); // revoked meanwhile
+    try { audit(req.ab.device, "POST", "device/push-token/on", 204, null); } catch (e) { log.error(e, "mobile audit failed"); }
+    return reply.code(204).send();
+  });
+  gw.delete("/m/v1/device/push-token", { bodyLimit: PUSH_TOKEN_LIMIT }, async (req, reply) => {
+    if (!req.ab?.sigOk || req.ab.device.status !== "active") return empty(reply);
+    if (clearPushToken(req.ab.device.id)) {
+      try { audit(req.ab.device, "DELETE", "device/push-token/off", 204, null); } catch (e) { log.error(e, "mobile audit failed"); }
+    }
     return reply.code(204).send();
   });
 
