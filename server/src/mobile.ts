@@ -33,7 +33,11 @@ function isGatewayToken(v: unknown) {
 const MB = 1024 * 1024;
 const BODY_LIMIT = 1 * MB;
 const UPLOAD_LIMIT = 16 * MB;
-const VOICE_LIMIT = 21 * MB; // base64 of 15 MB of audio (CONTRACTS-v2 C)
+const VOICE_LIMIT = 9 * MB; // base64 of 6 MB of audio
+// Big bodies (uploads, voice) are buffered whole before the signature check: at most 2 at once.
+const HEAVY = /^\/m\/v1\/(uploads|voice\/transcribe)(\?|$)/;
+const MAX_HEAVY = 2;
+let heavy = 0;
 const CLAIM_LIMIT = 8 * 1024;
 const WINDOW_MS = 60_000;      // |now − X-AB-Time| must be within this
 const NONCE_TTL_MS = 120_000;  // nonces remembered this long per device
@@ -314,10 +318,20 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
   });
 
   // Stage 1, before the body is read: shape of the request, device, clock, allowlist.
+  const releaseHeavy = async (req: FastifyRequest) => {
+    if ((req as any).abHeavy) { (req as any).abHeavy = false; heavy--; }
+  };
+  gw.addHook("onResponse", releaseHeavy);
+  gw.addHook("onRequestAbort", releaseHeavy);
   gw.addHook("onRequest", async (req, reply) => {
     // Browsers send Origin; the app doesn't. React Native's Android WebSocket adds one unless told
     // otherwise, so the app sends an empty one: empty counts as absent, anything else is refused.
     if (req.headers.origin !== undefined && req.headers.origin !== "") return empty(reply);
+    if (req.method === "POST" && HEAVY.test(req.url)) {
+      if (heavy >= MAX_HEAVY) return empty(reply);
+      heavy++;
+      (req as any).abHeavy = true;
+    }
     const { path, query } = splitUrl(req.url);
     if (req.method === "POST" && path === "/m/pair/claim" && !query) {
       // Phones are user devices, so tailscale serve always adds Tailscale-User-Login.

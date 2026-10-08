@@ -245,8 +245,9 @@ export async function sendAttentionPush(item: Attention) {
   if (!item || typeof item.id !== "string" || item.seen_at) return;
   const t = Date.now();
   for (const [id, at] of queued) if (t - at > DEDUPE_MS) queued.delete(id);
-  if (queued.has(item.id)) return;
-  queued.set(item.id, t);
+  const key = `${item.id}@${item.created_at}`; // a refreshed reply keeps its id but gets a new time
+  if (queued.has(key)) return;
+  queued.set(key, t);
   const now: string[] = [];
   for (const d of pushTargets()) {
     let s = slots.get(d.id);

@@ -329,8 +329,9 @@ async function main() {
     assert(h2.status === 200, `localhost host → ${h2.status}`);
     const o = await request(PORTAL, "GET", "/api/state", { origin: "https://evil.example" });
     assert(o.status === 403, `foreign origin → ${o.status}`);
+    // Another localhost port is another site: the Origin must equal the portal's own (Host).
     const o2 = await request(PORTAL, "GET", "/api/state", { origin: "http://localhost:5173" });
-    assert(o2.status === 200, `loopback origin → ${o2.status}`);
+    assert(o2.status === 403, `other localhost origin → ${o2.status}`);
     const n = await request(PORTAL, "GET", "/api/state", { origin: "null" });
     assert(n.status === 403, `null origin → ${n.status}`);
     const t = await request(PORTAL, "POST", "/api/pause", { "content-type": "text/plain" }, Buffer.from('{"stopRunning":false}'));

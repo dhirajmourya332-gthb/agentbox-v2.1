@@ -300,7 +300,7 @@ app.post("/api/uploads", { bodyLimit: 16 * 1024 * 1024 }, async (req) => {
 });
 // Voice input: transcribe and clean up; the text goes back into the box for review, never sent.
 // base64 of 15 MB of audio plus the JSON around it.
-app.post("/api/voice/transcribe", { bodyLimit: 21 * 1024 * 1024 }, async (req) => {
+app.post("/api/voice/transcribe", { bodyLimit: 9 * 1024 * 1024 }, async (req) => {
   try { return await transcribeVoice(req.body); } catch (e: any) {
     if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
     throw new HttpError(500, "Transcription failed");

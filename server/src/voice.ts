@@ -14,7 +14,7 @@ import { WORK_ROOT } from "./agents.ts";
  */
 
 const MB = 1024 * 1024;
-export const MAX_AUDIO_BYTES = 15 * MB;
+export const MAX_AUDIO_BYTES = 6 * MB; // 5 min of compressed speech is ~3 MB
 const MAX_SECONDS = 300;          // 5 min, the recorder's own cap
 const SLACK_SECONDS = 1.5;        // encoders pad a little
 const SEGMENT_SECONDS = 28;       // GLM-ASR takes ≤ 30 s per request
@@ -129,9 +129,12 @@ function runTool(cmd: string, args: string[], timeoutMs: number): Promise<Buffer
   });
 }
 
+/** ffmpeg/ffprobe may only read the local input file, and only as a known audio container (no playlists, concat lists or URLs). */
+const SAFE_INPUT = ["-protocol_whitelist", "file", "-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,ogg,mp3,wav,aac,flac"];
+
 /** Seconds according to the container, or null when it doesn't say (MediaRecorder webm often doesn't). */
 async function probeSeconds(file: string): Promise<number | null> {
-  const out = await runTool("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file], FFPROBE_TIMEOUT_MS)
+  const out = await runTool("ffprobe", ["-v", "error", ...SAFE_INPUT, "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file], FFPROBE_TIMEOUT_MS)
     .catch((e) => { if (e instanceof VoiceError && e.statusCode === 503) throw e; return null; });
   const n = Number(String(out ?? "").trim());
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -140,7 +143,7 @@ async function probeSeconds(file: string): Promise<number | null> {
 /** Any input → 16 kHz mono signed 16-bit PCM, capped just past the limit so we can tell it's over. */
 async function toPcm(input: string, output: string) {
   await runTool("ffmpeg", [
-    "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", input,
+    "-nostdin", "-hide_banner", "-loglevel", "error", "-y", ...SAFE_INPUT, "-i", input,
     "-vn", "-ac", "1", "-ar", String(RATE), "-t", String(MAX_SECONDS + SLACK_SECONDS + 1),
     "-f", "s16le", "-acodec", "pcm_s16le", output,
   ], FFMPEG_TIMEOUT_MS);
@@ -224,7 +227,7 @@ async function providerFetch(url: string, init: RequestInit, timeoutMs: number, 
     let detail = "";
     try {
       const e = (await res.json() as any)?.error ?? {};
-      detail = [e.code, e.message].filter((x) => typeof x === "string" || typeof x === "number").join(" ").replace(/\s+/g, " ").slice(0, 160);
+      detail = [e.code, e.message].filter((x) => typeof x === "string" || typeof x === "number").join(" ").replace(/\s+/g, " ").replace(/Bearer\s+\S+/gi, "Bearer …").replace(/[A-Za-z0-9._-]{24,}/g, "…").slice(0, 160);
     } catch { /* not JSON */ }
     throw new VoiceError(502, `${what} failed (HTTP ${res.status}${detail ? `: ${detail}` : ""})`);
   }
@@ -309,15 +312,16 @@ export async function transcribeVoice(body: any): Promise<VoiceResult> {
   if (purpose !== "task" && purpose !== "message") throw new VoiceError(400, "purpose must be task or message");
   const agentId = body?.agent_id == null ? undefined : String(body.agent_id).slice(0, 128);
   if (typeof body?.audio !== "string" || !body.audio) throw new VoiceError(400, "No audio");
-  if (body.audio.length > Math.ceil(MAX_AUDIO_BYTES / 3) * 4 + 4) throw new VoiceError(413, "The recording is too big (15 MB at most)");
+  if (body.audio.length > Math.ceil(MAX_AUDIO_BYTES / 3) * 4 + 4) throw new VoiceError(413, "The recording is too big (6 MB at most)");
   const audio = Buffer.from(body.audio, "base64");
   if (!audio.length) throw new VoiceError(400, "No audio");
-  if (audio.length > MAX_AUDIO_BYTES) throw new VoiceError(413, "The recording is too big (15 MB at most)");
+  if (audio.length > MAX_AUDIO_BYTES) throw new VoiceError(413, "The recording is too big (6 MB at most)");
 
   if (inFlight >= MAX_IN_FLIGHT) throw new VoiceError(429, "Still transcribing an earlier recording; try again in a moment");
   inFlight++;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentbox-voice-")); // 0700
+  let dir = "";
   try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "agentbox-voice-")); // 0700
     const input = path.join(dir, `in${ext}`);
     fs.writeFileSync(input, audio, { mode: 0o600 });
     const declared = await probeSeconds(input);
@@ -340,6 +344,6 @@ export async function transcribeVoice(body: any): Promise<VoiceResult> {
     return clean === null ? { text: raw, raw, duration_s, cleaned: false } : { text: clean, raw, duration_s, cleaned: true };
   } finally {
     inFlight--;
-    fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 }

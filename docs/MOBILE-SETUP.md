@@ -91,6 +91,11 @@ Revoke it on the Devices page. Its key is useless after that, even to someone wh
 the phone.
 
 ## Testing (for developers)
+
+> **In a VM that already runs Tailscale**, the gateway reports the real `*.ts.net` URL instead of the
+> test's manual one, and the pairing tests then fail. Put a stub first on `PATH` for the rehearsal:
+> `mkdir -p /tmp/stub && printf '#!/bin/sh\nexit 1\n' > /tmp/stub/tailscale && chmod +x /tmp/stub/tailscale`,
+> then start the rehearsal with `PATH=/tmp/stub:$PATH`.
 The gateway test client signs real requests. **Run it only against a rehearsal copy**, never the
 live server. In the VM:
 
