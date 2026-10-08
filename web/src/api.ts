@@ -201,6 +201,13 @@ export const api = {
   previewCron: (cron: string, timezone: string) => call<{ next_runs: string[]; describe: string }>("POST", "/api/routines/preview", { cron, timezone }),
   thread: (id: string) => call<ThreadData>("GET", `/api/threads/${id}`),
   send: (threadId: string, text: string, images?: string[]) => call("POST", `/api/threads/${threadId}/messages`, { text, images }),
+  /** Voice input (CONTRACTS-v2 C). Errors carry the HTTP status (`status`) so the UI can explain them. */
+  transcribe: async (body: { audio: string; mime: string; purpose: "task" | "message"; agent_id?: string }, signal?: AbortSignal) => {
+    const res = await fetch("/api/voice/transcribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error((data as any).error ?? `${res.status} ${res.statusText}`), { status: res.status });
+    return data as { text: string; raw: string; duration_s: number; cleaned: boolean };
+  },
   upload: (name: string, type: string, data: string) => call<{ path: string; name: string; size: number }>("POST", "/api/uploads", { name, type, data }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),
   // Device admin always sends a JSON body: the server requires it (it forces a CORS preflight).

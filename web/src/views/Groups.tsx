@@ -1,4 +1,5 @@
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
+import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, type Agent, type Group, type Message, type Step, type Task } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -192,6 +193,7 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
   const targets = mentioned(text, members);
 
   const att = useAttachments();
+  const voice = useVoice({ input: ref, text, setText, purpose: "message", agentId: lead?.id });
   function insert(a: Agent) {
     setText(text.replace(/@([A-Za-z0-9_-]*)$/, `@${a.slug} `));
     ref.current?.focus();
@@ -239,10 +241,12 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
         </div>
       )}
       <AttachmentStrip a={att} />
+      <VoiceStatus v={voice} />
       <div className={`composer${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
         <textarea ref={ref} rows={1} value={text} placeholder={`Message #${group.name} — @ to mention`} aria-label={`Message #${group.name}`}
           onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={att.onPaste} />
         <AttachButton a={att} />
+        <MicButton v={voice} />
         <button className="btn primary sm" style={{ minHeight: 34 }} disabled={(!text.trim() && !att.paths.length) || att.uploading} onClick={send} aria-label="Send">
           <Icon name="send" size={14} />
         </button>

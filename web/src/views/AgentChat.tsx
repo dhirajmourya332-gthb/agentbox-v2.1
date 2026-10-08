@@ -1,4 +1,5 @@
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
+import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, type Agent, type Message, type Step, type Task, type Thread } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -428,6 +429,7 @@ function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; 
   const att = useAttachments();
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const voice = useVoice({ input: ref, text, setText, purpose: "message", agentId: agent.id });
 
   useEffect(() => ref.current?.focus(), [agent.id]);
   useLayoutEffect(() => {
@@ -466,10 +468,12 @@ function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; 
         </div>
       )}
       <AttachmentStrip a={att} />
+      <VoiceStatus v={voice} />
       <div className={`composer${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
         <textarea ref={ref} rows={1} value={text} placeholder={`Message ${agent.name}…`} aria-label={`Message ${agent.name}`}
           onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={att.onPaste} />
         <AttachButton a={att} />
+        <MicButton v={voice} />
         <button className="btn primary sm" style={{ minHeight: 34 }} disabled={(!text.trim() && !att.paths.length) || att.uploading} onClick={() => send()} aria-label="Send">
           <Icon name="send" size={14} />
         </button>

@@ -1,4 +1,5 @@
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
+import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -17,6 +18,7 @@ export function NewTask({ roleId }: { roleId?: string }) {
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const att = useAttachments();
+  const voice = useVoice({ input: ref, text, setText, purpose: "task", agentId: picked ?? undefined });
 
   useEffect(() => {
     if (!picked && loaded) setPicked(roleId ?? lead?.id ?? roles[0]?.id ?? null);
@@ -84,10 +86,14 @@ export function NewTask({ roleId }: { roleId?: string }) {
         <div className={`field drop-zone${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <label htmlFor="nt-text">What needs doing?</label>
-            <AttachButton a={att} />
+            <span style={{ display: "flex", gap: 4 }}>
+              <AttachButton a={att} />
+              <MicButton v={voice} />
+            </span>
           </div>
           <textarea id="nt-text" ref={ref} className="text" rows={7} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={att.onPaste}
             placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the MSP portal. Ask me before filing the epic." : "e.g. Fix Dependabot alert #3232 in scrutex-guard/console."} />
+          <VoiceStatus v={voice} />
           <AttachmentStrip a={att} />
           <span className="hint">{att.uploading ? "Uploading image…" : "Paste (⌘V), drop or attach screenshots; the agent can open them."}</span>
         </div>
