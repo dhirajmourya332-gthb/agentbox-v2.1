@@ -612,6 +612,9 @@ button.row.doc-table-row:hover { background: var(--raised); }
 .voice-live { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
 .voice-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--bad); animation: voice-pulse 1.2s ease-in-out infinite; }
 @keyframes voice-pulse { 50% { opacity: .35; } }
+.voice-heard { flex: 1 1 120px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text); }
+.voice-lang { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); }
+.voice-first { flex-basis: 100%; font-size: 12px; padding: 0 4px 2px; }
 @media (prefers-reduced-motion: reduce) { .voice-dot { animation: none; } }
 /* Live progress: one line per working agent, pinned under the timeline */
 .live-bar { flex: none; max-height: 40vh; overflow-y: auto; border-top: 1px solid var(--line); background: var(--surface); }

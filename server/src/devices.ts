@@ -262,7 +262,7 @@ const AUDIT_TITLES: [RegExp, string][] = [
   [/^routines\/[^/]+\/run$/, "ran a routine"],
   [/^agents\/[^/]+\/done$/, "marked a task done"],
   [/^uploads$/, "attached an image"],
-  [/^voice\/transcribe$/, "dictated by voice"],
+  [/^voice\/(transcribe|clean)$/, "dictated by voice"],
   [/^device\/forget$/, "unpaired the phone"],
   [/^file$/, "opened a file"],
   [/^device\/push-token\/on$/, "turned on notifications"],

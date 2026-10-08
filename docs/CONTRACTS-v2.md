@@ -54,6 +54,31 @@ type Attention = {
   notifications.
 
 ## C. Voice (backlog 12): workstream "voice"
+**Voice v2 (what the clients use):** speech is recognised on the client by a free engine (the
+portal: Chrome's Web Speech API, `en-IN` by default, `en-US` and `hi-IN` selectable; the app:
+Android's own `SpeechRecognizer`). The server only tidies the text up:
+
+`POST /api/voice/clean` (**phone**, gateway body limit 1 MB). JSON:
+`{ text: string (1–4000 chars), purpose: "task"|"message", agent_id?, lang? }` (`lang` a BCP-47
+tag such as `en-IN`, a hint for the cleanup) → `{ text, raw, cleaned: boolean }`. When the
+cleanup fails (provider error, empty content, or a length change that looks like adding or
+dropping content) the answer is still 200 with `text = raw` and `cleaned: false`. Errors:
+- 400 bad input (no text, bad `purpose` or `lang`);
+- 413 text over 4000 characters;
+- 429 over 30 a minute;
+- 503 not configured (no `/secrets/zai.env` or no `ZAI_API_KEY`).
+
+The cleanup prompt removes fillers, stutters and false starts, resolves self-corrections, fixes
+misheard names from the glossary ("Known names: …": agent and instance names, `/work` repo names,
+fixed terms), writes issue and PR numbers as `#4957`, turns Hindi/Hinglish into English, and never
+adds, answers or drops anything. The text is never logged or stored. It uses `ZAI_CHAT_URL`,
+`ZAI_CLEAN_MODEL` and `ZAI_CHAT_KEY`/`ZAI_API_KEY` below (in the VM: the Coding Plan endpoint
+`https://api.z.ai/api/coding/paas/v4/chat/completions` and `glm-5.3-flash`, which always thinks,
+so the request sends `max_tokens` of 1024 plus the text length and no `thinking` field).
+
+**Voice v1 (kept, unused by the clients):** Z.ai GLM-ASR on uploaded audio; the account has no
+pay-per-use ASR balance.
+
 `POST /api/voice/transcribe` (**phone**, body limit about 21 MB). JSON:
 `{ audio: base64, mime, purpose: "task"|"message", agent_id? }`
 → `{ text, raw, duration_s, cleaned: boolean }`. Errors:
