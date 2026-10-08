@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { all, get, newId, now, run } from "./db.ts";
+import { helperLimitError } from "./rules.ts";
 import { publish } from "./bus.ts";
 import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, reviveInstance, rootOf, spawnInstance, type Agent } from "./agents.ts";
 import { proposeSkill, skillsOf } from "./skills.ts";
@@ -55,7 +56,12 @@ function authorOf(role: Agent, h: Handoff): Agent | undefined {
     for (const t of [a.label ?? "", ...all<{ title: string }>(`SELECT title FROM tasks WHERE agent_id = ?`, a.id).map((t) => t.title ?? "")]) {
       for (const n of refs(t)) seen.add(n);
     }
-    if ([...wanted].some((n) => seen.has(n))) return a.retired_at ? reviveInstance(a.id, h.from.id) : a;
+    if ([...wanted].some((n) => seen.has(n))) {
+      if (!a.retired_at) return a;
+      const over = helperLimitError(h.from);
+      if (over) throw new Error(over);
+      return reviveInstance(a.id, h.from.id);
+    }
   }
   return undefined;
 }
@@ -99,7 +105,7 @@ export function handOff(h: Handoff) {
   // Follow-up work (rework, review fixes) on an issue or PR goes back to the instance that did it.
   const target = checked.base_agent_id ? checked
     : checked.can_scale && h.from.base_agent_id ? leadFor(checked, h)
-    : (h.kind === "task" && authorOf(checked, h)) || spawnInstance(checked.id, { label: h.title, createdBy: h.from.id, parentInstanceId: h.from.base_agent_id ? h.from.id : null });
+    : (h.kind === "task" && authorOf(checked, h)) || spawnHelper(checked, h);
   if (target.id === h.from.id) throw new Error("That's you. Do the work yourself or pick a teammate.");
   h.routedTo = target;
   const threadId = dmThreadOf(target.id)!;
@@ -130,6 +136,13 @@ ${h.from.name} back (send_message) if they genuinely need to know something.`;
     depth: (h.fromTask.depth ?? 0) + 1,
     input: { author: h.from.id, content: h.kind === "task" ? `**${h.title}**\n\n${h.body}` : h.body },
   });
+}
+
+/** A new instance for a delegation, within the routine's helper limit if there is one. */
+function spawnHelper(role: Agent, h: Handoff) {
+  const over = helperLimitError(h.from);
+  if (over) throw new Error(over);
+  return spawnInstance(role.id, { label: h.title, createdBy: h.from.id, parentInstanceId: h.from.base_agent_id ? h.from.id : null });
 }
 
 /** The work item's lead of this role: the existing one, or a new one joining its room. */

@@ -570,3 +570,16 @@ button.row.doc-table-row:hover { background: var(--raised); }
 .room-filter-toggle strong { color: var(--text); font-weight: 500; }
 .room-filter-toggle .chev { display: inline-flex; transition: transform .12s ease-out; }
 .room-filter-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+
+.rules { border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--surface); padding: 0; gap: 0; }
+.rules-toggle { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; text-align: left; border: 0; background: none;
+  color: inherit; font: inherit; padding: 10px 12px; cursor: pointer; border-radius: var(--r-ctl); }
+.rules-toggle .chev { display: inline-flex; transition: transform .12s ease-out; }
+.rules-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.rules-toggle .hint { flex-basis: 100%; padding-left: 18px; }
+.rules-body { display: flex; flex-direction: column; gap: 14px; padding: 4px 12px 14px; }
+.rules-grid { display: grid; grid-template-columns: minmax(130px, auto) 1fr; gap: 8px 12px; align-items: center; }
+.rules-grid label { font-weight: 500; }
+@media (max-width: 560px) { .rules-grid { grid-template-columns: 1fr; } }
+.warn-note { margin: 0; padding: 8px 10px; border-radius: var(--r-ctl); font-size: 12.5px;
+  background: color-mix(in srgb, var(--danger, #d9534f) 12%, transparent); color: var(--text); }

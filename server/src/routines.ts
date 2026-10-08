@@ -1,6 +1,7 @@
 import { Cron } from "croner";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
+import { normalizeRules, parseRules, summarizePerms, type RoutineRules } from "./rules.ts";
 import { ensureWorkspace, getAgent, instanceTree, retireReplica, spawnInstance, type Agent } from "./agents.ts";
 import { currentUsage, enqueueTask, openTasksOf, resetSession } from "./runner.ts";
 import { isPaused } from "./control.ts";
@@ -37,6 +38,7 @@ run(`CREATE INDEX IF NOT EXISTS routine_runs_by ON routine_runs(routine_id, at)`
 for (const [col, type] of [
   ["instance_id", "TEXT REFERENCES agents(id) ON DELETE SET NULL"],
   ["context_mode", "TEXT NOT NULL DEFAULT 'continue'"], // continue | fresh
+  ["rules", "TEXT"], // the owner's standing orders for the routine's group (rules.ts)
   ["runs_since_compact", "INTEGER NOT NULL DEFAULT 0"],
   ["last_compact_at", "TEXT"],
 ] as const) {
@@ -49,6 +51,7 @@ export type Routine = {
   id: string; agent_id: string; thread_id: string; name: string; cron: string; timezone: string; prompt: string;
   enabled: boolean; created_by: string; created_at: string;
   next_runs: string[]; describe: string; last_run: any | null;
+  rules: RoutineRules; rules_summary: string[];
 };
 
 const jobs = new Map<string, Cron>();
@@ -101,6 +104,7 @@ function view(r: any): Routine {
   const group = inst ? instanceTree(inst.id).filter((a) => !a.retired_at) : [];
   return {
     ...r, enabled: !!r.enabled, next_runs: next, describe: describeCron(r.cron),
+    rules: parseRules(r.rules), rules_summary: summarizePerms(parseRules(r.rules).perms),
     last_run: last ? { ...last, task_status: lastTask?.status ?? null } : null,
     group: group.map((a) => ({ id: a.id, name: a.name, label: a.label, role_id: a.base_agent_id, context_tokens: a.context_tokens ?? null })),
     workspace: inst?.workspace ?? null,
@@ -188,7 +192,10 @@ export const routineRuns = (id: string, limit = 30) =>
     id, limit,
   );
 
-type Input = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean; context_mode?: string };
+type Input = {
+  agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean; context_mode?: string;
+  rules?: unknown; // omitted: keep the current rules
+};
 
 function check(i: Input) {
   if (!getAgent(i.agent_id)) throw new Error("Pick an agent");
@@ -219,10 +226,10 @@ export function createRoutine(i: Input, createdBy: string) {
   const threadId = get<{ id: string }>(`SELECT id FROM threads WHERE agent_id = ? AND kind = 'dm'`, instance.id)!.id;
   run(`UPDATE threads SET kind = 'routine', name = ? WHERE id = ?`, i.name.trim(), threadId);
   run(
-    `INSERT INTO routines (id, agent_id, thread_id, name, cron, timezone, prompt, enabled, created_by, created_at, instance_id, context_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO routines (id, agent_id, thread_id, name, cron, timezone, prompt, enabled, created_by, created_at, instance_id, context_mode, rules)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id, roleId, threadId, i.name.trim(), i.cron.trim(), i.timezone, i.prompt.trim(), i.enabled ? 1 : 0, createdBy, now(), instance.id,
-    i.context_mode === "fresh" ? "fresh" : "continue",
+    i.context_mode === "fresh" ? "fresh" : "continue", JSON.stringify(normalizeRules(i.rules)),
   );
   publish({ type: "thread.created", thread: { id: threadId, kind: "routine", agent_id: instance.id } });
   schedule(id);
@@ -237,9 +244,10 @@ export function updateRoutine(id: string, i: Input) {
   if ((getAgent(i.agent_id)?.base_agent_id ?? i.agent_id) !== r.agent_id) throw new Error("A routine can't move to another agent; create a new one");
   check(i);
   run(
-    `UPDATE routines SET name = ?, cron = ?, timezone = ?, prompt = ?, enabled = ?, context_mode = ? WHERE id = ?`,
+    `UPDATE routines SET name = ?, cron = ?, timezone = ?, prompt = ?, enabled = ?, context_mode = ?, rules = ? WHERE id = ?`,
     i.name.trim(), i.cron.trim(), i.timezone, i.prompt.trim(), i.enabled ? 1 : 0,
-    i.context_mode === "fresh" ? "fresh" : i.context_mode === "continue" ? "continue" : r.context_mode, id,
+    i.context_mode === "fresh" ? "fresh" : i.context_mode === "continue" ? "continue" : r.context_mode,
+    i.rules === undefined ? r.rules : JSON.stringify(normalizeRules(i.rules)), id,
   );
   run(`UPDATE threads SET name = ? WHERE id = ?`, i.name.trim(), r.thread_id);
   if (r.instance_id) run(`UPDATE agents SET label = ? WHERE id = ?`, i.name.trim(), r.instance_id);

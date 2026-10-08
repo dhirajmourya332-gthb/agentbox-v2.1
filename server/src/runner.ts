@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish, type AgentStatus } from "./bus.ts";
+import { rulesGuard, rulesNote } from "./rules.ts";
 import { baseOf, DEFAULT_PER_CREATOR, ensureWorkspace, getAgent, homeOf, rootOf, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillsOf } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
@@ -253,7 +254,7 @@ skill covers it), or the owner asks you to remember how to do something, call
 \`mcp__team__propose_skill\` with a reusable, general version of the steps. The owner reviews
 proposals before they join the library.
 
-${workNote(agent)}## Documents
+${workNote(agent)}${rulesNote(agent)}## Documents
 When you write a document for the owner or the team (a plan, requirements, report, analysis,
 runbook), save it in ${homeOf(agent)}/docs/ (create the folder) with a dated, descriptive name,
 e.g. docs/2026-10-08-msp-api-keys-requirements.md, unless it belongs in a repo. Documents in your
@@ -447,7 +448,7 @@ async function runTask(taskId: string) {
         },
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(agent) },
         env: { ...process.env, DISPLAY: ":99", BROWSER: "/usr/local/bin/agentbox-open" },
-        hooks: { PreToolUse: [{ hooks: [screenGuard(agent, taskId)] }] },
+        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), screenGuard(agent, taskId)] }] },
       },
     });
     let result: any;

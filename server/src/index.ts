@@ -365,6 +365,7 @@ const routineInput = (b: any) => ({
   agent_id: String(b?.agent_id ?? ""), name: String(b?.name ?? ""), cron: String(b?.cron ?? ""),
   timezone: String(b?.timezone ?? "UTC"), prompt: String(b?.prompt ?? ""), enabled: b?.enabled !== false,
   context_mode: b?.context_mode ? String(b.context_mode) : undefined,
+  rules: b?.rules === undefined ? undefined : b.rules,
 });
 const mustRoutine = (id: string) => {
   const r = getRoutine(id);

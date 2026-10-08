@@ -76,13 +76,25 @@ export type Routine = {
   instance_id: string | null; context_mode: "continue" | "fresh"; workspace: string | null;
   group: { id: string; name: string; label: string | null; role_id: string; context_tokens: number | null }[];
   compaction: { runs_since: number; last_at: string | null; context_tokens: number; due: string[] };
+  rules: RoutineRules; rules_summary: string[];
+};
+export type RoutineRules = {
+  everyone: string;
+  roles: Record<string, string>;
+  perms: {
+    merge_main: "never" | "safe" | "allowed" | null;
+    deploy: "none" | "staging" | "production" | null;
+    issues: boolean | null;
+    teams: boolean | null;
+    max_helpers: number | null;
+  };
 };
 export type DisplayHolder = { holder: string; reason: string; since: string; last_used: string; task_id: string | null } | null;
 export type ActivityItem = {
   id: string; ts: string; kind: string; actor: string; agent_id: string | null; title: string; detail?: string; task_id?: string | null; link?: string;
 };
 export type GraphEdge = { from: string; to: string; kind: string; n: number; last: string };
-export type RoutineInput = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean; context_mode?: "continue" | "fresh" };
+export type RoutineInput = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean; context_mode?: "continue" | "fresh"; rules?: RoutineRules };
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
 
 export type Usage = {

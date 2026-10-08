@@ -3,6 +3,7 @@ import { api, type Routine, type RoutineInput, type RoutineRun } from "../api.ts
 import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
 import { Avatar, Icon, relTime } from "../components/ui.tsx";
+import { EMPTY_RULES, RoutineRulesEditor } from "./RoutineRules.tsx";
 
 const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -110,6 +111,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
     prompt: existing?.prompt ?? "",
     enabled: existing?.enabled ?? true,
     context_mode: existing?.context_mode ?? "continue",
+    rules: existing?.rules ?? EMPTY_RULES,
   }));
   const [preview, setPreview] = useState<{ next_runs: string[]; describe: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -119,7 +121,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
-    if (existing) setForm({ agent_id: existing.agent_id, name: existing.name, cron: existing.cron, timezone: existing.timezone, prompt: existing.prompt, enabled: existing.enabled, context_mode: existing.context_mode });
+    if (existing) setForm({ agent_id: existing.agent_id, name: existing.name, cron: existing.cron, timezone: existing.timezone, prompt: existing.prompt, enabled: existing.enabled, context_mode: existing.context_mode, rules: existing.rules ?? EMPTY_RULES });
   }, [existing?.id]);
   useEffect(() => {
     if (!id) return;
@@ -242,6 +244,9 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
               : "The routine's agents carry their conversation from run to run, so they don't re-explore. It's compacted after 5 runs, 24 hours or 100k tokens, whichever comes first."}
           </span>
         </div>
+
+        <RoutineRulesEditor rules={form.rules ?? EMPTY_RULES} routineRoleId={agent?.base_agent_id ?? form.agent_id}
+          onChange={(rules) => setForm({ ...form, rules })} />
 
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
