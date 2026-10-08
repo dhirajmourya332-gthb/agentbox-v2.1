@@ -2,7 +2,7 @@
   "expo": {
     "name": "agentbox",
     "slug": "agentbox",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "platforms": [
       "android"
     ],
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "local.agentbox.mobile",
-      "versionCode": 2,
+      "versionCode": 3,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -51,7 +51,8 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "com.google.android.gms.permission.AD_ID"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       [
