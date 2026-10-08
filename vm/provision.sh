@@ -55,6 +55,8 @@ mkdir -p /opt/agentbox/app /opt/agentbox/data /agents /work /skills /team
 chown -R "$AGENT_USER:$AGENT_USER" /opt/agentbox /agents /work /skills /team
 install -m 0755 "$SRC/vm/bin/agentbox-chromium" /usr/local/bin/agentbox-chromium
 install -m 0755 "$SRC/vm/bin/agentbox-open" /usr/local/bin/agentbox-open
+# Tailnet firewall; only enabled by scripts/mobile-setup.sh, when the VM joins a tailnet.
+install -m 0755 "$SRC/vm/bin/agentbox-tailnet-guard" /usr/local/bin/agentbox-tailnet-guard
 # Tools that open a browser (gh, aws sso, claude, OAuth) use the shared Chromium.
 ln -sf /usr/local/bin/agentbox-open /usr/local/bin/xdg-open
 # Every login shell (ttyd, limactl shell, agents) sees the shared display.

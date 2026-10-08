@@ -5,13 +5,13 @@ import { Avatar, Icon } from "../components/ui.tsx";
 
 const VERB: Record<string, string> = {
   asked: "was asked", delegated: "was handed", message: "got a message", routine: "started routine", group: "replied in",
-  finished: "finished", failed: "failed", stopped: "was stopped on", github: "", skill: "", skipped: "",
+  finished: "finished", failed: "failed", stopped: "was stopped on", github: "", skill: "", skipped: "", phone: "",
 };
-const TONE: Record<string, string> = { finished: "ok", failed: "bad", stopped: "warn", skipped: "warn", github: "accent", skill: "accent" };
+const TONE: Record<string, string> = { finished: "ok", failed: "bad", stopped: "warn", skipped: "warn", github: "accent", skill: "accent", phone: "accent" };
 
 const TYPES = [
   { key: "all", label: "Everything" },
-  { key: "work", label: "Requests & handoffs", kinds: ["asked", "delegated", "message", "group", "routine"] },
+  { key: "work", label: "Requests & handoffs", kinds: ["asked", "delegated", "message", "group", "routine", "phone"] },
   { key: "outcomes", label: "Outcomes", kinds: ["finished", "failed", "stopped", "skipped"] },
   { key: "github", label: "GitHub & AWS", kinds: ["github"] },
 ];
@@ -78,7 +78,8 @@ export function Activity() {
             const href = i.link ?? (i.task_id ? `#/tasks/${i.task_id}` : undefined);
             const who = nameOf(i.agent_id);
             const sentence =
-              i.kind === "github" || i.kind === "skill" || i.kind === "skipped" ? <><strong>{who}</strong> {i.title}</>
+              i.kind === "phone" ? <><strong>You</strong> {i.title}</>
+              : i.kind === "github" || i.kind === "skill" || i.kind === "skipped" ? <><strong>{who}</strong> {i.title}</>
               : i.kind === "delegated" ? <><strong>{nameOf(i.actor)}</strong> handed <strong>{who}</strong> “{i.title}”</>
               : i.kind === "asked" ? <><strong>You</strong> asked <strong>{who}</strong>: “{i.title}”</>
               : i.kind === "message" ? <><strong>{nameOf(i.actor)}</strong> messaged <strong>{who}</strong></>

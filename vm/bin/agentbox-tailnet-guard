@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Tailnet firewall for the agentbox VM (docs/MOBILE-SETUP.md). Installed by scripts/install-units.sh.
+#
+#   agentbox-tailnet-guard            load (or atomically reload) the rules
+#   agentbox-tailnet-guard --ensure   reload only if the table or its drop rules are missing
+#                                     (agentbox-tailnet-guard-watch.timer runs this every 60 s)
+#
+# Once the VM joins a tailnet, anything listening on 0.0.0.0 in the VM (sshd for Lima, dev servers
+# agents start, …) would be reachable from other tailnet devices. This drops ALL traffic arriving
+# on tailscale0, and stops the VM from opening connections to other tailnet devices (agents have
+# full control of the VM and must not reach the owner's other machines).
+#
+# The mobile gateway still works: `tailscale serve` is handled inside tailscaled. In kernel-TUN
+# mode, tailscaled's netstack intercepts TCP to the node's own Tailscale IPs on serve ports
+# (wgengine/netstack: shouldProcessInbound → ShouldInterceptTCPPort) before the packet is written
+# to the tailscale0 device, so the kernel never sees it and these rules don't apply. The proxied
+# connection to 127.0.0.1:7710 goes over loopback, not tailscale0. If that ever changed, phones
+# would fail to connect (fail closed) and nothing else would be exposed.
+#
+# Agents have sudo, so the tailnet ACL is the real control; this is defence in depth.
+set -euo pipefail
+
+
+present() {
+  local out
+  out="$(nft list table inet agentbox_tailnet 2>/dev/null)" || return 1
+  grep -q 'iifname "tailscale0" .*drop' <<<"$out" && grep -q 'oifname "tailscale0" .*drop' <<<"$out"
+}
+
+apply() {
+  # One transaction: create-if-missing, delete, recreate. Never a moment without the rules.
+  nft -f - <<'NFT'
+table inet agentbox_tailnet
+delete table inet agentbox_tailnet
+table inet agentbox_tailnet {
+  chain input {
+    type filter hook input priority -10; policy accept;
+    iifname "tailscale0" counter drop
+  }
+  chain output {
+    type filter hook output priority -10; policy accept;
+    oifname "tailscale0" ct state established,related accept
+    oifname "tailscale0" counter drop
+  }
+}
+NFT
+}
+
+if [ "${1:-}" = "--ensure" ]; then
+  if present; then exit 0; fi
+  echo "agentbox tailnet guard missing or altered; reloading" >&2
+fi
+apply
+present || { echo "agentbox tailnet guard failed to load" >&2; exit 1; }

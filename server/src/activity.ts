@@ -1,4 +1,5 @@
 import { all } from "./db.ts";
+import { auditTitle } from "./devices.ts";
 
 /**
  * The activity feed and the delegation graph, built from what's already recorded (tasks, steps,
@@ -8,7 +9,7 @@ import { all } from "./db.ts";
 export type ActivityItem = {
   id: string;
   ts: string;
-  kind: "asked" | "delegated" | "message" | "report" | "routine" | "group" | "finished" | "failed" | "stopped" | "github" | "skill" | "skipped";
+  kind: "asked" | "delegated" | "message" | "report" | "routine" | "group" | "finished" | "failed" | "stopped" | "github" | "skill" | "skipped" | "phone";
   actor: string;          // "user" | agent id | "routine" | "system"
   agent_id: string | null; // who the item is about / who did it
   title: string;
@@ -96,6 +97,19 @@ export function activity({ limit, agent }: { limit: number; agent?: string }): A
       items.push({
         id: `run:${r.id}`, ts: r.at, kind: "skipped", actor: "routine", agent_id: r.agent_id,
         title: `skipped routine "${r.name}"`, detail: r.reason, link: `#/routines/${r.routine_id}`,
+      });
+    }
+  }
+
+  // What the owner did from a paired phone (mobile gateway audit).
+  if (!agent) {
+    for (const a of all(`SELECT * FROM device_audit ORDER BY ts DESC LIMIT ?`, limit)) {
+      items.push({
+        id: `phone:${a.id}`, ts: a.ts, kind: "phone", actor: "user", agent_id: null,
+        title: a.path === "file" && a.ref_id ? `opened ${a.ref_id.split("/").pop()}` : auditTitle(a.path),
+        detail: `via phone (${a.device_name})`,
+        link: a.path === "file" && a.ref_id ? `/api/file?path=${encodeURIComponent(a.ref_id)}`
+          : a.path === "work" && a.ref_id ? `#/work/${a.ref_id}` : /^routines\//.test(a.path) && a.ref_id ? `#/routines/${a.ref_id}` : undefined,
       });
     }
   }

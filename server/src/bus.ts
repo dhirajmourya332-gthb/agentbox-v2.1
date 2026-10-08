@@ -22,7 +22,8 @@ export type BusEvent =
   | { type: "routine.updated"; routine: any }
   | { type: "routine.deleted"; id: string }
   | { type: "display.updated"; display: any }
-  | { type: "paused"; paused: boolean };
+  | { type: "paused"; paused: boolean }
+  | { type: "devices.changed" }; // paired phones or their audit changed (portal Devices page / Activity)
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
@@ -30,7 +31,7 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(100);
 
 // Streaming deltas are too chatty to keep; everything else is the activity log.
-const EPHEMERAL = new Set(["turn.delta"]);
+const EPHEMERAL = new Set(["turn.delta", "devices.changed"]);
 
 export function publish(event: BusEvent) {
   if (!EPHEMERAL.has(event.type)) {

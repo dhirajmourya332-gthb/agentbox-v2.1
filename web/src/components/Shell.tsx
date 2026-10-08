@@ -244,6 +244,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           <RailLink to={{ name: "screen" }} current={route} icon={<Icon name="screen" />}>Screen</RailLink>
           <RailLink to={{ name: "terminal" }} current={route} icon={<Icon name="terminal" />}>Terminal</RailLink>
           <RailLink to={{ name: "system" }} current={route} icon={<Icon name="pulse" />}>System</RailLink>
+          <RailLink to={{ name: "devices" }} current={route} icon={<Icon name="phone" />}>Devices</RailLink>
         </Section>
       </nav>
 

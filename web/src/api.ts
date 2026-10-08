@@ -110,6 +110,22 @@ export type Template = { id: string; label: string; name: string; job: string; d
 export type FollowUp = { id: string; question: string; options: string[] };
 export type Draft = { title: string; summary: string; model: string; model_reason: string; instructions: string };
 
+export type Device = {
+  id: string; name: string; fingerprint: string; app_version: string | null; tailnet_login: string | null;
+  status: "pending" | "active"; created_at: string; approved_at: string | null; last_seen_at: string | null; expires_at: string | null;
+};
+export type Pairing = { id: string; code: string; expires_at: string; url: string; qr_payload: string };
+export type GatewayStatus = {
+  tailscale: {
+    installed: boolean; backend_state: string | null; dns_name: string | null; url: string | null;
+    serve_target: string | null; funnel: boolean | null; funnel_capable: boolean | null; error?: string;
+  };
+  guard: { present: boolean | null; detail: string };
+  manual_url: string | null;
+  url: string | null;
+  port: number;
+};
+
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -187,4 +203,14 @@ export const api = {
   send: (threadId: string, text: string, images?: string[]) => call("POST", `/api/threads/${threadId}/messages`, { text, images }),
   upload: (name: string, type: string, data: string) => call<{ path: string; name: string; size: number }>("POST", "/api/uploads", { name, type, data }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),
+  // Device admin always sends a JSON body: the server requires it (it forces a CORS preflight).
+  devices: () => call<{ pending: Device[]; active: Device[] }>("GET", "/api/devices"),
+  newPairing: () => call<Pairing>("POST", "/api/devices/pairings", {}),
+  cancelPairing: () => call("DELETE", "/api/devices/pairings", {}),
+  approveDevice: (id: string) => call("POST", `/api/devices/${id}/approve`, {}),
+  denyDevice: (id: string) => call("POST", `/api/devices/${id}/deny`, {}),
+  revokeDevice: (id: string) => call("POST", `/api/devices/${id}/revoke`, {}),
+  revokeAllDevices: () => call<{ revoked: number }>("POST", "/api/devices/revoke-all", {}),
+  gateway: (fresh = false) => call<GatewayStatus>("GET", `/api/devices/gateway${fresh ? "?fresh=1" : ""}`),
+  setGatewayUrl: (url: string) => call<GatewayStatus>("PUT", "/api/devices/gateway", { url }),
 };

@@ -1,10 +1,10 @@
 [Unit]
-Description=agentbox web screen (noVNC on :7701)
+Description=agentbox web screen (noVNC on 127.0.0.1:7701)
 After=agentbox-vnc.service
 
 [Service]
 User=@USER@
-ExecStart=/usr/bin/websockify --web /usr/share/novnc 7701 127.0.0.1:5900
+ExecStart=/usr/bin/websockify --web /usr/share/novnc 127.0.0.1:7701 127.0.0.1:5900
 Restart=always
 
 [Install]

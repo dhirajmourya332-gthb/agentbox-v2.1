@@ -1,0 +1,13 @@
+[Unit]
+Description=agentbox tailnet firewall (nothing in the VM is reachable over the tailnet except tailscale serve)
+Before=tailscaled.service
+Wants=network-pre.target
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/agentbox-tailnet-guard
+
+[Install]
+WantedBy=multi-user.target

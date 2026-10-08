@@ -28,9 +28,11 @@ import {
   setAgentSkills, setSkillAgents, skillsOf,
 } from "./skills.ts";
 import { health } from "./health.ts";
+import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 7700);
+const mobilePort = Number(process.env.AGENTBOX_MOBILE_PORT ?? 7710);
 const webDist = path.resolve(here, "../../web/dist");
 
 const app = Fastify({ logger: { level: "info" } });
@@ -41,6 +43,9 @@ class HttpError extends Error {
     super(message);
   }
 }
+// Every /api route and /api/events: localhost only (Host, Origin, JSON writes); requests the mobile
+// gateway injects are re-checked against its allowlist instead (mobile.ts).
+guardApi(app);
 app.setErrorHandler((err: any, _req, reply) => {
   const status = err.statusCode ?? 400;
   if (status >= 500) app.log.error(err);
@@ -406,6 +411,9 @@ app.post("/api/routines/:id/run", async (req) => {
   return { started: !!task, routine: getRoutine(r.id) };
 });
 
+// --- paired phones (portal only; refused for anything that came through the gateway) ---
+registerDeviceAdmin(app, mobilePort);
+
 // --- live events ------------------------------------------------------------
 app.get("/api/events", { websocket: true }, (socket) => {
   const off = subscribe((e) => socket.send(JSON.stringify(e)));
@@ -422,4 +430,7 @@ if (fs.existsSync(webDist)) {
 migrateToInstances((m) => app.log.info(m));
 seedSkills();
 startRoutines();
-await app.listen({ host: "0.0.0.0", port });
+// Loopback only: Lima forwards 127.0.0.1-bound guest ports to the Mac, and nothing else in the VM
+// (e.g. a tailnet interface) should reach the portal.
+await app.listen({ host: "127.0.0.1", port });
+await startMobileGateway(app, mobilePort);

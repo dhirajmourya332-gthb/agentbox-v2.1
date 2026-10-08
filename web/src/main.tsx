@@ -20,6 +20,7 @@ import { NewTask } from "./views/NewTask.tsx";
 import { Room } from "./views/Room.tsx";
 import { DocumentsPage } from "./views/DocumentsPage.tsx";
 import { LinkedFileReader } from "./views/Documents.tsx";
+import { Devices } from "./views/Devices.tsx";
 
 /** Clicking a file path anywhere opens it in the reader (Cmd/Ctrl/middle-click still opens a tab). */
 function FileLinks() {
@@ -64,6 +65,7 @@ function App() {
       {route.name === "screen" && <Screen />}
       {route.name === "terminal" && <Terminal />}
       {route.name === "system" && <System />}
+      {route.name === "devices" && <Devices />}
       <FileLinks />
     </Shell>
   );

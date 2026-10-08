@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Exit non-zero unless each listed TCP port is listening, and only on loopback (127.0.0.0/8 or ::1).
+# Ports after "--" are optional: not listening is fine, but if they listen it must be loopback only.
+#   agentbox-check-loopback 7700 7701 7702 -- 7710
+set -uo pipefail
+bad=0 required=1
+for p in "$@"; do
+  if [ "$p" = "--" ]; then required=0; continue; fi
+  addrs="$(ss -Hltn "sport = :$p" | awk '{print $4}')"
+  if [ -z "$addrs" ]; then
+    if [ "$required" = 1 ]; then echo "  :$p  nothing listening" >&2; bad=1; fi
+    continue
+  fi
+  for a in $addrs; do
+    case "$a" in
+      127.*:"$p"|"[::1]:$p") echo "  :$p  $a  ok" ;;
+      *) echo "  :$p  $a  NOT LOOPBACK" >&2; bad=1 ;;
+    esac
+  done
+done
+exit "$bad"

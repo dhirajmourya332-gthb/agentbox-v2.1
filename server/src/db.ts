@@ -170,6 +170,40 @@ db.exec(`CREATE TABLE IF NOT EXISTS group_reads (
   PRIMARY KEY (thread_id, agent_id)
 )`);
 db.exec(`CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_task_id)`);
+// Phones paired through the mobile gateway (docs/MOBILE-PROTOCOL.md). Revoked devices are deleted;
+// the audit keeps a copy of the name so the Activity feed still reads well afterwards.
+db.exec(`
+CREATE TABLE IF NOT EXISTS devices (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  public_key TEXT NOT NULL UNIQUE,   -- base64url, 32 bytes (Ed25519)
+  fingerprint TEXT NOT NULL,
+  app_version TEXT,
+  tailnet_login TEXT,                -- Tailscale-User-Login at pairing; later requests must match
+  status TEXT NOT NULL,              -- pending | active
+  created_at TEXT NOT NULL,
+  approved_at TEXT,
+  last_seen_at TEXT
+);
+CREATE TABLE IF NOT EXISTS device_pairings (
+  id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL,           -- hex sha256(code); the code itself is never stored
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS device_audit (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  device_name TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,                -- the internal route, without the query string
+  status INTEGER NOT NULL,
+  ref_id TEXT                        -- what it acted on (task instance, thread, routine…), if known
+);
+CREATE INDEX IF NOT EXISTS device_audit_ts ON device_audit(ts);
+`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS threads_handoff ON threads(kind, agent_id, peer_agent_id) WHERE kind = 'handoff'`);
 
 // A task that was running when the server stopped can never finish; mark it.

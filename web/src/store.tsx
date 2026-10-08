@@ -21,6 +21,8 @@ type State = {
   board: Record<string, Task>;
   /** Bumped when a thread is created, so views listing threads refetch. */
   threadsVersion: number;
+  /** Bumped when paired phones change (pairing claimed, approved, revoked, or a phone did something). */
+  devicesVersion: number;
   /** Text streamed so far for running turns, by task id. */
   live: Record<string, string>;
 };
@@ -56,7 +58,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, board: Object.fromEntries(a.tasks.map((t) => [t.id, t])) };
     case "event": {
       const e = a.e;
-      if (["task.updated", "draft.updated", "routine.updated"].includes(e.type)) s = { ...s, activityVersion: s.activityVersion + 1 };
+      if (["task.updated", "draft.updated", "routine.updated", "devices.changed"].includes(e.type)) s = { ...s, activityVersion: s.activityVersion + 1 };
+      if (e.type === "devices.changed") return { ...s, devicesVersion: s.devicesVersion + 1 };
       switch (e.type) {
         case "agent.created":
         case "agent.updated": {
@@ -159,7 +162,7 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0,
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0, devicesVersion: 0,
   });
   const openThreads = useRef(new Set<string>());
   // The Work list is derived on the server; refetch it (debounced) when tasks or agents change.

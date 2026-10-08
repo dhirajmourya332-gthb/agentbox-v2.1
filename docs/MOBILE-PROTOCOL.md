@@ -148,3 +148,144 @@ and name, and shown in Activity as "via phone (<device name>)".
 ## Out of scope for v1
 - Push notifications: the app updates live while open.
 - iOS.
+
+## Implementation notes (server, v1)
+Appended after implementation. The contract above is unchanged except for the approved additions
+below: `POST /m/v1/device/forget`, the API's own 404 arriving as 410, `Tailscale-User-Login`
+required at claim, per-user claim limits, and a filtered event stream. Revised after the
+security review.
+
+**Where things live**
+- `server/src/mobile.ts`: the gateway (a second Fastify instance on `127.0.0.1:7710`), the
+  allowlist, the main-app guard and the portal admin routes (`/api/devices*`).
+- `server/src/signing.ts`: the canonical message builder and the Ed25519 verifier
+  (`@noble/curves`, `zip215: false`, i.e. strict RFC 8032). Pure, so tests check vectors against
+  exactly this code.
+- `server/src/devices.ts`: pairing codes, the device registry, the audit log and Tailscale status.
+- Tables (additive, `server/src/db.ts`): `devices`, `device_pairings` (only `sha256(code)` stored),
+  `device_audit`.
+
+**Gateway details**
+- Bodies are read as **raw bytes** (one buffer content parser, nothing JSON-parsed in the gateway);
+  the signed path is the **raw, undecoded** `req.url`. The same raw buffer is forwarded to
+  `app.inject()`, with `content-type: application/json` when non-empty. No client header is
+  forwarded (no cookies, no `Tailscale-*`, no `X-AB-*`). Injected requests carry an internal marker
+  whose value is a **per-process random token**, so nothing outside the process can forge it.
+- **Origin:** an empty `Origin` (React Native's Android WebSocket sends one unless told otherwise,
+  so the app sends `Origin: ""`) counts as absent. Any non-empty Origin gets 404 (HTTP and WS).
+- Checks run in two stages. **Before the body is read:** Origin, path allowlist, header formats,
+  the ±60 s window, **`X-AB-Time` not earlier than the gateway's start** (a restart empties the
+  nonce cache, so without this a request captured just before a restart could be replayed within its
+  window), device exists/active (pending only for `whoami` and `device/forget`), and the
+  `Tailscale-User-Login` binding. **After:** signature, then the nonce (recorded only once the
+  signature verifies, so nobody can burn a device's nonces), then the 600/min per-device limit.
+- The nonce cache is in memory: per device, 120 s. Restarts are covered by the start-time floor
+  above.
+- Allowlisted paths are matched on the raw path with `^...$` regexes; `:id` segments are
+  `[A-Za-z0-9_-]{1,128}`, so `%2e%2e`, `//` and `..` never match. The main app re-checks every
+  gateway-injected request (marked with an internal header that clients can't pass through)
+  against the same allowlist, and `/api/devices*` refuses them outright.
+- Authenticated requests get the API's own status and body (e.g. `400 {"error": ...}`); only the
+  headers `content-type`, `content-disposition` and `content-security-policy` are passed through.
+  **3xx from the API becomes an empty 404:** the gateway never redirects. **The API's own 404 (no
+  such task, file not found, …) becomes 410** with the API's body, so a 404 from the gateway
+  always means "not authenticated or not allowed". The app treats 410 as "not found".
+- `GET` responses are streamed (`payloadAsStream`), so `/m/v1/file` handles large and binary files.
+- Body limits: 16 MB for `uploads`, 8 KB for `/m/pair/claim`, 1 MB otherwise. Over the limit:
+  empty 404 and the connection is closed.
+- Malformed HTTP also gets a bare 404 (`clientErrorHandler`); there are no `server` or
+  `x-powered-by` headers. `HEAD` routes aren't exposed.
+- WebSocket: at most 4 sockets per device (the oldest is closed). The socket ignores what the app
+  sends (max 4 KB per frame). On revoke, forget, deny or revoke-all, the device's sockets are
+  closed with code 1008. **Events are allowlisted** to what the phone's reads already expose:
+  `agent.created|updated|deleted|retired|status`, `task.updated`, `message.created`, `turn.delta`,
+  `step.updated`, `thread.created`, `usage`, `group.updated|deleted`, `routine.updated|deleted`,
+  `display.updated` and `paused`. Steps are included because `GET work/:id` and
+  `GET threads/:id` already return steps with their input and output; the phone sees nothing new.
+  Excluded: `skill.*`, `draft.updated`, `agent.skills` and `devices.changed`.
+- `last_seen_at` is written at most every 30 s per device.
+
+**Approved addition: `POST /m/v1/device/forget`**
+Signed like any other request, with an empty body. It revokes the **calling device itself**, which
+has the same effect as Revoke in the portal: the row is deleted and its sockets are closed. It
+returns `204` with no body, after which every request from that device gets 404. A pending device
+may also call it, to withdraw its pairing. It does **not** map to any `/api` route, and it is
+recorded in the audit as "unpaired the phone".
+
+**Pairing details**
+- A new code invalidates any earlier unused code (only one live QR at a time); leaving the
+  Devices page cancels it.
+- The claim compares `sha256(code)` against every live pairing with `timingSafeEqual` (no early
+  exit), inside one `BEGIN IMMEDIATE` transaction. The code is burned even if the rest of the claim
+  is invalid (bad key, not an Ed25519 point, duplicate key).
+- **`Tailscale-User-Login` is required at claim** (phones are user devices, so `tailscale serve`
+  always adds it; tagged nodes can't pair). It's stored, and every later request must carry the
+  same value.
+- Claim rate limit: 10 per minute **per tailnet user** (keyed by `Tailscale-User-Login`), and 30
+  per minute across all users, so one tailnet member can't block another's pairing.
+- `device_name` is cleaned: bidi overrides and zero-width characters (`\p{Cf}`) are removed, and
+  control characters become spaces. At most 64 chars; the default is "Phone". `app_version` is at
+  most 32 chars.
+- Revoked and denied devices are **deleted**, not kept with a status. The audit keeps the name.
+- Expired pending devices are deleted on access, every 15 s, and when the device list is read.
+
+**The main app (port 7700) is localhost-only**
+Every `/api/*` route and the `/api/events` WebSocket refuse a request unless:
+- its `Host` is a loopback name (`localhost`, `127.0.0.1`, `[::1]`, any port), which blocks DNS
+  rebinding (403);
+- its `Origin`, if present, is a loopback origin, which blocks other sites and cross-site
+  WebSocket hijacking (403);
+- a write (POST/PUT/PATCH/DELETE) **with a body** is `application/json` (415). Bodyless writes
+  (`curl -X POST localhost:7700/api/pause`, the portal's buttons) still work.
+
+Gateway-injected requests (with the valid token) skip these checks and are checked against the
+phone allowlist instead; a wrong token gets 404. The static UI isn't guarded.
+
+**Portal admin (`/api/devices*`, main app only)**
+- `POST /api/devices/pairings` → `{id, code, expires_at, url, qr_payload}` (`409` while no
+  gateway URL is known). `DELETE /api/devices/pairings` cancels the live code.
+- `GET /api/devices` → `{pending: [...], active: [...]}` (public keys aren't returned).
+- `POST /api/devices/:id/approve | deny | revoke`, `POST /api/devices/revoke-all`.
+- `GET /api/devices/gateway[?fresh=1]` → Tailscale status (`tailscale status --json`, plus
+  `tailscale serve status --json` and `tailscale funnel status` for the serve target and Funnel),
+  `funnel_capable` (the policy grants this node Funnel: a `funnel` key in `Self.CapMap` or
+  `Self.Capabilities`), `guard` (the tailnet firewall table and its drop rules are loaded; read with
+  `sudo -n nft`, `null` if that isn't possible), and the URL in effect;
+  `PUT /api/devices/gateway {url}` sets or clears the manual `https://` URL (`meta.mobile_url`).
+- On top of the main-app guard, these routes refuse any gateway-injected request (404) and require
+  JSON on every write, even a bodyless one, so a write always needs a CORS preflight.
+
+**Audit:** each successful (2xx) mutating gateway request adds a `device_audit` row, and so does a
+`GET file` (at most once per device and file every 10 minutes, so image lists don't flood the
+feed). The Activity
+feed shows it as kind `phone`, e.g. "You started a task · via phone (Pixel 8)", linking to the
+task where it can.
+
+**Testing:** `server/test/mobile-gateway.test.ts` runs against a rehearsal server; the recipe is in
+`docs/MOBILE-SETUP.md` › Testing. It includes the cross-check vector (RFC 8032 TEST 1 key,
+`POST /m/v1/threads/thr_123/messages`, body `{"text":"hello","images":[]}`).
+
+**Network hardening (VM)**
+- Everything listens on loopback only: the portal on 7700, the gateway on 7710, noVNC on 7701
+  (`websockify 127.0.0.1:7701`), ttyd on 7702 (`-i lo`), x11vnc on 5900 (`-localhost`) and Chromium
+  CDP on 9222. Lima forwards loopback-bound guest ports: its default `guestIP: 127.0.0.1` "also
+  matches bind addresses 0.0.0.0, :: and ::1". `scripts/install-units.sh` refuses to finish unless
+  `ss` shows 7700, 7701, 7702 and 7710 on loopback only.
+- **Tailnet firewall** (`vm/bin/agentbox-tailnet-guard`, an nftables table `inet agentbox_tailnet`):
+  drops **all** input from `tailscale0`, and output to it except replies. sshd (needed by Lima, so
+  on 0.0.0.0) and any dev server an agent starts are unreachable from the tailnet, and the VM
+  can't dial other tailnet devices. A 60 s timer (`agentbox-tailnet-guard-watch.timer`) reloads the
+  table if it or its drop rules go missing, and a tailscaled drop-in
+  (`Requires=`/`After=agentbox-tailnet-guard.service`) means Tailscale doesn't run without it.
+- **No `tcp dport 443 accept` rule.** `tailscale serve` terminates inside tailscaled. In kernel-TUN
+  mode, tailscaled's netstack intercepts TCP to the node's own Tailscale IPs on serve ports
+  (`wgengine/netstack`: `shouldProcessInbound` → `ShouldInterceptTCPPort`) before the packet is
+  written to `tailscale0`, so the kernel's input hook never sees it. Serve then proxies to
+  127.0.0.1:7710 over loopback. Dropping the rule also keeps anything in the VM that binds :443 off
+  the tailnet. If a future Tailscale version delivered serve traffic through the kernel, phones would
+  fail to connect: it fails closed and exposes nothing. Confirm on the first real pairing.
+- The setup requires a tag (`--advertise-tags`), uses a random hostname (`node-xxxxxx`; ts.net
+  certificate names appear in public Certificate Transparency logs), and refuses, taking the node
+  off the tailnet, if Funnel is on or the policy grants the node the funnel capability.
+- Agents have root in the VM, so the tailnet ACL (enforced outside the VM) is the real boundary;
+  see `docs/MOBILE-SETUP.md`.

@@ -1,0 +1,6 @@
+[Unit]
+Description=agentbox tailnet firewall: reload if missing (run by the timer)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/agentbox-tailnet-guard --ensure

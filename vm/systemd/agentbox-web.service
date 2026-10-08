@@ -1,5 +1,5 @@
 [Unit]
-Description=agentbox orchestrator + web UI (:7700)
+Description=agentbox orchestrator + web UI (127.0.0.1:7700) + mobile gateway (127.0.0.1:7710)
 After=network.target agentbox-xvfb.service
 
 [Service]
