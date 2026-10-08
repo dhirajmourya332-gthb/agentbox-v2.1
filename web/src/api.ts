@@ -113,6 +113,8 @@ export type Draft = { title: string; summary: string; model: string; model_reaso
 export type Device = {
   id: string; name: string; fingerprint: string; app_version: string | null; tailnet_login: string | null;
   status: "pending" | "active"; created_at: string; approved_at: string | null; last_seen_at: string | null; expires_at: string | null;
+  /** Notifications on (the phone registered a push token). The token itself never reaches the portal. */
+  push: boolean;
 };
 export type Pairing = { id: string; code: string; expires_at: string; url: string; qr_payload: string };
 export type GatewayStatus = {
@@ -211,6 +213,9 @@ export const api = {
   denyDevice: (id: string) => call("POST", `/api/devices/${id}/deny`, {}),
   revokeDevice: (id: string) => call("POST", `/api/devices/${id}/revoke`, {}),
   revokeAllDevices: () => call<{ revoked: number }>("POST", "/api/devices/revoke-all", {}),
+  pushSettings: () => call<{ details: boolean }>("GET", "/api/devices/push"),
+  setPushDetails: (details: boolean) => call<{ details: boolean }>("PUT", "/api/devices/push", { details }),
+  testPush: (id: string) => call<{ ok: true }>("POST", `/api/devices/${id}/test-push`, {}),
   gateway: (fresh = false) => call<GatewayStatus>("GET", `/api/devices/gateway${fresh ? "?fresh=1" : ""}`),
   setGatewayUrl: (url: string) => call<GatewayStatus>("PUT", "/api/devices/gateway", { url }),
 };

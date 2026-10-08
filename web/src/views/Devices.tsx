@@ -146,6 +146,18 @@ function PendingList({ devices, onChange }: { devices: Device[]; onChange: () =>
 function PairedList({ devices, onChange }: { devices: Device[]; onChange: () => void }) {
   const [confirm, setConfirm] = useState<string | null>(null); // a device id, or "all"
   const [error, setError] = useState<string | null>(null);
+  const [tested, setTested] = useState<string | null>(null);
+  const test = (d: Device) => async () => {
+    setError(null);
+    setTested(null);
+    try {
+      await api.testPush(d.id);
+      setTested(`Test notification sent to ${d.name}.`);
+    } catch (e: any) {
+      setError(e.message);
+      onChange();
+    }
+  };
   const act = (fn: () => Promise<unknown>) => async () => {
     setError(null);
     try { await fn(); } catch (e: any) { setError(e.message); }
@@ -160,13 +172,19 @@ function PairedList({ devices, onChange }: { devices: Device[]; onChange: () => 
           {devices.map((d) => (
             <div key={d.id} className="row" style={{ flexWrap: "wrap" }}>
               <div className="field" style={{ gap: 2, flex: 1, minWidth: 220 }}>
-                <strong>{d.name}</strong>
+                <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <strong>{d.name}</strong>
+                  <span className="status" title={d.push ? "This phone receives notifications" : "The app hasn't turned on notifications"}>
+                    <span className={`dot ${d.push ? "ok" : ""}`} />Notifications: {d.push ? "on" : "off"}
+                  </span>
+                </span>
                 <span className="mono hint">{d.fingerprint}</span>
                 <span className="hint">
                   {d.app_version ? `App ${d.app_version} · ` : ""}{d.tailnet_login ? `${d.tailnet_login} · ` : ""}
                   paired {when(d.approved_at)} · last seen {when(d.last_seen_at)}
                 </span>
               </div>
+              {d.push && confirm !== d.id && <button className="btn sm ghost" onClick={test(d)}>Send test notification</button>}
               {confirm === d.id ? (
                 <>
                   <button className="btn sm danger" onClick={act(() => api.revokeDevice(d.id))}>Revoke {d.name}</button>
@@ -188,6 +206,35 @@ function PairedList({ devices, onChange }: { devices: Device[]; onChange: () => 
           ) : <button className="btn sm danger" onClick={() => setConfirm("all")}>Revoke all</button>}
         </div>
       )}
+      {tested && <p className="hint" style={{ marginTop: 8 }}>{tested}</p>}
+      {error && <div className="error-box" style={{ marginTop: 8 }}>{error}</div>}
+    </>
+  );
+}
+
+function Notifications() {
+  const [details, setDetails] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { api.pushSettings().then((s) => setDetails(s.details)).catch((e) => setError(e.message)); }, []);
+  const toggle = async (on: boolean) => {
+    setError(null);
+    try { setDetails((await api.setPushDetails(on)).details); } catch (e: any) { setError(e.message); }
+  };
+  return (
+    <>
+      <h2>Notifications</h2>
+      <p className="hint">
+        Phones that turned on notifications are told when something needs you. By default a notification
+        only says <em>Something needs you</em>; open the app to see what.
+      </p>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+        <input type="checkbox" checked={!!details} disabled={details === null} onChange={(e) => toggle(e.target.checked)} />
+        Show details in notifications
+      </label>
+      <p className="hint" style={{ marginTop: 4 }}>
+        Off by default. When on, notifications include a short title such as "tech-lead replied: MSP API keys". That text
+        passes through Expo's and Google's push services and shows on the lock screen.
+      </p>
       {error && <div className="error-box" style={{ marginTop: 8 }}>{error}</div>}
     </>
   );
@@ -295,6 +342,7 @@ export function Devices() {
         <PairPhone pending={devices?.pending ?? []} onChange={load} />
         <PendingList devices={devices?.pending ?? []} onChange={load} />
         <PairedList devices={devices?.active ?? []} onChange={load} />
+        <Notifications />
         <Gateway status={gateway} onChange={setGateway} />
       </div>
     </div>

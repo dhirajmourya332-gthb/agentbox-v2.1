@@ -135,3 +135,51 @@ Notes:
 - **Rerunning:** restart the rehearsal server first, because the last case uses up that minute's
   claim budget. The "signed before the server started" case runs only within 50 s of
   `SERVER_STARTED_MS`; otherwise it's reported as skipped.
+
+### Push notification tests
+Two more test files, both small:
+- `test/push.test.ts` runs `push.ts` in-process, against a throwaway database and a local Expo mock
+  (`test/expo-mock.ts`). It needs no server.
+- `test/push-gateway.test.ts` signs real requests against a rehearsal server whose
+  `AGENTBOX_PUSH_URL` points at the mock it starts.
+
+```bash
+mkdir -p /tmp/push-rt/{data,agents,work/uploads,skills}   # snapshot the DB as above, into /tmp/push-rt/data
+cd /tmp/push-rt/server
+PUSH_TEST_DIR=/tmp/push-rt/unit MOCK_PORT=7798 node --import tsx test/push.test.ts
+AGENTBOX_DATA=/tmp/push-rt/data AGENTBOX_AGENTS=/tmp/push-rt/agents AGENTBOX_WORK=/tmp/push-rt/work AGENTBOX_SKILLS=/tmp/push-rt/skills \
+AGENTBOX_MAX_RUNNING=0 AGENTBOX_CDP=http://127.0.0.1:1 PORT=7796 AGENTBOX_MOBILE_PORT=7797 \
+AGENTBOX_PUSH_URL=http://127.0.0.1:7798/--/api/v2/push/send \
+  node --import tsx src/index.ts > /tmp/push-rt/server.log 2>&1 &
+until ss -ltn | grep -q ':7797 '; do sleep 1; done
+PORTAL=http://127.0.0.1:7796 GATEWAY=http://127.0.0.1:7797 MOCK_PORT=7798 node --import tsx test/push-gateway.test.ts
+kill %1; rm -rf /tmp/push-rt
+```
+The gateway test creates a group in the copy if it has none, and posts one message to it (the copy
+is paused, so nothing runs). It ends with revoke-all.
+
+## Push notifications: Firebase (FCM) setup (owner, once)
+Expo delivers Android notifications through Firebase Cloud Messaging, so the Expo project needs
+FCM V1 credentials:
+1. **Firebase project:** go to <https://console.firebase.google.com> › Add project (Analytics not
+   needed).
+2. **Android app:** Project settings › General › Add app › Android. The package name must equal
+   `android.package` in `mobile/app.json`. Download `google-services.json` and put it in `mobile/`,
+   with `"android": { "googleServicesFile": "./google-services.json" }` in `app.json`. The file
+   holds no secret, but keep it out of public repos anyway.
+3. **Service account key:** Project settings › Service accounts › Firebase Admin SDK › Generate new
+   private key. This downloads a JSON key; it **is** a secret, so don't commit it.
+4. **Upload it to Expo:** in `mobile/`, run `npx eas-cli login`, then `npx eas-cli credentials`.
+   Pick Android, then the build profile (e.g. production). Go to Google Service Account ›
+   **Manage your Google Service Account Key for Push Notifications (FCM V1)** › Set up › Upload a
+   new service account key, and choose the JSON from step 3. Then delete the local copy of the key.
+   (Alternatively: expo.dev › project › Credentials › Android › FCM V1 service account key.)
+5. **Rebuild the app** (`eas build -p android`), so it includes `google-services.json`.
+6. **Optional, recommended:** expo.dev › project › Settings › turn on **Enhanced security for push
+   notifications**. Then create an access token (expo.dev › Account settings › Access tokens) and give
+   it to the server as `EXPO_ACCESS_TOKEN`, e.g. `Environment=EXPO_ACCESS_TOKEN=…` in a
+   systemd drop-in for `agentbox-web`, or an `EnvironmentFile` readable only by the service user.
+   Without it, pushes fail with an authorization error once enhanced security is on.
+7. **Test:** pair the phone, allow notifications in the app, then use **Send test notification** on
+   the Devices page.
+
