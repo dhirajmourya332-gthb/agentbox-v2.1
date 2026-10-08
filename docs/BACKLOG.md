@@ -375,6 +375,44 @@ local, so it needs a private network path and real authentication.
 - Final list of actions allowed from the phone.
 - Whether localhost should also require a login.
 
+### 11. Live progress in task rooms and groups, with stall alerts
+**Requirement:** a room (or group) only shows finished messages, so while an agent works the owner
+sees nothing. Example: tech-lead#1 sat for 17+ minutes in a shell loop waiting on CI for #4984,
+where 3 checks had already failed and 5 were stuck "pending", and the owner had no idea. The room
+should show, live, what each agent is doing and how it's going.
+
+**Design (to confirm when building)**
+- **Live status per working agent**, pinned at the bottom of the room/group timeline:
+  - avatar, name and task;
+  - **what it's doing now**, in plain words from its current step (e.g. "Waiting on CI for PR
+    #4984 · 17 min", "Running tests in digital_risk-4950", "Reviewing PR #4957");
+  - elapsed time, and a spinner while a step is running.
+- **Streaming text:** the agent's in-progress reply streams into the room as it's written, as
+  the task chat already does, instead of appearing only when the turn ends.
+- **Expandable work log:** each live status line expands to the step list, with commands and
+  short output tails (reusing WorkLog). Collapsed by default to avoid clutter.
+- **Progress summaries:** for long turns (more than about 5 minutes), a short automatic summary
+  line every few minutes ("3 checks failed: server unit tests, Swagger drift, claude-review; 5
+  pending"). Generated cheaply from the recent steps (a Haiku call, or rules for common commands
+  like `gh pr checks`), and shown in the room without being posted as a message.
+- **Stall detection:**
+  - flag a working agent when no new step has started for N minutes (default 10), or when one
+    shell step has run longer than N minutes;
+  - show it with an amber "Possibly stuck: waiting on … for 17 min" status, plus **Stop** and
+    **Send a note** buttons;
+  - mark the room in the sidebar, and on the phone (item 10), as **needs attention**.
+- **Important events surfaced**, even mid-turn: a failed command, CI failures it read, a refused
+  rule (routine rules), a screen-lock wait.
+- **Same view in group chats:** each member's live status shows under the conversation.
+
+**Acceptance criteria**
+- With an agent mid-turn, the room shows its current activity within seconds of it starting, and
+  updates as steps complete, with no page reload.
+- An agent stuck in a long wait is visibly flagged within N minutes, with a way to stop it or
+  nudge it from the room.
+- Nothing extra is posted as chat messages (the timeline stays clean); live statuses disappear
+  when the turn ends.
+
 ## In progress
 
 _Nothing yet._
