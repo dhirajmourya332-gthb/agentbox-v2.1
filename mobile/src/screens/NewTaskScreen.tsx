@@ -7,6 +7,7 @@ import { useStore } from "../lib/store";
 import { AttachmentStrip, useAttachments } from "../ui/Attachments";
 import { Button, ErrorBox, Screen, T } from "../ui/kit";
 import { usePalette } from "../ui/theme";
+import { MicButton, useVoice, VoiceBar } from "../ui/Voice";
 
 /** Start a task: pick the role, say what's needed. Each task gets its own room. */
 export function NewTaskScreen({ navigation }: Props<"NewTask">) {
@@ -27,7 +28,8 @@ export function NewTaskScreen({ navigation }: Props<"NewTask">) {
   }, [loaded, picked, lead, roles]);
 
   const role = roles.find((r) => r.id === picked);
-  const can = !!role && (!!text.trim() || att.paths.length > 0) && !att.uploading && !busy;
+  const voice = useVoice({ purpose: "task", agentId: role?.id, setText });
+  const can = !!role && (!!text.trim() || att.paths.length > 0) && !att.uploading && !busy && !voice.busy;
 
   const start = async () => {
     if (!can || !role) return;
@@ -71,8 +73,12 @@ export function NewTaskScreen({ navigation }: Props<"NewTask">) {
           <TextInput value={text} onChangeText={setText} multiline textAlignVertical="top" accessibilityLabel="What needs doing"
             placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the portal." : "e.g. Fix the failing CI job."}
             placeholderTextColor={p.muted} style={[...input, { minHeight: 140 }]} />
+          <VoiceBar v={voice} />
           <AttachmentStrip a={att} />
-          <Button small label={att.uploading ? "Uploading…" : "Attach images"} onPress={() => { att.pick().catch(() => setError("Couldn't open the photo picker")); }} style={{ alignSelf: "flex-start" }} />
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <Button small label={att.uploading ? "Uploading…" : "Attach images"} onPress={() => { att.pick().catch(() => setError("Couldn't open the photo picker")); }} />
+            <MicButton v={voice} size={36} />
+          </View>
 
           <T weight="600">Title <T muted size={13}>(optional)</T></T>
           <TextInput value={title} onChangeText={setTitle} maxLength={120} placeholder="Defaults to the first line" accessibilityLabel="Title"

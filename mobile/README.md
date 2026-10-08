@@ -23,6 +23,18 @@ When the build finishes, EAS prints a link and a QR code to download the `.apk`.
   must be signed with the same key, or Android refuses to install them over the old app.
 - There are no over-the-air updates: `expo-updates` isn't installed. Every change needs a new build.
 
+### Push notifications need Firebase (once)
+
+Android delivers Expo push notifications through Firebase Cloud Messaging. Until this is set up the
+app works normally, but it can't get a push token, so it never registers for notifications.
+
+1. In the Firebase console, create a project and add an Android app with package
+   `local.agentbox.mobile`. Download `google-services.json` into `mobile/` and add
+   `"googleServicesFile": "./google-services.json"` under `expo.android` in `app.json`.
+2. Create a service-account key for FCM V1 and upload it to the project's EAS credentials
+   (`npx eas-cli@latest credentials` → Android → Google Service Account → FCM V1).
+3. Build again.
+
 ## Install
 
 1. Open the EAS download link on the phone and download the APK.
@@ -53,8 +65,15 @@ wipes it locally. If agentbox couldn't be reached, also **Revoke** it in the por
   return against both the wall clock and a monotonic clock; a clock set backwards also locks).
   Locking wipes the key and all loaded data from memory.
 - Screenshots and screen recording are blocked. App backups are off. Cleartext HTTP is off.
-- Permissions: camera (QR scan only). Images are picked with the system photo picker (or the
-  system file picker on older phones), which needs no storage permission.
+- Permissions: camera (QR scan only), microphone (voice notes, asked for on the first tap of the
+  mic) and notifications (asked for once, after pairing or on the first unlock). Images are picked
+  with the system photo picker (or the system file picker on older phones), which needs no storage
+  permission. No foreground service, background recording, background fetch or boot receiver
+  permissions (they're in `blockedPermissions`).
+- Voice notes record only while the app is open: going to the background or locking cancels and
+  deletes the recording. The audio file is deleted as soon as it's been read for sending.
+- Notifications say only "Something needs you" and carry ids, never text. Tapping one opens the
+  app, which still asks you to unlock before showing anything.
 - Every dialog is drawn in-app, so screenshot blocking covers it too. If screenshot blocking can't
   be turned on, the app shows nothing.
 - No request follows redirects. If a signed request gets a 404, the app asks `whoami`; only if
