@@ -14,6 +14,12 @@ export function Room({ id }: { id: string }) {
   const [view, setView] = useState<RoomView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
+  const [showFilter, setShowFilter] = useState(() => { try { return localStorage.getItem("room.filters") !== "closed"; } catch { return true; } });
+  const toggleFilter = () => {
+    const next = !showFilter;
+    setShowFilter(next);
+    try { localStorage.setItem("room.filters", next ? "open" : "closed"); } catch { /* fine without it */ }
+  };
   const [panel, setPanel] = useState(true);
 
   // Membership comes from the server; refetch when the work list changes (tasks started/finished).
@@ -72,9 +78,17 @@ export function Room({ id }: { id: string }) {
           </div>
         </header>
 
-        <nav className="room-filter" aria-label="Show">
-          <button className="pill" aria-pressed={!filter} onClick={() => setFilter(null)}>All</button>
-          {members.map((m) => (
+        <nav className={`room-filter${showFilter ? "" : " collapsed"}`} aria-label="Show">
+          <button className="room-filter-toggle" aria-expanded={showFilter} onClick={toggleFilter}
+            title={showFilter ? "Hide the task filter" : "Show the task filter"}>
+            <span className={`chev${showFilter ? " open" : ""}`}><Icon name="chevron" size={10} /></span>
+            Show{!showFilter && <>: <strong>{filter ? (members.find((m) => m.id === filter)?.label ?? "one task") : "all tasks"}</strong></>}
+          </button>
+          {!showFilter && filter && (
+            <button className="link-button" onClick={() => setFilter(null)}>Show all</button>
+          )}
+          {showFilter && <button className="pill" aria-pressed={!filter} onClick={() => setFilter(null)}>All</button>}
+          {showFilter && members.map((m) => (
             <button key={m.id} className="pill" aria-pressed={filter === m.id} onClick={() => setFilter(filter === m.id ? null : m.id)} title={m.name}>
               <span className={`glyph ${m.status === "done" ? "" : m.status}`} />{m.label ?? m.name}
             </button>
