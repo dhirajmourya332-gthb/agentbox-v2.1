@@ -218,6 +218,26 @@ WORK                                   ROLES
   spawn/retire tools, `find_work`). Most of it carries over; the base agent stops taking work
   directly.
 
+### 6. Documents across agents, and a Documents section in groups
+**Requirement:** today each agent's documents are in its own panel (Documents tab). Add:
+- **A Documents section in groups** (and task rooms, item 4/5) listing the files from all the
+  group's agents together, newest first, with who wrote each one, using the same reader.
+- **A Documents page across all agents:** one place for every document, newest first, with
+  filters by agent and type and a search by name.
+
+**Acceptance criteria**
+- Each entry shows name, author (agent or instance), folder, time, size, and the task that wrote
+  it; clicking opens the existing reader (view, open in new tab, download).
+- Group Documents: decide the scope. Either **(a)** documents produced by work in that group (its
+  turns and the tasks they delegated, the cleaner fit with item 5's task rooms), or **(b)**
+  every document by the group's members. Recommendation: (a), with a toggle to (b).
+- Large lists stay fast (paginate or cap, newest first), and new documents appear without a reload.
+
+**Notes:** builds on `listDocuments` (server/src/documents.ts) and the reader
+(web/src/views/Documents.tsx). For (a), documents need linking to the task that wrote them (the
+Write-tool record already has it; documents found by scanning a folder need the task from the
+file's write step, or "unknown").
+
 ## In progress
 
 _Nothing yet._
