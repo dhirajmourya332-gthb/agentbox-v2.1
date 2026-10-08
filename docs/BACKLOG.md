@@ -238,6 +238,68 @@ WORK                                   ROLES
 Write-tool record already has it; documents found by scanning a folder need the task from the
 file's write step, or "unknown").
 
+### 7. A tech-lead on demand for any top-level task (routines included)
+**Requirement:** a task you start (e.g. security fixing alert #3232) or a routine (e.g. security's
+nightly Dependabot fixes) can't complete the cycle alone: it can open a PR, but review, merge,
+testing and deployment need tech-lead's orchestration. Today that's blocked, because only the
+owner starts tech-lead tasks.
+
+**Decision:** any top-level task or routine may bring in **one tech-lead instance as its lead**,
+on demand, through a normal handoff. It's created the first time it's needed (routines that never
+need it don't carry an idle one), then stays with that task or routine and joins its room.
+Deleted with the routine / finished with the task.
+
+**Acceptance criteria**
+- The routine/task agent delegates to "tech-lead" → if its work item has no lead yet, a tech-lead
+  instance is created for it (`created_by` = the routine or task, parent = the work item's root);
+  later handoffs reuse it. Still only one per work item; other tech-lead starts stay owner-only.
+- A routine only ever wakes its own agent; tech-lead wakes only when handed something.
+- tech-lead's rules are unchanged (merge only with a "none" breaking-changes verdict and High
+  confidence; deploys via devops under the workflow rule; risky things to the owner). What it
+  delegates (devops to deploy, coder for fixes) appears in the same room.
+- The routine page shows its group (agent, lead, whatever the lead started) as a task room.
+
+### 8. Routines keep their group's context, with compaction
+**Requirement:** starting every routine run from scratch makes agents re-explore (repo layout,
+what's already fixed, which PRs are open). A routine's group (its agent + its tech-lead) should
+continue the same conversation across runs, with compaction so it doesn't grow without limit.
+
+**Decision (discussed):**
+- **Continue by default** across runs. **Fresh every run** stays available per routine (for
+  trivial checks). Recommended default: Continue for all routines.
+- **Compact** at whichever comes first: **5 runs** or **24 hours** since the last compaction, or
+  the conversation passing a size threshold (~half the context window; usage is reported per
+  run). Always between runs, never mid-run. Applies to the routine's tech-lead too.
+- Compaction is told what to keep: open PRs and their state, alerts fixed/skipped and why,
+  decisions, discovered repo/test commands, anything waiting on the owner.
+- Before each compaction the group updates the room's `state.md` (item 9). If a compaction drops
+  something or a conversation can't be resumed, the next run starts from that note, not zero.
+- **No overlapping cycles:** skip a run while the previous one is still going, including the
+  routine's tech-lead and anything it delegated (merge, deploy).
+- Routine page: "Context: 38k tokens · compacted 2 runs ago", **Compact now**, **Start fresh**,
+  and the Continue / Fresh choice.
+
+**First step:** verify Claude Code's `/compact` can be triggered through the Agent SDK with custom
+instructions. Fallback if not: the agent writes a structured summary and agentbox starts a fresh
+session seeded with it (and `state.md`).
+
+### 9. Room workspace: a shared folder per task room and routine
+**Requirement:** a shared folder per work item where its agents keep scripts and working state,
+so repeated work (especially routines) gets fast instead of being rebuilt each time.
+
+**Design**
+- `/work/rooms/<room-slug>/` for every task room and routine:
+  `state.md` (where things stand; updated at the end of each run and before compaction),
+  `scripts/` (reusable scripts, e.g. "list open critical npm alerts by package"),
+  `notes/` (anything else worth keeping for this work).
+- Every agent in the room is told about it: read `state.md` and check `scripts/` first, reuse and
+  maintain scripts, add one when a step repeats.
+- How it differs: **agent memory** = what one agent learned across all its tasks; **room
+  workspace** = shared state and tools of one piece of work, across its agents; **skills** =
+  procedures for the whole team. A script that proves generally useful is proposed as a skill.
+- Lives as long as the routine; a finished task room's folder is kept (archived), not deleted
+  with the room view. Shown in the room's Documents tab; scripts open in the reader.
+
 ## In progress
 
 _Nothing yet._
