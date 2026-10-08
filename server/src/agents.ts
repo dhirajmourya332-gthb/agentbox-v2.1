@@ -205,6 +205,24 @@ export function spawnInstance(roleId: string, s: Spawn) {
   return agent;
 }
 
+/** Reopen a retired instance for a follow-up (e.g. rework on its PR): its conversation resumes. */
+export function reviveInstance(id: string, createdBy: string) {
+  const a = getAgent(id);
+  if (!a || !a.retired_at) return a;
+  const role = getAgent(a.base_agent_id!)!;
+  const limit = role.max_replicas || DEFAULT_PER_CREATOR;
+  const mine = (get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM agents WHERE base_agent_id = ? AND created_by = ? AND retired_at IS NULL`, role.id, createdBy,
+  )?.n ?? 0) as number;
+  if (mine >= limit) {
+    throw new Error(`${a.name} did this work but is closed, and you already have ${mine} live ${role.name} task(s), your limit. Retire one whose PR is merged, then delegate again.`);
+  }
+  run(`UPDATE agents SET retired_at = NULL WHERE id = ?`, id);
+  const revived = getAgent(id)!;
+  publish({ type: "agent.created", agent: { ...revived, status: "idle", dm_thread_id: dmThreadOf(id) } });
+  return revived;
+}
+
 /** A task room's shared folder (/work/rooms/<title>-<id>), created on first use. */
 export function ensureWorkspace(root: Agent): string {
   if (root.workspace) {

@@ -2,7 +2,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
-import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, rootOf, spawnInstance, type Agent } from "./agents.ts";
+import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, reviveInstance, rootOf, spawnInstance, type Agent } from "./agents.ts";
 import { proposeSkill, skillsOf } from "./skills.ts";
 import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
@@ -36,7 +36,29 @@ export function handoffThread(to: Agent, from: Agent) {
   return id;
 }
 
-type Handoff = { kind: "task" | "message"; from: Agent; fromTask: any; to: string; title: string; body: string };
+type Handoff = { kind: "task" | "message"; from: Agent; fromTask: any; to: string; title: string; body: string; routedTo?: Agent };
+
+const refs = (s: string) => new Set([...s.matchAll(/#(\d{2,})/g)].map((m) => m[1]));
+
+/**
+ * The instance of this role you started earlier that worked on the same issue or PR (matched by
+ * #numbers in the title), reopened if it was retired. Saves a fresh instance re-learning it all.
+ */
+function authorOf(role: Agent, h: Handoff): Agent | undefined {
+  const wanted = refs(h.title);
+  if (!wanted.size) return undefined;
+  const mine = all<Agent>(
+    `SELECT * FROM agents WHERE base_agent_id = ? AND created_by = ? ORDER BY replica_no DESC`, role.id, h.from.id,
+  );
+  for (const a of mine) {
+    const seen = new Set<string>();
+    for (const t of [a.label ?? "", ...all<{ title: string }>(`SELECT title FROM tasks WHERE agent_id = ?`, a.id).map((t) => t.title ?? "")]) {
+      for (const n of refs(t)) seen.add(n);
+    }
+    if ([...wanted].some((n) => seen.has(n))) return a.retired_at ? reviveInstance(a.id, h.from.id) : a;
+  }
+  return undefined;
+}
 
 /** Checks shared by delegations and messages. Returns an error for the agent, or the target. */
 function check(h: Handoff): string | Agent {
@@ -54,7 +76,7 @@ function check(h: Handoff): string | Agent {
     target = live[0];
   }
   if (target.id === h.from.id) return "That's you. Do the work yourself or pick a teammate.";
-  if (h.fromTask.from_agent_id && h.fromTask.from_agent_id === target.id) {
+  if (h.fromTask.source === "agent" && h.fromTask.from_agent_id === target.id) {
     return `${target.name} handed this task to you. Don't hand it back: finish what you can and put questions or blockers in your final reply, which goes to ${target.name} automatically.`;
   }
   const depth = (h.fromTask.depth ?? 0) + 1;
@@ -74,9 +96,12 @@ export function handOff(h: Handoff) {
   // Delegating to an agent (role) starts a fresh instance for this one task; delegating to an
   // instance sends it a follow-up in its own conversation. A planning agent (tech-lead) is
   // different: each piece of work gets at most one, as its lead, reused for later handoffs.
+  // Follow-up work (rework, review fixes) on an issue or PR goes back to the instance that did it.
   const target = checked.base_agent_id ? checked
     : checked.can_scale && h.from.base_agent_id ? leadFor(checked, h)
-    : spawnInstance(checked.id, { label: h.title, createdBy: h.from.id, parentInstanceId: h.from.base_agent_id ? h.from.id : null });
+    : (h.kind === "task" && authorOf(checked, h)) || spawnInstance(checked.id, { label: h.title, createdBy: h.from.id, parentInstanceId: h.from.base_agent_id ? h.from.id : null });
+  if (target.id === h.from.id) throw new Error("That's you. Do the work yourself or pick a teammate.");
+  h.routedTo = target;
   const threadId = dmThreadOf(target.id)!;
   const prompt = h.kind === "task"
     ? `[agentbox] Task from ${h.from.name} (${h.from.title})
@@ -218,7 +243,7 @@ export function teamServer(agent: Agent, taskId: string) {
 
       tool(
         "retire_instance",
-        "Finish a task you started: retire the instance (e.g. coder#3) once its report is in and nothing is queued for it. You can only retire instances you started. Not for a lead that joined your work (e.g. tech-lead): it stays for later handoffs. Its history stays.",
+        "Finish a task you started: retire the instance (e.g. coder#3) once its work is really finished (its PR merged or closed) and nothing is queued for it. Not while its PR is in review: rework goes back to it. You can only retire instances you started. Not for a lead that joined your work (e.g. tech-lead): it stays for later handoffs. Its history stays.",
         { name: z.string().describe("e.g. coder#3") },
         async ({ name }) => {
           const r = findAgent(name);
@@ -242,8 +267,11 @@ export function teamServer(agent: Agent, taskId: string) {
         },
         async (args) => {
           try {
-            const t = handOff({ kind: "task", from: agent, fromTask: me(), to: args.to, title: args.title, body: args.instructions });
-            return text(`Delegated to ${findAgent(args.to)!.name} as task ${t.id}. Their report will arrive as a new message.`);
+            const h: Handoff = { kind: "task", from: agent, fromTask: me(), to: args.to, title: args.title, body: args.instructions };
+            const t = handOff(h);
+            const to = h.routedTo!;
+            const back = to.name !== findAgent(args.to)?.name && !findAgent(args.to)?.base_agent_id;
+            return text(`Delegated to ${to.name} as task ${t.id}${back ? ` (${to.name} already worked on this, so it continues with its context instead of a new ${args.to} starting from scratch)` : ""}. Their report will arrive as a new message.`);
           } catch (e: any) {
             return refuse(e.message);
           }

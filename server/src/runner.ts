@@ -178,9 +178,12 @@ function scaleNote(agent: Agent) {
 You coordinate: split work into independent pieces and delegate one piece per task. Each
 delegation to an agent starts a fresh instance of it, so several coders (or devops, security…)
 work in parallel, up to ${DEFAULT_PER_CREATOR} live tasks per agent from you. Keep follow-ups and rework on the
-instance that did the work (delegate to it by name, e.g. coder#3). When a task's report is in and
-nothing more is needed, retire its instance (\`mcp__team__retire_instance\`); don't leave finished
-tasks open.`;
+instance that did the work (delegate to it by name, e.g. coder#3; a delegation to the agent whose
+title names the same issue or PR is routed back to it automatically). It already knows the code
+and the PR, so it's far cheaper than a fresh instance. Retire an instance
+(\`mcp__team__retire_instance\`) only when its work is really finished: its PR merged (or closed),
+or nothing of it is still open. Never retire one whose PR is still in review just to make room; at
+the limit, wait for a merge or ask the owner.`;
 }
 
 function systemAppend(agent: Agent) {
