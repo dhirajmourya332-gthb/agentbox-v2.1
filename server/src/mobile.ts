@@ -32,6 +32,7 @@ function isGatewayToken(v: unknown) {
 const MB = 1024 * 1024;
 const BODY_LIMIT = 1 * MB;
 const UPLOAD_LIMIT = 16 * MB;
+const VOICE_LIMIT = 21 * MB; // base64 of 15 MB of audio (CONTRACTS-v2 C)
 const CLAIM_LIMIT = 8 * 1024;
 const WINDOW_MS = 60_000;      // |now − X-AB-Time| must be within this
 const NONCE_TTL_MS = 120_000;  // nonces remembered this long per device
@@ -59,7 +60,7 @@ const ID = "[A-Za-z0-9_-]{1,128}";
 const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
   ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control"]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
-  ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads"]
+  ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe"]
     .map((p) => ({ method: "POST" as const, re: new RegExp(`^${p}$`) })),
 ];
 
@@ -432,7 +433,7 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     const res = await app.inject({ method, url: target, headers, payload: body.length ? body : undefined });
     if (res.statusCode >= 300 && res.statusCode < 400) return empty(reply); // the gateway never redirects
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      let ref: string | null = rest.split("/")[1] ?? null;
+      let ref: string | null = rest === "voice/transcribe" ? null : rest.split("/")[1] ?? null;
       if (rest === "work") {
         try { ref = String(JSON.parse(res.payload).id ?? "") || null; } catch { ref = null; }
       }
@@ -442,6 +443,7 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     return reply.code(upstreamStatus(res.statusCode)).send(res.rawPayload);
   };
   gw.post("/m/v1/uploads", { bodyLimit: UPLOAD_LIMIT }, forward);
+  gw.post("/m/v1/voice/transcribe", { bodyLimit: VOICE_LIMIT }, forward);
   gw.route({ method: ["GET", "POST"], url: "/m/v1/*", handler: forward });
 
   await gw.listen({ host: "127.0.0.1", port });
