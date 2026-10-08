@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, NavigationContainer, type Theme } from "@react-navigation/native";
+import { createNavigationContainerRef, DarkTheme, DefaultTheme, NavigationContainer, type Theme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import * as ScreenCapture from "expo-screen-capture";
 import { StatusBar } from "expo-status-bar";
@@ -6,10 +6,15 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import type { Stack } from "./src/nav";
+import { initPush, markAsked, onPending, permissionState, requestPermission, syncPushToken, takePending, wasAsked, type PushTarget } from "./src/lib/push";
 import { SessionProvider, useSession } from "./src/lib/session";
-import { StoreProvider } from "./src/lib/store";
+import { StoreProvider, useStore } from "./src/lib/store";
+import { DocScreen } from "./src/screens/DocScreen";
+import { GroupScreen } from "./src/screens/GroupScreen";
+import { GroupsScreen } from "./src/screens/GroupsScreen";
 import { NewTaskScreen } from "./src/screens/NewTaskScreen";
 import { NotPairedScreen } from "./src/screens/NotPairedScreen";
+import { OverviewScreen } from "./src/screens/OverviewScreen";
 import { PairScreen } from "./src/screens/PairScreen";
 import { PendingScreen } from "./src/screens/PendingScreen";
 import { RoomScreen } from "./src/screens/RoomScreen";
@@ -18,11 +23,12 @@ import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { UnlockScreen } from "./src/screens/UnlockScreen";
 import { WorkScreen } from "./src/screens/WorkScreen";
 import { PauseControl } from "./src/ui/PauseControl";
-import { DialogHost } from "./src/ui/dialog";
+import { DialogHost, showDialog } from "./src/ui/dialog";
 import { T } from "./src/ui/kit";
 import { isDark, usePalette } from "./src/ui/theme";
 
 const Nav = createNativeStackNavigator<Stack>();
+const navRef = createNavigationContainerRef<Stack>();
 
 export default function App() {
   // Block screenshots and screen recording app-wide (Android FLAG_SECURE; also blanks the
@@ -32,6 +38,8 @@ export default function App() {
   useEffect(() => {
     ScreenCapture.preventScreenCaptureAsync("agentbox").then(() => setSecured("on"), () => setSecured("failed"));
   }, []);
+  // Notification taps are remembered (ids only) and acted on after unlock.
+  useEffect(() => initPush(), []);
 
   const p = usePalette();
   return (
@@ -80,17 +88,70 @@ function MainApp() {
     const base = isDark(p) ? DarkTheme : DefaultTheme;
     return { ...base, colors: { ...base.colors, background: p.bg, card: p.surface, text: p.text, border: p.border, primary: p.accent } };
   }, [p]);
+  const [navReady, setNavReady] = useState(false);
   return (
     <StoreProvider>
-      <NavigationContainer theme={theme}>
-        <Nav.Navigator screenOptions={{ headerTitleStyle: { fontSize: 17 }, headerShadowVisible: false }}>
-          <Nav.Screen name="Work" component={WorkScreen} options={{ title: "agentbox", headerRight: () => <PauseControl /> }} />
+      <NavigationContainer theme={theme} ref={navRef} onReady={() => setNavReady(true)}>
+        <Nav.Navigator initialRouteName="Overview" screenOptions={{ headerTitleStyle: { fontSize: 17 }, headerShadowVisible: false }}>
+          <Nav.Screen name="Overview" component={OverviewScreen} options={{ title: "agentbox", headerRight: () => <PauseControl /> }} />
+          <Nav.Screen name="Work" component={WorkScreen} options={{ title: "Tasks", headerRight: () => <PauseControl /> }} />
           <Nav.Screen name="Room" component={RoomScreen} options={{ title: "Task" }} />
+          <Nav.Screen name="Groups" component={GroupsScreen} options={{ title: "Groups" }} />
+          <Nav.Screen name="Group" component={GroupScreen} options={{ title: "Group" }} />
+          <Nav.Screen name="Doc" component={DocScreen} options={{ title: "Document" }} />
           <Nav.Screen name="NewTask" component={NewTaskScreen} options={{ title: "New task" }} />
           <Nav.Screen name="Routines" component={RoutinesScreen} options={{ title: "Routines", headerRight: () => <PauseControl /> }} />
           <Nav.Screen name="Settings" component={SettingsScreen} options={{ title: "Settings" }} />
         </Nav.Navigator>
       </NavigationContainer>
+      <PushBridge navReady={navReady} />
     </StoreProvider>
   );
+}
+
+/**
+ * While unlocked: asks once for notification permission (with an explanation), keeps the push
+ * token registered, and opens whatever a tapped notification pointed at. The notification only
+ * carried ids; the details are fetched now, after unlock, like any other screen.
+ */
+function PushBridge({ navReady }: { navReady: boolean }) {
+  const { loaded, groups, markSeen } = useStore();
+  const [target, setTarget] = useState<PushTarget | null>(() => takePending());
+
+  useEffect(() => onPending(() => setTarget(takePending())), []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if ((await permissionState()) === "ask" && !(await wasAsked())) {
+        if (!alive) return;
+        showDialog(
+          "Get notified when something needs you?",
+          "agentbox can notify this phone when an agent replies to you, fails or looks stuck. The notification only says \"Something needs you\", with no details, and opening it still asks you to unlock.",
+          [
+            { text: "Not now", style: "cancel", onPress: () => { markAsked(); } },
+            { text: "Allow", onPress: () => { requestPermission().then((ok) => { if (ok) syncPushToken(); }, () => {}); } },
+          ],
+        );
+        return;
+      }
+      await syncPushToken();
+    })().catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!target || !navReady || !loaded || !navRef.isReady()) return;
+    setTarget(null);
+    if (target.attentionId) markSeen([target.attentionId]);
+    if (target.roomId) {
+      const g = groups.find((x) => x.id === target.roomId);
+      if (g) navRef.navigate("Group", { id: g.id, title: g.name });
+      else navRef.navigate("Room", { id: target.roomId });
+    } else {
+      navRef.navigate("Overview");
+    }
+  }, [target, navReady, loaded, groups, markSeen]);
+
+  return null;
 }

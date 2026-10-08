@@ -52,6 +52,43 @@ export function Dot({ color, size = 10 }: { color: string; size?: number }) {
   return <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color }} />;
 }
 
+/** A round initial in the agent's colour (the portal's Avatar). */
+export function Avatar({ name, color, size = 28 }: { name: string; color?: string; size?: number }) {
+  const p = usePalette();
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color || p.muted, alignItems: "center", justifyContent: "center" }}>
+      <Text style={{ color: "#fff", fontWeight: "700", fontSize: size * 0.45 }}>{(name.trim()[0] ?? "?").toUpperCase()}</Text>
+    </View>
+  );
+}
+
+/** A small rounded label, e.g. a status badge. */
+export function Badge({ label, color }: { label: string; color: string }) {
+  return (
+    <View style={[s.badge, { borderColor: color }]}>
+      <Text style={{ color, fontSize: 12, fontWeight: "600" }}>{label}</Text>
+    </View>
+  );
+}
+
+/** Two or more tabs as a segmented control. */
+export function Segmented<K extends string>({ value, options, onChange }: { value: K; options: { key: K; label: string }[]; onChange: (k: K) => void }) {
+  const p = usePalette();
+  return (
+    <View style={[s.seg, { backgroundColor: p.surface2 }]} accessibilityRole="tablist">
+      {options.map((o) => {
+        const on = o.key === value;
+        return (
+          <Pressable key={o.key} onPress={() => onChange(o.key)} accessibilityRole="tab" accessibilityState={{ selected: on }}
+            style={[s.segBtn, on && { backgroundColor: p.surface }]}>
+            <Text style={{ color: on ? p.text : p.muted, fontWeight: "600", fontSize: 14 }}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function ErrorBox({ text }: { text: string }) {
   const p = usePalette();
   return (
@@ -73,4 +110,7 @@ const s = StyleSheet.create({
   smallText: { fontSize: 14 },
   card: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
   err: { borderWidth: 1, borderRadius: 8, padding: 10 },
+  badge: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 1 },
+  seg: { flexDirection: "row", borderRadius: 10, padding: 3, gap: 3 },
+  segBtn: { flex: 1, alignItems: "center", paddingVertical: 7, borderRadius: 8 },
 });

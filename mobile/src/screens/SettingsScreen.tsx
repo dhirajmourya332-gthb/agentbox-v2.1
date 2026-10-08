@@ -1,6 +1,8 @@
 import Constants from "expo-constants";
+import { useCallback, useEffect, useState } from "react";
 import { showDialog } from "../ui/dialog";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { AppState, Linking, ScrollView, StyleSheet, View } from "react-native";
+import { permissionState, requestPermission, syncPushToken } from "../lib/push";
 import { usePairing, useSession, LOCK_AFTER_MS } from "../lib/session";
 import { Button, Card, Screen, T } from "../ui/kit";
 import { usePalette } from "../ui/theme";
@@ -9,6 +11,24 @@ export function SettingsScreen() {
   const p = usePalette();
   const pairing = usePairing();
   const { lock, forget } = useSession();
+  const [notif, setNotif] = useState<"granted" | "ask" | "denied" | null>(null);
+
+  const check = useCallback(() => { permissionState().then(setNotif, () => setNotif(null)); }, []);
+  useEffect(() => {
+    check();
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") { check(); syncPushToken(); } });
+    return () => sub.remove();
+  }, [check]);
+
+  const enableNotifications = async () => {
+    if (notif === "denied") {
+      Linking.openSettings().catch(() => {});
+      return;
+    }
+    const ok = await requestPermission().catch(() => false);
+    check();
+    if (ok) syncPushToken();
+  };
 
   const confirmForget = () =>
     showDialog(
@@ -40,6 +60,16 @@ export function SettingsScreen() {
               <T selectable style={k === "Fingerprint" ? st.mono : undefined}>{v}</T>
             </View>
           ))}
+        </Card>
+        <Card style={{ gap: 8 }}>
+          <T muted size={13}>Notifications</T>
+          <T>{notif === "granted" ? "On" : notif === null ? "…" : "Off"}</T>
+          <T muted size={13}>
+            When an agent replies to you, fails or looks stuck. Notifications only say "Something needs you"; opening one still asks you to unlock.
+          </T>
+          {notif !== "granted" && notif !== null && (
+            <Button small label={notif === "denied" ? "Open Android settings" : "Turn on notifications"} onPress={enableNotifications} style={{ alignSelf: "flex-start" }} />
+          )}
         </Card>
         <Button label="Lock now" onPress={lock} />
         <Button variant="danger" label="Forget this device" onPress={confirmForget} />

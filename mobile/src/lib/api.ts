@@ -2,7 +2,9 @@ import { fetch as expoFetch } from "expo/fetch";
 import * as keyring from "./keyring";
 import { base64url, strictEncode } from "../crypto/encoding";
 import { isSafeId } from "../crypto/sign";
-import type { Agent, DisplayHolder, Group, RetiredAgent, Routine, RoomView, Task, ThreadData, Usage, WorkRoom } from "./types";
+import type {
+  Agent, Attention, DisplayHolder, DocumentInfo, Group, Progress, RetiredAgent, Routine, RoomView, Task, ThreadData, Transcript, Usage, WorkRoom,
+} from "./types";
 
 /**
  * Signed client for the mobile gateway. Every request goes to the one gateway origin we paired
@@ -54,12 +56,15 @@ const seg = (id: string) => {
 
 const TIMEOUT_MS = 20_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
+const TRANSCRIBE_TIMEOUT_MS = 180_000;
 const WHOAMI = "/m/v1/whoami";
 
 type Res = Awaited<ReturnType<typeof expoFetch>>;
 
 /** One signed request, no interpretation of the status beyond refusing redirects. */
-async function rawSigned(method: "GET" | "POST", path: string, body?: unknown, timeout = TIMEOUT_MS): Promise<Res> {
+type Method = "GET" | "POST" | "DELETE";
+
+async function rawSigned(method: Method, path: string, body?: unknown, timeout = TIMEOUT_MS): Promise<Res> {
   if (halted) throw new NotRecognizedError();
   if (!gateway) throw new keyring.LockedError();
   if (!path.startsWith("/m/v1/")) throw new Error("Refusing a path outside /m/v1/");
@@ -100,7 +105,7 @@ async function confirmRecognized(): Promise<void> {
   if (halted) throw new NotRecognizedError();
 }
 
-async function signedFetch(method: "GET" | "POST", path: string, body?: unknown, timeout = TIMEOUT_MS): Promise<Res> {
+async function signedFetch(method: Method, path: string, body?: unknown, timeout = TIMEOUT_MS): Promise<Res> {
   const res = await rawSigned(method, path, body, timeout);
   if (res.status === 404) {
     if (path === WHOAMI) { halt(); throw new NotRecognizedError(); }
@@ -111,7 +116,7 @@ async function signedFetch(method: "GET" | "POST", path: string, body?: unknown,
   return res;
 }
 
-async function json<T>(method: "GET" | "POST", path: string, body?: unknown, timeout?: number): Promise<T> {
+async function json<T>(method: Method, path: string, body?: unknown, timeout?: number): Promise<T> {
   const res = await signedFetch(method, path, body, timeout);
   const data: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -132,6 +137,22 @@ export async function forgetDevice(): Promise<boolean> {
   try {
     const res = await rawSigned("POST", "/m/v1/device/forget", undefined, 8_000);
     return res.status === 204 || res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Push token registration (contract D, gateway-only routes). Best effort like forgetDevice: never
+ * halts the app on a 404 (an older server without the route), never throws.
+ */
+export async function setPushToken(token: string | null): Promise<boolean> {
+  if (!keyring.isLoaded() || halted) return false;
+  try {
+    const res = token
+      ? await rawSigned("POST", "/m/v1/device/push-token", { token }, 10_000)
+      : await rawSigned("DELETE", "/m/v1/device/push-token", undefined, 8_000);
+    return res.ok;
   } catch {
     return false;
   }
@@ -158,6 +179,18 @@ export const api = {
   runRoutine: (id: string) => json<{ started: boolean; routine: Routine }>("POST", `/m/v1/routines/${seg(id)}/run`),
   upload: (name: string, type: string, data: string) =>
     json<{ path: string; name: string; size: number }>("POST", "/m/v1/uploads", { name, type, data }, UPLOAD_TIMEOUT_MS),
+  // Contracts A and B: live progress and "needs you".
+  progress: () => json<Progress[]>("GET", "/m/v1/progress"),
+  attention: () => json<{ items: Attention[] }>("GET", "/m/v1/attention"),
+  attentionSeen: (id: string) => json<unknown>("POST", `/m/v1/attention/${seg(id)}/seen`),
+  attentionSeenAll: () => json<unknown>("POST", "/m/v1/attention/seen-all"),
+  /** Newest first (the portal's board). Top-level work is depth 0. */
+  tasks: (limit = 60) => json<Task[]>("GET", `/m/v1/tasks?limit=${Math.max(1, Math.min(200, Math.floor(limit)))}`),
+  roomDocuments: (rootId: string) => json<DocumentInfo[]>("GET", `/m/v1/work/${seg(rootId)}/documents`),
+  groupDocuments: (groupId: string) => json<DocumentInfo[]>("GET", `/m/v1/groups/${seg(groupId)}/documents`),
+  // Contract C. The audio is sent once as base64 JSON; nothing is kept on the phone afterwards.
+  transcribe: (body: { audio: string; mime: string; purpose: "task" | "message"; agent_id?: string }) =>
+    json<Transcript>("POST", "/m/v1/voice/transcribe", body, TRANSCRIBE_TIMEOUT_MS),
 };
 
 export type { Task };
@@ -193,6 +226,24 @@ export async function loadImage(filePath: string): Promise<string> {
   cache.set(filePath, uri);
   if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
   return uri;
+}
+
+// --- text documents ---------------------------------------------------------------------------
+
+const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+
+/** A text document from /m/v1/file (signed GET) for the read-only viewer. Held in memory only. */
+export async function loadText(filePath: string): Promise<string> {
+  const res = await signedFetch("GET", `/m/v1/file${q(filePath)}`);
+  if (!res.ok) throw new HttpError(res.status, "Couldn't load the document");
+  const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!/^text\//.test(type) && !/^application\/(json|xml|yaml|x-yaml|octet-stream)$/.test(type)) throw new Error("Not a text document");
+  const tooBig = "Too large to show on the phone. Open it on the Mac.";
+  if (Number(res.headers.get("content-length") ?? 0) > MAX_TEXT_BYTES) throw new Error(tooBig);
+  const text = await res.text();
+  if (text.length > MAX_TEXT_BYTES) throw new Error(tooBig);
+  if (!keyring.isLoaded()) throw new keyring.LockedError(); // locked while loading
+  return text;
 }
 
 // --- live events ------------------------------------------------------------------------------

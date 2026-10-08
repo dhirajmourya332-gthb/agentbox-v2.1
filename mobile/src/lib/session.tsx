@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from "react-native";
 import * as keyring from "./keyring";
 import { api, configure, forgetDevice, isHalted, NotRecognizedError, onHalt } from "./api";
+import { clearPending, unregisterPush } from "./push";
 import { loadPairing, savePairing, unlockKey, wipeAll, type Pairing } from "./vault";
 
 /**
@@ -110,7 +111,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const forget = useCallback(async () => {
-    // Best effort: ask the gateway to delete this device first (only possible while unlocked).
+    // Best effort: remove the push token, then ask the gateway to delete this device (only
+    // possible while unlocked; the server also drops the token when the device goes).
+    await unregisterPush();
+    clearPending();
     await forgetDevice();
     keyring.wipe();
     configure(null);

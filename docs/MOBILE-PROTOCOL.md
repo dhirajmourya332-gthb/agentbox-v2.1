@@ -289,3 +289,31 @@ task where it can.
   off the tailnet, if Funnel is on or the policy grants the node the funnel capability.
 - Agents have root in the VM, so the tailnet ACL (enforced outside the VM) is the real boundary;
   see `docs/MOBILE-SETUP.md`.
+
+## Implementation notes (app notes, v2: overview, groups, voice, push)
+Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m/v1/`:
+- **Overview (home):** `GET progress` (A), `GET attention` (B), `POST attention/:id/seen`,
+  `POST attention/seen-all`, `GET tasks?limit=60` (Recently finished: depth-0 tasks that are done,
+  failed or stopped). Usage, pause state and groups come from `GET state`. If `progress` or
+  `attention` isn't there yet, the app falls back to working instances from `GET work` and shows
+  "Not available" for Needs you.
+- **Live events used:** `progress.updated`, `progress.cleared`, `attention.updated`, `usage`,
+  `group.updated`, `group.deleted`, besides the existing ones. The gateway's event allowlist must
+  include the first three.
+- **Groups:** the list comes from `GET state` (`groups`, already allowlisted). A group's
+  conversation is `GET threads/:groupId` and posting is `POST threads/:groupId/messages` (both
+  already allowlisted). Documents: `GET groups/:id/documents` (contract E). Room documents:
+  `GET work/:id/documents`. The viewer reads text and images through `GET file`.
+- **Voice:** `POST voice/transcribe` with `{audio, mime: "audio/mp4", purpose, agent_id?}`. AAC in
+  .m4a, mono, 44.1 kHz, 64 kbit/s: about 2.4 MB (3.2 MB base64) for the 5-minute cap, so the
+  route's gateway body limit must exceed the 1 MB default. Timeout 180 s.
+- **Push:** `POST device/push-token {token}` on each unlock when the token changed (the last sent
+  token is kept in secure storage), `DELETE device/push-token` on Forget (before
+  `device/forget`) and when notification permission has been turned off. Notification taps are
+  handled only after unlock; `data.room_id` and `data.attention_id` must be safe ids, everything
+  else is ignored. A `room_id` that matches a group opens the group, anything else a task room.
+- **Permissions (app manifest):** INTERNET, CAMERA, RECORD_AUDIO, POST_NOTIFICATIONS,
+  USE_BIOMETRIC, USE_FINGERPRINT. Blocked with `tools:node="remove"`, among others:
+  FOREGROUND_SERVICE (and its MICROPHONE / MEDIA_PLAYBACK types), RECEIVE_BOOT_COMPLETED,
+  MODIFY_AUDIO_SETTINGS, storage and media. Firebase Messaging's library manifest adds its own
+  delivery permissions (WAKE_LOCK, ACCESS_NETWORK_STATE, c2dm RECEIVE) at build time.

@@ -1,4 +1,32 @@
+import { useEffect, useState } from "react";
 import { useColorScheme } from "react-native";
+
+/** Re-renders every `ms` so elapsed times stay current. */
+export function useNow(ms = 15_000): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
+}
+
+/** "45 s", "12 min", "2 h 5 min" between an ISO time and now. */
+export function elapsed(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  return duration(Math.max(0, (now - t) / 1000));
+}
+
+export function duration(seconds: number): string {
+  const s = Math.floor(seconds);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h} h ${m % 60} min` : `${Math.floor(h / 24)} d ${h % 24} h`;
+}
 
 export type Palette = {
   bg: string; surface: string; surface2: string; border: string; text: string; muted: string;

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
 import { api, connectEvents } from "./api";
-import type { Agent, Message, RetiredAgent, Routine, Step, Task, ThreadData, WorkRoom } from "./types";
+import type { Agent, Attention, Group, Message, Progress, RetiredAgent, Routine, Step, Task, ThreadData, Usage, WorkRoom } from "./types";
 
 /**
  * Live data while unlocked, kept in memory only (the provider unmounts on lock, dropping it).
@@ -12,6 +12,8 @@ type State = {
   loaded: boolean;
   agents: Agent[];
   retired: RetiredAgent[];
+  groups: Group[];
+  usage: Usage | null;
   paused: boolean;
   work: { live: WorkRoom[]; done: WorkRoom[] };
   workLoaded: boolean;
@@ -19,13 +21,23 @@ type State = {
   threads: Record<string, ThreadData>;
   /** Text streamed so far for running turns, by task id. */
   live: Record<string, string>;
+  /** Contract A: what each working instance is doing, by task id. Null until the server answers. */
+  progress: Record<string, Progress> | null;
+  /** Contract B: "needs you" items, unseen first. Null until the server answers. */
+  attention: Attention[] | null;
+  /** Recent tasks from the board, newest first. */
+  recent: Task[];
   error: string | null;
 };
 
 type Ev = { type: string; [k: string]: any };
 type Action =
-  | { type: "loaded"; agents: Agent[]; retired: RetiredAgent[]; paused: boolean; routines: Routine[] }
+  | { type: "loaded"; agents: Agent[]; retired: RetiredAgent[]; groups: Group[]; usage: Usage | null; paused: boolean; routines: Routine[] }
   | { type: "work"; work: State["work"] }
+  | { type: "progress"; list: Progress[] }
+  | { type: "attention"; items: Attention[] }
+  | { type: "recent"; tasks: Task[] }
+  | { type: "seen"; ids: string[] | "all" }
   | { type: "connected"; value: boolean }
   | { type: "thread"; id: string; data: ThreadData }
   | { type: "error"; error: string | null }
@@ -37,12 +49,37 @@ const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T
   return sort ? next.sort(sort) : next;
 };
 
+/** Unseen first, then newest first; at most 100 like the server. */
+const sortAttention = (items: Attention[]) =>
+  [...items]
+    .sort((a, b) => (a.seen_at ? 1 : 0) - (b.seen_at ? 1 : 0) || b.created_at.localeCompare(a.created_at))
+    .slice(0, 100);
+
+const isProgress = (x: any): x is Progress =>
+  x && typeof x === "object" && typeof x.task_id === "string" && typeof x.agent_id === "string" && typeof x.activity === "string";
+const isAttention = (x: any): x is Attention =>
+  x && typeof x === "object" && typeof x.id === "string" && typeof x.title === "string" && typeof x.created_at === "string";
+
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "loaded":
-      return { ...s, loaded: true, agents: a.agents, retired: a.retired, paused: a.paused, routines: a.routines, error: null };
+      return { ...s, loaded: true, agents: a.agents, retired: a.retired, groups: a.groups, usage: a.usage, paused: a.paused, routines: a.routines, error: null };
     case "work":
       return { ...s, work: a.work, workLoaded: true };
+    case "progress":
+      return { ...s, progress: Object.fromEntries(a.list.filter(isProgress).map((x) => [x.task_id, x])) };
+    case "attention":
+      return { ...s, attention: sortAttention(a.items.filter(isAttention)) };
+    case "recent":
+      return { ...s, recent: a.tasks };
+    case "seen": {
+      if (!s.attention) return s;
+      const at = new Date().toISOString();
+      return {
+        ...s,
+        attention: sortAttention(s.attention.map((x) => (!x.seen_at && (a.ids === "all" || a.ids.includes(x.id)) ? { ...x, seen_at: at } : x))),
+      };
+    }
     case "connected":
       return { ...s, connected: a.value };
     case "thread":
@@ -65,10 +102,28 @@ function reducer(s: State, a: Action): State {
           return { ...s, agents: s.agents.filter((x) => x.id !== e.agentId) };
         case "paused":
           return { ...s, paused: !!e.paused };
+        case "usage":
+          return { ...s, usage: e.usage ?? null };
+        case "group.updated":
+          return e.group?.id ? { ...s, groups: upsert(s.groups, e.group as Group) } : s;
+        case "group.deleted":
+          return { ...s, groups: s.groups.filter((g) => g.id !== e.id) };
         case "routine.updated":
           return e.routine?.id ? { ...s, routines: upsert(s.routines, e.routine as Routine) } : s;
         case "routine.deleted":
           return { ...s, routines: s.routines.filter((r) => r.id !== e.id) };
+        case "progress.updated":
+          if (!isProgress(e.progress)) return s;
+          return { ...s, progress: { ...(s.progress ?? {}), [e.progress.task_id]: e.progress } };
+        case "progress.cleared": {
+          if (typeof e.task_id !== "string" || !s.progress?.[e.task_id]) return s;
+          const next = { ...s.progress };
+          delete next[e.task_id];
+          return { ...s, progress: next };
+        }
+        case "attention.updated":
+          if (!isAttention(e.item)) return s;
+          return { ...s, attention: sortAttention(upsert(s.attention ?? [], e.item)) };
         case "turn.delta":
           if (typeof e.taskId !== "string" || typeof e.text !== "string") return s;
           return { ...s, live: { ...s.live, [e.taskId]: (s.live[e.taskId] ?? "") + e.text } };
@@ -77,10 +132,12 @@ function reducer(s: State, a: Action): State {
         case "step.updated": {
           const item = e.message ?? e.task ?? e.step;
           if (!item?.id) return s;
+          let recent = s.recent;
+          if (e.type === "task.updated" && recent.some((t) => t.id === item.id)) recent = recent.map((t) => (t.id === item.id ? { ...t, ...item } : t));
           const threadId: string | undefined =
             e.message?.thread_id ?? e.task?.thread_id ??
             Object.keys(s.threads).find((id) => s.threads[id].tasks.some((t) => t.id === e.step?.task_id));
-          if (!threadId || !s.threads[threadId]) return s;
+          if (!threadId || !s.threads[threadId]) return recent === s.recent ? s : { ...s, recent };
           const t = s.threads[threadId];
           const next: ThreadData =
             e.type === "message.created" ? { ...t, messages: upsert<Message>(t.messages, item) }
@@ -91,7 +148,7 @@ function reducer(s: State, a: Action): State {
             live = { ...live };
             delete live[item.task_id];
           }
-          return { ...s, live, threads: { ...s.threads, [threadId]: next } };
+          return { ...s, live, recent, threads: { ...s.threads, [threadId]: next } };
         }
       }
       return s;
@@ -105,13 +162,17 @@ type Store = State & {
   loadThread: (id: string) => Promise<void>;
   /** Display name for an agent id, including retired ones. */
   nameOf: (id: string) => string | undefined;
+  colorOf: (id: string) => string | undefined;
+  /** Mark "needs you" items seen (optimistic; the server confirms with attention.updated). */
+  markSeen: (ids: string[] | "all") => void;
 };
 
 const Ctx = createContext<Store | null>(null);
 
 const INITIAL: State = {
-  connected: false, loaded: false, agents: [], retired: [], paused: false, work: { live: [], done: [] }, workLoaded: false,
-  routines: [], threads: {}, live: {}, error: null,
+  connected: false, loaded: false, agents: [], retired: [], groups: [], usage: null, paused: false,
+  work: { live: [], done: [] }, workLoaded: false, routines: [], threads: {}, live: {},
+  progress: null, attention: null, recent: [], error: null,
 };
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -123,22 +184,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     clearTimeout(workTimer.current);
     workTimer.current = setTimeout(() => {
       api.work().then((w) => dispatch({ type: "work", work: w })).catch(() => {});
+      api.tasks().then((t) => dispatch({ type: "recent", tasks: t })).catch(() => {});
     }, 400);
+  }, []);
+
+  /** Progress and attention are newer server features: failures leave them as they were. */
+  const refreshLive = useCallback(async () => {
+    await Promise.all([
+      api.progress().then((list) => dispatch({ type: "progress", list: Array.isArray(list) ? list : [] })).catch(() => {}),
+      api.attention().then((r) => dispatch({ type: "attention", items: Array.isArray(r?.items) ? r.items : [] })).catch(() => {}),
+      api.tasks().then((t) => dispatch({ type: "recent", tasks: Array.isArray(t) ? t : [] })).catch(() => {}),
+    ]);
   }, []);
 
   const refresh = useCallback(async () => {
     try {
-      const [s, r, w] = await Promise.all([api.state(), api.routines(), api.work()]);
-      dispatch({ type: "loaded", agents: s.agents, retired: s.retired ?? [], paused: s.paused, routines: r });
+      const [s, r, w] = await Promise.all([api.state(), api.routines(), api.work(), refreshLive()]);
+      dispatch({ type: "loaded", agents: s.agents, retired: s.retired ?? [], groups: s.groups ?? [], usage: s.usage ?? null, paused: s.paused, routines: r });
       dispatch({ type: "work", work: w });
     } catch (e) {
       dispatch({ type: "error", error: e instanceof Error ? e.message : "Couldn't load" });
     }
-  }, []);
+  }, [refreshLive]);
 
   const loadThread = useCallback(async (id: string) => {
     openThreads.current.add(id);
     dispatch({ type: "thread", id, data: await api.thread(id) });
+  }, []);
+
+  const markSeen = useCallback((ids: string[] | "all") => {
+    if (ids !== "all" && !ids.length) return;
+    dispatch({ type: "seen", ids });
+    if (ids === "all") api.attentionSeenAll().catch(() => {});
+    else ids.forEach((id) => { api.attentionSeen(id).catch(() => {}); });
   }, []);
 
   useEffect(() => {
@@ -166,8 +244,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => state.agents.find((a) => a.id === id)?.name ?? state.retired.find((a) => a.id === id)?.name,
     [state.agents, state.retired],
   );
+  const colorOf = useCallback(
+    (id: string) => state.agents.find((a) => a.id === id)?.color ?? state.retired.find((a) => a.id === id)?.color,
+    [state.agents, state.retired],
+  );
 
-  return <Ctx.Provider value={{ ...state, refresh, refreshWork, loadThread, nameOf }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ ...state, refresh, refreshWork, loadThread, nameOf, colorOf, markSeen }}>{children}</Ctx.Provider>;
 }
 
 export function useStore() {
