@@ -76,8 +76,58 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-export function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
-  const html = useMemo(() => DOMPurify.sanitize(marked.parse(text, { async: false }) as string), [text]);
+// File paths agents mention: absolute under /agents or /work, or ~/ (the agent's home).
+const PATH_RE = /(^|[\s(\[{"'“‘`,;:])((?:~|\/agents|\/work)\/[^\s`'"“”‘’<>()\[\]{},;|*]+)/g;
+const TRAILING = /[.:,!?]+$/;
+
+/** Turn file paths in rendered Markdown into links that open the document reader. */
+function linkPaths(html: string, home?: string) {
+  if (!html.includes("/agents/") && !html.includes("/work/") && !html.includes("~/")) return html;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const parent = (n as Text).parentElement;
+    if (parent?.closest("a, pre")) continue; // existing links and code blocks stay as they are
+    if (PATH_RE.test((n as Text).data)) nodes.push(n as Text);
+    PATH_RE.lastIndex = 0;
+  }
+  for (const node of nodes) {
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    const text = node.data;
+    for (const m of text.matchAll(PATH_RE)) {
+      let raw = m[2];
+      const trail = raw.match(TRAILING)?.[0] ?? "";
+      raw = raw.slice(0, raw.length - trail.length);
+      const full = raw.startsWith("~/") ? (home ? home + raw.slice(1) : null) : raw;
+      const start = (m.index ?? 0) + m[1].length;
+      if (!full || raw.length < 3 || raw.endsWith("/")) continue;
+      frag.append(text.slice(last, start));
+      const a = document.createElement("a");
+      a.href = `/api/file?path=${encodeURIComponent(full)}`;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.className = "file-link";
+      a.dataset.filePath = full;
+      a.title = `Open ${full}`;
+      a.textContent = raw;
+      frag.append(a);
+      last = start + raw.length;
+    }
+    if (last === 0) continue;
+    frag.append(text.slice(last));
+    node.replaceWith(frag);
+  }
+  return tpl.innerHTML;
+}
+
+export function Markdown({ text, streaming = false, home }: { text: string; streaming?: boolean; home?: string }) {
+  const html = useMemo(
+    () => linkPaths(DOMPurify.sanitize(marked.parse(text, { async: false }) as string), home),
+    [text, home],
+  );
   return <div className={`prose${streaming ? " cursor" : ""}`} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 

@@ -14,6 +14,7 @@ export type Agent = {
   taskId?: string;
   dm_thread_id: string;
   skills: string[];
+  home?: string;
   base_agent_id?: string | null;
   replica_no?: number | null;
   max_replicas?: number;
@@ -90,6 +91,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 
 export const api = {
   state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
+  fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   documents: (agentId: string) => call<DocumentInfo[]>("GET", `/api/agents/${agentId}/documents`),
   spawnReplica: (baseId: string) => call<Agent>("POST", `/api/agents/${baseId}/replicas`),
   retireReplica: (id: string) => call("POST", `/api/agents/${id}/retire`),

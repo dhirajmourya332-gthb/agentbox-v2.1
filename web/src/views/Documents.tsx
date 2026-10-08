@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { api, fileUrl, type Agent, type DocumentInfo } from "../api.ts";
 import { Icon, Markdown, relTime } from "../components/ui.tsx";
 
+const CODE = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt", "rb", "php", "sh", "bash", "zsh",
+  "sql", "json", "yml", "yaml", "toml", "ini", "cfg", "conf", "env", "xml", "css", "scss", "dockerfile", "tf", "lock", "log", "diff", "patch"];
 const kindOf = (name: string) => {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : name.toLowerCase();
   if (["md", "markdown", "mdx"].includes(ext)) return "markdown";
-  if (["txt", "rst", "adoc", "csv", "tsv"].includes(ext)) return "text";
+  if (["txt", "rst", "adoc", "csv", "tsv"].includes(ext) || CODE.includes(ext) || ["makefile", "dockerfile", "readme"].includes(ext)) return "text";
   if (ext === "pdf") return "pdf";
   if (["html", "htm"].includes(ext)) return "html";
   if (["png", "jpg", "jpeg", "svg"].includes(ext)) return "image";
@@ -62,10 +64,24 @@ export function AgentDocuments({ agent }: { agent: Agent }) {
   );
 }
 
-export function DocumentReader({ doc, onClose }: { doc: DocumentInfo; onClose: () => void }) {
-  const kind = kindOf(doc.name);
-  const [text, setText] = useState<string | null>(null);
+type ReaderDoc = Pick<DocumentInfo, "path"> & Partial<DocumentInfo>;
+
+/** Open a file someone linked to: look up its details first, then show the reader. */
+export function LinkedFileReader({ path, onClose }: { path: string; onClose: () => void }) {
+  const [doc, setDoc] = useState<ReaderDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.fileInfo(path).then((d) => setDoc(d)).catch((e) => setError(e.message));
+  }, [path]);
+  if (error) return <DocumentReader doc={{ path, name: path.split("/").pop() }} error={error} onClose={onClose} />;
+  return doc ? <DocumentReader doc={doc} onClose={onClose} /> : null;
+}
+
+export function DocumentReader({ doc, onClose, error: initialError }: { doc: ReaderDoc; onClose: () => void; error?: string }) {
+  const name = doc.name ?? doc.path.split("/").pop() ?? doc.path;
+  const kind = initialError ? "none" : kindOf(name);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError ?? null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -77,7 +93,7 @@ export function DocumentReader({ doc, onClose }: { doc: DocumentInfo; onClose: (
 
   useEffect(() => {
     if (kind !== "markdown" && kind !== "text") return;
-    if (doc.size > 2 * 1024 * 1024) { setError("This file is too large to preview. Download it instead."); return; }
+    if ((doc.size ?? 0) > 2 * 1024 * 1024) { setError("This file is too large to preview. Download it instead."); return; }
     fetch(fileUrl(doc.path)).then(async (r) => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? r.statusText);
       setText(await r.text());
@@ -86,15 +102,15 @@ export function DocumentReader({ doc, onClose }: { doc: DocumentInfo; onClose: (
 
   return (
     <div className="reader-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="reader" role="dialog" aria-modal="true" aria-label={doc.name}>
+      <div className="reader" role="dialog" aria-modal="true" aria-label={name}>
         <header className="reader-head">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <strong className="reader-title">{doc.name}</strong>
+            <strong className="reader-title">{name}</strong>
             <span className="hint mono reader-path">{doc.path}</span>
           </div>
-          <span className="hint" style={{ whiteSpace: "nowrap" }}>{relTime(doc.modified)} · {size(doc.size)}</span>
-          <a className="btn sm" href={fileUrl(doc.path)} target="_blank" rel="noopener">Open in new tab</a>
-          <a className="btn sm" href={fileUrl(doc.path, true)}>Download</a>
+          {doc.modified && <span className="hint" style={{ whiteSpace: "nowrap" }}>{relTime(doc.modified)} · {size(doc.size ?? 0)}</span>}
+          {!initialError && <a className="btn sm" href={fileUrl(doc.path)} target="_blank" rel="noopener">Open in new tab</a>}
+          {!initialError && <a className="btn sm" href={fileUrl(doc.path, true)}>Download</a>}
           <button ref={closeRef} className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" /></button>
         </header>
         <div className="reader-body">
@@ -102,13 +118,13 @@ export function DocumentReader({ doc, onClose }: { doc: DocumentInfo; onClose: (
           {kind === "markdown" && text !== null && <div className="reader-prose"><Markdown text={text} /></div>}
           {kind === "text" && text !== null && <pre className="reader-pre">{text}</pre>}
           {(kind === "markdown" || kind === "text") && text === null && !error && <p className="hint">Loading…</p>}
-          {kind === "pdf" && <iframe className="reader-frame" src={fileUrl(doc.path)} title={doc.name} />}
-          {kind === "html" && <iframe className="reader-frame light" src={fileUrl(doc.path)} title={doc.name} sandbox="" />}
-          {kind === "image" && <img className="reader-img" src={fileUrl(doc.path)} alt={doc.name} />}
+          {kind === "pdf" && <iframe className="reader-frame" src={fileUrl(doc.path)} title={name} />}
+          {kind === "html" && <iframe className="reader-frame light" src={fileUrl(doc.path)} title={name} sandbox="" />}
+          {kind === "image" && <img className="reader-img" src={fileUrl(doc.path)} alt={name} />}
           {kind === "other" && (
             <div className="group-intro">
               <p>No preview for this file type.</p>
-              <a className="btn sm" style={{ justifySelf: "start" }} href={fileUrl(doc.path, true)}>Download {doc.name}</a>
+              <a className="btn sm" style={{ justifySelf: "start" }} href={fileUrl(doc.path, true)}>Download {name}</a>
             </div>
           )}
         </div>

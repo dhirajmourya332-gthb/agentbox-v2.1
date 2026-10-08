@@ -127,7 +127,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
                   <time dateTime={m.created_at}>{relTime(m.created_at)}</time>
                 </div>
                 {task && <WorkLog task={task} steps={stepsOf(task.id)} />}
-                <Markdown text={m.content} />
+                <Markdown text={m.content} home={a?.home} />
                 {task?.status === "failed" && <p className="msg-note bad"><Icon name="x" size={14} />{task.error}</p>}
               </div>
             </div>
@@ -146,7 +146,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
               <div style={{ minWidth: 0 }}>
                 <div className="msg-meta"><strong>{a.name}</strong><span className="hint">replying…</span></div>
                 <WorkLog task={t} steps={stepsOf(t.id)} />
-                {text ? <Markdown text={text} streaming /> : <p className="msg-note"><Spinner />Thinking…</p>}
+                {text ? <Markdown text={text} streaming home={a.home} /> : <p className="msg-note"><Spinner />Thinking…</p>}
               </div>
             </div>
           );

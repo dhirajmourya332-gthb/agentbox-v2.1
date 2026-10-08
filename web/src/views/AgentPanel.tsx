@@ -223,7 +223,7 @@ function Instructions({ agent, text, onSaved }: { agent: Agent; text: string; on
             </>
           )}
         </div>
-        <Markdown text={text} />
+        <Markdown text={text} home={agent.home} />
       </>
     );
   }

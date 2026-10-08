@@ -145,7 +145,7 @@ function TaskDetail({ id }: { id: string }) {
         {task.result && (
           <div className="field">
             <span style={{ fontWeight: 500 }}>{task.source === "agent" ? "Report" : "Reply"}</span>
-            <div className="preview-box" style={{ maxHeight: 360 }}><Markdown text={task.result} /></div>
+            <div className="preview-box" style={{ maxHeight: 360 }}><Markdown text={task.result} home={agent?.home} /></div>
           </div>
         )}
         {task.prompt && (

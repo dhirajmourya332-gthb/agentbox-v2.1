@@ -199,7 +199,7 @@ function Input({ message, task }: { message: Message; task?: Task }) {
               {open ? "Hide report" : "Show report"}
             </button>
           )}
-          {open && <Markdown text={message.content} />}
+          {open && <Markdown text={message.content} home={from?.home} />}
           {!open && <p className="hint">{message.content.split("\n")[0].replace(/\*\*/g, "")}</p>}
         </div>
       </div>
@@ -229,7 +229,7 @@ function Turn({ agent, task, steps, reply, live }: { agent: Agent; task: Task; s
         {(steps.length > 0 || running) && <WorkLog task={task} steps={steps} />}
 
         {content ? (
-          <Markdown text={content} streaming={running} />
+          <Markdown text={content} streaming={running} home={agent.home} />
         ) : running ? (
           <p className="msg-note"><Spinner />{steps.length ? "Working…" : "Thinking…"}</p>
         ) : null}

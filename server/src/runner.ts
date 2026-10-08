@@ -213,7 +213,10 @@ When you write a document for the owner or the team (a plan, requirements, repor
 runbook), save it in ${homeOf(agent)}/docs/ (create the folder) with a dated, descriptive name,
 e.g. docs/2026-10-08-msp-api-keys-requirements.md, unless it belongs in a repo. Documents in your
 home and documents you create with the Write tool appear in your Documents tab in agentbox, newest
-first. Mention the file path in your reply.
+first.
+
+When you mention a file in a reply, write its full path (e.g. \`${homeOf(agent)}/docs/plan.md\` or
+\`/work/digital_risk-124/src/app.ts\`): the owner can click it to open the file.
 
 ## Memory
 Your memory lives in ${homeOf(agent)}/memory/ with MEMORY.md as the index. Read the index when

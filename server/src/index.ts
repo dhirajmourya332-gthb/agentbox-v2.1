@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { all, get } from "./db.ts";
 import { subscribe } from "./bus.ts";
 import {
-  createAgent, deleteAgent, dmThreadOf, getAgent, listAgents, listMemory, listRetired, readInstructions, retireReplica, spawnReplica,
+  createAgent, deleteAgent, dmThreadOf, getAgent, homeOf, listAgents, listMemory, listRetired, readInstructions, retireReplica, spawnReplica,
   updateAgent, writeInstructions,
 } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
@@ -49,6 +49,7 @@ const agentView = (a: ReturnType<typeof getAgent> & {}) => ({
   ...agentStatus(a.id),
   dm_thread_id: dmThreadOf(a.id),
   skills: skillsOf(a.id),
+  home: homeOf(a),
 });
 const mustAgent = (id: string) => {
   const a = getAgent(id);
@@ -126,6 +127,15 @@ app.get("/api/agents/:id/documents", async (req) => {
   const base = a.base_agent_id ? getAgent(a.base_agent_id) ?? a : a;
   const ids = [base.id, ...(all(`SELECT id FROM agents WHERE base_agent_id = ?`, base.id) as any[]).map((r) => r.id)];
   return listDocuments(base, a.base_agent_id ? [a.id] : ids);
+});
+// What the reader needs to show a file someone linked to.
+app.get("/api/file/info", async (req) => {
+  const p = String((req.query as any).path ?? "");
+  if (!allowed(p)) throw new HttpError(403, "That file isn't available");
+  let st: fs.Stats;
+  try { st = fs.statSync(p); } catch { throw new HttpError(404, "File not found. It may have been moved or deleted."); }
+  if (!st.isFile()) throw new HttpError(400, "That's a folder, not a file");
+  return { path: p, name: path.basename(p), folder: path.dirname(p), size: st.size, modified: st.mtime.toISOString() };
 });
 // Serve a document for viewing or download. Only files under /agents or /work.
 app.get("/api/file", async (req, reply) => {

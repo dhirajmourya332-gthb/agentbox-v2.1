@@ -461,3 +461,6 @@ a.feed-row:hover { background: var(--surface); }
 .reader-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 .reader-img { max-width: 100%; margin: 24px auto; display: block; }
 @media (max-width: 700px) { .reader-backdrop { padding: 0; } .reader { height: 100%; border-radius: 0; } }
+.prose a.file-link { font-family: var(--mono); font-size: .92em; text-decoration: none; border-bottom: 1px dashed currentColor; overflow-wrap: anywhere; }
+.prose code a.file-link { font-size: inherit; }
+.prose a.file-link:hover { border-bottom-style: solid; }

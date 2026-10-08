@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@fontsource/ibm-plex-sans/400.css";
 import "@fontsource/ibm-plex-sans/500.css";
@@ -16,6 +16,24 @@ import { TaskBoard } from "./views/Tasks.tsx";
 import { GroupChat, GroupEditor } from "./views/Groups.tsx";
 import { RoutineEditor, RoutinesList } from "./views/Routines.tsx";
 import { Activity } from "./views/Activity.tsx";
+import { LinkedFileReader } from "./views/Documents.tsx";
+
+/** Clicking a file path anywhere opens it in the reader (Cmd/Ctrl/middle-click still opens a tab). */
+function FileLinks() {
+  const [path, setPath] = useState<string | null>(null);
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as Element | null)?.closest?.("a[data-file-path]") as HTMLAnchorElement | null;
+      if (!a) return;
+      e.preventDefault();
+      setPath(a.dataset.filePath ?? null);
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+  return path ? <LinkedFileReader key={path} path={path} onClose={() => setPath(null)} /> : null;
+}
 import { DraftReview, SkillEditor, SkillsList } from "./views/Skills.tsx";
 
 function App() {
@@ -40,6 +58,7 @@ function App() {
       {route.name === "screen" && <Screen />}
       {route.name === "terminal" && <Terminal />}
       {route.name === "system" && <System />}
+      <FileLinks />
     </Shell>
   );
 }
