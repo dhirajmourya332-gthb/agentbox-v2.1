@@ -462,6 +462,39 @@ models already used in the company's infra.
 - **Test** against a mock Z.ai server first (segmenting, multipart, failures), then once with the
   real key.
 
+### 13. Android app: see what's going on (parity with the portal's overview)
+**Requirement:** the app shows too little of what's happening. Missing today:
+- **an overview:** nothing like the portal's Overview / "In progress";
+- **who's in a room or group:** opening one gives no way to see its agents, or who's working and
+  who's idle;
+- **documents:** no way to see a room's or group's documents.
+
+**Design (to confirm when building)**
+- **Overview screen** as the app's home:
+  - **In progress:** every working agent with its task, current activity and elapsed time;
+  - **Needs you:** tasks waiting on the owner, plus stalled or "possibly stuck" agents (ties into
+    item 11);
+  - **Recently finished:** done or failed, with one-line results;
+  - usage and pause state at the top.
+
+  Live over the existing signed WebSocket, with pull-to-refresh.
+- **Room / group header → Members sheet:** every agent and instance with an avatar, its role, a
+  status badge (working / queued / idle / done) and its current task. Tap one to open its
+  conversation. A per-member filter, like the portal's chips, narrows the timeline.
+- **Documents tab** on rooms and groups, plus a global Documents screen: newest first, with name,
+  author and age. Tap to open a read-only viewer: markdown rendered, images and text shown, other
+  types as "open on the Mac". Uses `GET /m/v1/work/:id/documents`, `/m/v1/documents` and
+  `/m/v1/file`, already allowlisted. Group documents (`/api/groups/:id/documents`) need adding to
+  the gateway allowlist.
+- **Task list per agent:** what an agent has queued and done, reachable from the Members sheet.
+- **Live work log:** an expandable step list for a working agent, mirroring item 11.
+- **Groups in the app:** list, open, read and post. Check the gateway allowlist covers the group
+  read and post routes, and add them if needed.
+
+**Acceptance criteria**
+- From the app's home you can tell in a few seconds what every agent is doing and what needs you.
+- In any room or group you can see its members with live status, and open its documents.
+
 ## In progress
 
 _Nothing yet._
