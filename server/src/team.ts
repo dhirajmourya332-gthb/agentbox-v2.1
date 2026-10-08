@@ -19,7 +19,7 @@ const refuse = (t: string) => ({ content: [{ type: "text" as const, text: t }], 
 
 export function findAgent(nameOrSlug: string): Agent | undefined {
   const k = nameOrSlug.trim().toLowerCase().replace(/^@/, "");
-  // "coder#2", "coder-2" and "coder 2" all name the same replica.
+  // "coder#2", "coder-2" and "coder 2" all name the same instance.
   const alt = k.replace(/[#\s]+/g, "-");
   return listAgents().find((a) => a.slug === k || a.name.toLowerCase() === k || a.slug === alt);
 }

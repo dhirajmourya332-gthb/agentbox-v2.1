@@ -69,7 +69,7 @@ function listFiles(dir: string, base = dir): string[] {
 
 const assignedTo = (name: string) =>
   all<{ agent_id: string }>(`SELECT agent_id FROM agent_skills WHERE skill = ?`, name).map((r) => r.agent_id);
-/** A replica uses its base agent's skills. */
+/** An instance uses its agent's skills. */
 export const skillsOf = (agentId: string) =>
   all<{ skill: string }>(
     `SELECT skill FROM agent_skills WHERE agent_id = COALESCE((SELECT base_agent_id FROM agents WHERE id = ?), ?) ORDER BY skill`,

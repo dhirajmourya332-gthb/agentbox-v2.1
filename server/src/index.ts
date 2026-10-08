@@ -220,7 +220,7 @@ app.delete("/api/agents/:id", async (req) => {
   if (agentStatus(a.id).status === "working" || openTasksOf(a.id).length) throw new HttpError(409, `${a.name} is working; stop its tasks first`);
   const busyReplica = (all(`SELECT id, name FROM agents WHERE base_agent_id = ? AND retired_at IS NULL`, a.id) as any[])
     .find((r) => openTasksOf(r.id).length);
-  if (busyReplica) throw new HttpError(409, `${busyReplica.name} (a replica) is working; stop its tasks first`);
+  if (busyReplica) throw new HttpError(409, `${busyReplica.name} (one of its tasks) is working; stop it first`);
   deleteAgent(a.id);
   forgetAgentRoutines(a.id);
   return { ok: true };
