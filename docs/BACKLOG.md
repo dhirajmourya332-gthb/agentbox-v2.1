@@ -57,6 +57,8 @@ Mac itself is in light mode (`prefers-color-scheme`). There's no way to pick a t
 - Update `docs/UI-DESIGN.md` › Visual system with the final light tokens.
 
 ### 3. Replicas in a dropdown under their agent in the sidebar
+> **Superseded by item 5** (one instance per task). Kept for the sidebar requirements, which item 5's design must still meet.
+
 **Requirement:** when tech-lead runs several copies of coder, list them in a dropdown on the
 **coder** entry in the sidebar, where you can click any instance to see what it's doing.
 
@@ -75,6 +77,10 @@ With 5 replicas that crowds the sidebar, and there's no summary.
 - Works the same for any agent that has replicas, not just coder.
 
 ### 4. Task rooms: an automatic group per multi-agent task
+> **Simplified by item 5.** With one instance per task, a room is simply a lead instance plus the
+> instances it started, so the "work item" labelling below isn't needed. The room requirements
+> (title, distinct look, only that task's output, delete 24 h after done unless kept) still apply.
+
 **Requirement:** with several coders working at once, it's hard to tell which instances work
 together on which task. When tech-lead puts **more than one coder instance** on a task, agentbox
 automatically creates a group for that task:
@@ -126,6 +132,91 @@ your "ship it"), which starts a new chain. So:
 - Open questions: should a single coder plus devops on one task also get a room? Should rooms
   pause at a turn limit like groups? Should a room post a summary to Teams when the task
   completes?
+
+### 5. One instance per task, for every agent (supersedes 3, simplifies 4)
+**Requirement:** any agent can be replicated, not just coder, and **each instance does exactly one
+atomic task.** Today one devops agent might at once be deploying for tech-lead, doing a task you
+gave it, and running an infra-monitoring routine, all mixed into one context and history. Instead,
+each of those runs on its own devops instance. This also simplifies the internals: grouping,
+history and lifecycle follow from "instance = task", with no special cases for coder.
+
+**The model**
+- **An agent becomes a role:** its job description, skills, model and long-term memory notes.
+  The role itself doesn't run work.
+- **An instance is one task:** created for that task, with its own conversation, context, work
+  log and status, using the role's job description, skills and memory. Named by role plus task
+  (e.g. "devops · Deploy #2958"), with a short id for mentions (`devops#3`).
+- **Who creates instances:**
+  - **You**, for any role, including **tech-lead**. Each tech-lead instance owns one major task,
+    so you can run two big pieces of work in parallel.
+  - **A tech-lead instance**, for the roles it delegates to (coder, devops, security…), within
+    limits: up to 5 coder instances per tech-lead instance, plus others. It can also create
+    groups.
+  - **A routine** gets **one dedicated instance** for its whole life, not one per run. Each run
+    uses that instance, and the instance is retired when the routine is deleted.
+- **Who ends instances:**
+  - When the task is done (decided by you, or by the tech-lead instance that created it), the
+    instance is retired. That's a soft delete: its history stays.
+  - **You can retire any instance.** A tech-lead instance can retire **only instances it created**,
+    never ones you created.
+  - An instance with running or queued work can't be retired until it's stopped or finished.
+- **Grouping comes for free:** a tech-lead instance plus the instances it created *is* the task
+  room (item 4). devops's deploy for that task is its own devops instance in that tree, so devops's
+  other work never shows up there.
+
+**Acceptance criteria**
+- Every role can have instances, each with its own cap (and a global cap for VM memory and Claude
+  usage). Per tech-lead instance: at most 5 coder instances at once (configurable).
+- Delegation creates an instance of the target role for that task, instead of queueing into a
+  shared agent. Reports go back to the creating instance, as today.
+- Messaging a role from the UI starts a new task on a new instance (with a way to continue an
+  existing instance instead).
+- Routines: one instance per routine, created with it and retired with it; runs still start a
+  fresh conversation each time (as today), on that instance.
+- Permissions as above (you: any; a tech-lead instance: only its own), enforced by the
+  server/tools, not just the prompt.
+- Task rooms (item 4) built on the instance tree: title from the lead instance's task, only that
+  tree's output, deleted 24 h after done unless you keep it.
+- History stays navigable after instances are retired (tasks, activity, rooms).
+- Existing agents migrate cleanly: tech-lead, coder, devops and security become roles; their
+  current chats and routines move to instances.
+
+**Design first: this must not clutter the UI.** Before building, do a design pass (like
+`docs/UI-DESIGN.md`) that covers all features together: roles, instances, rooms, groups,
+routines, tasks, activity. Principles to start from:
+- Organise the sidebar by **work**, not by agent. Active task rooms and running instances are what
+  you look at; roles are where you start new work and edit job descriptions.
+- Collapse by default, and show counts and live status ("devops: 2 working") rather than long
+  lists.
+- One obvious way to start work ("New task" → pick a role, or hand it to tech-lead), and one
+  obvious place to see a task end to end (its room or instance).
+- Retired instances leave the live views but stay in history and search.
+
+Starting sketch for the sidebar, to be refined in the design pass:
+
+```
+WORK                                   ROLES
+▾ #2958 CSPM module (tech-lead·1)      tech-lead   1 working
+    coder · M2-1 cron parser   ⟳       coder       3 working
+    coder · M2-2 queue worker  ⟳       devops      1 working · 1 routine
+    devops · deploy staging    ○       security    idle
+▸ Login timeout fix (coder·4)    ✓     + New task
+▸ Routines (2)
+```
+
+**Notes and open questions**
+- **Memory:** share long-term notes at the role level (learnings help every instance) and keep
+  conversation and context per instance? Or let an instance's notes be promoted to the role only
+  on approval?
+- **Context cost:** fresh instances re-read the codebase more often than one long-lived agent.
+  Shared role memory and skills offset this; watch Claude usage.
+- **Concurrency:** the shared screen lock and the 6 GB VM become the limits. Revisit the VM memory
+  (backlog parked item) and the global cap.
+- **What "done" means:** an explicit "Mark done" by you or the creating tech-lead instance, or
+  automatic when its task finishes and nothing is queued (with retirement still confirmed)?
+- **Builds on and replaces** today's replica code (`base_agent_id`, `max_replicas`, `can_scale`,
+  spawn/retire tools, `find_work`). Most of it carries over; the base agent stops taking work
+  directly.
 
 ## In progress
 
