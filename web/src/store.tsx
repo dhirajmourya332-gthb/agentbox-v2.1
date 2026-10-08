@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type DisplayHolder, type RetiredAgent, type WorkRoom, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
+import { api, type Agent, type DisplayHolder, type RetiredAgent, type WorkRoom, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage, type Progress, type Attention } from "./api.ts";
 
 type State = {
   connected: boolean;
@@ -25,6 +25,10 @@ type State = {
   devicesVersion: number;
   /** Text streamed so far for running turns, by task id. */
   live: Record<string, string>;
+  /** What each running task is doing now, by task id (cleared when its turn ends). */
+  progress: Record<string, Progress>;
+  /** "Needs you" items, unseen first. */
+  attention: Attention[];
 };
 
 type Action =
@@ -34,7 +38,12 @@ type Action =
   | { type: "board"; tasks: Task[] }
   | { type: "routines"; routines: Routine[] }
   | { type: "work"; work: { live: WorkRoom[]; done: WorkRoom[] } }
+  | { type: "live"; progress: Progress[]; attention: Attention[] }
   | { type: "event"; e: any };
+
+/** Unseen first, newest first; the server sends at most 100. */
+const sortAttention = (items: Attention[]) =>
+  [...items].sort((a, b) => Number(!!a.seen_at) - Number(!!b.seen_at) || (b.seen_at ?? b.created_at).localeCompare(a.seen_at ?? a.created_at));
 
 const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T) => number) => {
   const i = list.findIndex((x) => x.id === item.id);
@@ -52,6 +61,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, threads: { ...s.threads, [a.id]: a.data } };
     case "routines":
       return { ...s, routines: a.routines };
+    case "live":
+      return { ...s, progress: Object.fromEntries(a.progress.map((p) => [p.task_id, p])), attention: sortAttention(a.attention) };
     case "work":
       return { ...s, work: a.work };
     case "board":
@@ -60,6 +71,11 @@ function reducer(s: State, a: Action): State {
       const e = a.e;
       if (["task.updated", "draft.updated", "routine.updated", "devices.changed"].includes(e.type)) s = { ...s, activityVersion: s.activityVersion + 1 };
       if (e.type === "devices.changed") return { ...s, devicesVersion: s.devicesVersion + 1 };
+      if (e.type === "task.updated" && e.task.status !== "running" && s.progress[e.task.id]) {
+        const progress = { ...s.progress };
+        delete progress[e.task.id];
+        s = { ...s, progress };
+      }
       switch (e.type) {
         case "agent.created":
         case "agent.updated": {
@@ -122,6 +138,16 @@ function reducer(s: State, a: Action): State {
           return { ...s, agents: s.agents.map((x) => (x.id === e.agentId ? { ...x, status: e.status, taskId: e.taskId } : x)) };
         case "usage":
           return { ...s, usage: e.usage };
+        case "progress.updated":
+          return { ...s, progress: { ...s.progress, [e.progress.task_id]: e.progress } };
+        case "progress.cleared": {
+          if (!s.progress[e.task_id]) return s;
+          const progress = { ...s.progress };
+          delete progress[e.task_id];
+          return { ...s, progress };
+        }
+        case "attention.updated":
+          return { ...s, attention: sortAttention([e.item, ...s.attention.filter((x) => x.id !== e.item.id)]).slice(0, 100) };
         case "turn.delta":
           return { ...s, live: { ...s.live, [e.taskId]: (s.live[e.taskId] ?? "") + e.text } };
         case "message.created":
@@ -162,7 +188,7 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0, devicesVersion: 0,
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0, devicesVersion: 0, progress: {}, attention: [],
   });
   const openThreads = useRef(new Set<string>());
   // The Work list is derived on the server; refetch it (debounced) when tasks or agents change.
@@ -177,6 +203,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "routines", routines: r });
     dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups, paused: s.paused, display: s.display, retired: s.retired });
     dispatch({ type: "board", tasks: t });
+    Promise.all([api.progress(), api.attention()])
+      .then(([p, a]) => dispatch({ type: "live", progress: p, attention: a.items }))
+      .catch(() => {});
     refreshWork();
   }, []);
 

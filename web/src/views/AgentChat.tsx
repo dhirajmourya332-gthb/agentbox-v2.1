@@ -5,6 +5,7 @@ import { useStore } from "../store.tsx";
 import { Avatar, Icon, Markdown, Spinner, StatusGlyph, duration, relTime, useEscToStop } from "../components/ui.tsx";
 import { TaskPanel } from "./AgentPanel.tsx";
 import { RolePage } from "./RolePage.tsx";
+import { LiveBar, useSeenRoom } from "../components/Live.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -27,7 +28,9 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
 }
 
 function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }) {
-  const { everyone, threads, live, loadThread, threadsVersion } = useStore();
+  const { everyone, threads, live, loadThread, threadsVersion, progress } = useStore();
+  // A task you started is its own room for "needs you": opening it marks those items seen.
+  useSeenRoom(!agent.parent_instance_id && agent.created_by === "owner" ? agent.id : null);
   const [threadList, setThreadList] = useState<Thread[]>([]);
   useEffect(() => {
     api.agentThreads(agent.id).then(setThreadList).catch(() => {});
@@ -84,6 +87,8 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
 
         {threadList.length > 1 && <ThreadTabs agent={agent} threads={threadList} current={threadId} />}
         {thread ? <Timeline agent={agent} thread={thread} live={live} /> : <div className="timeline" />}
+        {/* The work log is already in the timeline here: the bar only says what's happening, and flags a stall. */}
+        <LiveBar items={Object.values(progress).filter((p) => p.agent_id === agent.id)} log={false} />
         {threadId && isMain && !done && <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0} />}
         {done && (
           <p className="composer-hint" style={{ padding: "12px 24px 20px", margin: 0, maxWidth: "none", textAlign: "center" }}>

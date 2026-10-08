@@ -4,6 +4,7 @@ import { useStore } from "../store.tsx";
 import { href, type Route } from "../router.ts";
 import { Avatar, Icon, StatusGlyph } from "./ui.tsx";
 import { PauseControl, PausedBar, ScreenPip, ThemeSwitch } from "./Controls.tsx";
+import { MarkDot, useRoomMarks, type Mark } from "./Live.tsx";
 
 function UsageChip({ usage }: { usage: Usage | null }) {
   if (!usage) return null;
@@ -115,7 +116,7 @@ function Glyph({ status }: { status: string }) {
 }
 
 /** One top-level task in Work: a single task, or a task room with its tasks folded under it. */
-function WorkItem({ room, route }: { room: WorkRoom; route: Route }) {
+function WorkItem({ room, route, mark }: { room: WorkRoom; route: Route; mark?: { mark: Mark; title: string } }) {
   const isRoom = room.members.length > 1;
   const busy = room.members.some((m) => m.status === "working");
   const [open, setOpen] = useRemembered(`work.${room.root.id}`, true);
@@ -132,6 +133,7 @@ function WorkItem({ room, route }: { room: WorkRoom; route: Route }) {
         <RailLink to={to} current={route} className="work-link"
           icon={isRoom ? <span className={`room-dot${busy ? " busy" : ""}`}><Icon name="room" size={12} /></span> : <Glyph status={room.root.status} />}>
           <span className="grow" title={`${room.root.label} · ${room.root.name}`}>{room.root.label ?? room.root.name}</span>
+          {mark && <MarkDot mark={mark.mark} title={mark.title} />}
           {isRoom && <span className="count subtle">{children.length + 1}</span>}
         </RailLink>
       </div>
@@ -175,7 +177,9 @@ function TeamItem({ role, route }: { role: Agent; route: Route }) {
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const { agents, usage, drafts, board, groups, work } = useStore();
+  const { agents, usage, drafts, board, groups, work, attention } = useStore();
+  const marks = useRoomMarks();
+  const needsYou = attention.filter((i) => !i.seen_at).length;
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
   const roles = agents.filter((a) => !a.base_agent_id);
   const [showDone, setShowDone] = useRemembered("work.done", false);
@@ -196,7 +200,10 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         <a className="btn primary new-task-btn" href="#/new"><Icon name="plus" />New task</a>
 
         <div className="rail-nav">
-          <RailLink to={{ name: "home" }} current={route} icon={<Icon name="team" />}>Overview</RailLink>
+          <RailLink to={{ name: "home" }} current={route} icon={<Icon name="team" />}>
+            <span className="grow">Overview</span>
+            {needsYou > 0 && <span className="badge" title={`${needsYou} thing${needsYou > 1 ? "s" : ""} need${needsYou > 1 ? "" : "s"} you`}>{needsYou}</span>}
+          </RailLink>
           <RailLink to={{ name: "activity" }} current={route} icon={<Icon name="activity" />}>Activity</RailLink>
           <RailLink to={{ name: "tasks" }} current={route} icon={<Icon name="board" />}>
             <span className="grow">Tasks</span>
@@ -211,14 +218,14 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </div>
 
         <Section id="work" label="Work">
-          {work.live.map((w) => <WorkItem key={w.root.id} room={w} route={route} />)}
+          {work.live.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
           {work.live.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
           {work.done.length > 0 && (
             <>
               <button className="rail-more" aria-expanded={showDone} onClick={() => setShowDone(!showDone)}>
                 <span className={`chev${showDone ? " open" : ""}`}><Icon name="chevron" size={10} /></span>Done ({work.done.length})
               </button>
-              {showDone && work.done.map((w) => <WorkItem key={w.root.id} room={w} route={route} />)}
+              {showDone && work.done.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
             </>
           )}
         </Section>
@@ -234,6 +241,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           {groups.map((g) => (
             <RailLink key={g.id} to={{ name: "group", id: g.id }} current={route} icon={<span className="hash" aria-hidden="true">#</span>}>
               <span className="grow">{g.name}</span>
+              {marks.get(g.id) && <MarkDot mark={marks.get(g.id)!.mark} title={marks.get(g.id)!.title} />}
               {g.paused && <span className="badge" title="Paused, waiting for you">!</span>}
             </RailLink>
           ))}

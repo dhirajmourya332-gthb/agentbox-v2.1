@@ -599,3 +599,53 @@ button.row.doc-table-row:hover { background: var(--raised); }
 .attach-btn { align-self: flex-end; }
 .composer.dropping, .drop-zone.dropping textarea { outline: 2px dashed var(--accent); outline-offset: 2px; }
 .prose img { max-width: min(360px, 100%); max-height: 280px; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; }
+
+/* Live progress: one line per working agent, pinned under the timeline */
+.live-bar { flex: none; max-height: 40vh; overflow-y: auto; border-top: 1px solid var(--line); background: var(--surface); }
+.live-bar-inner { max-width: 820px; margin: 0 auto; padding: 6px 24px; display: flex; flex-direction: column; gap: 2px; }
+.live-row { border-radius: var(--r-ctl); }
+.live-row.stalled { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.live-main {
+  display: grid; grid-template-columns: 20px auto minmax(0, 1fr) auto 12px; align-items: center; gap: 10px;
+  width: 100%; min-height: 34px; padding: 4px 8px; border: 0; background: none; border-radius: var(--r-ctl);
+  color: var(--text); font: 13px var(--sans); text-align: left;
+}
+button.live-main { cursor: pointer; }
+button.live-main:hover { background: var(--raised); }
+.live-row.stalled button.live-main:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.live-main .chev { display: inline-flex; color: var(--muted); transition: transform .12s ease-out; }
+.live-who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.live-task { font-weight: 400; color: var(--muted); }
+.live-what { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text); }
+.live-what > :not(svg) { overflow: hidden; text-overflow: ellipsis; }
+.live-since { color: var(--muted); }
+.live-row.stalled .live-what { color: var(--warn); font-weight: 500; }
+.live-time { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.live-summary { margin: 0; padding: 0 8px 6px 38px; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.live-actions { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 8px 8px 38px; }
+.live-log { padding: 0 8px 6px 38px; }
+.live-log .worklog { margin-bottom: 4px; }
+.live-note { display: grid; gap: 6px; padding: 0 8px 8px 38px; }
+.live-note textarea.text { min-height: 0; resize: none; }
+.live-note-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.live-note-actions .hint { flex: 1 1 200px; }
+@media (max-width: 640px) {
+  .live-bar-inner { padding: 6px 12px; }
+  .live-main { grid-template-columns: 20px minmax(0, 1fr) auto 12px; }
+  .live-who { display: none; }
+  .live-summary, .live-actions, .live-log, .live-note { padding-left: 8px; }
+}
+
+/* Needs you */
+.attn-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent); }
+.attn-dot.warn { background: var(--warn); }
+.attn-dot.bad { background: var(--bad); }
+.section-head { display: flex; align-items: center; gap: 8px; margin: 28px 0 10px; }
+.page .section-head h2 { margin: 0; display: inline-flex; align-items: center; gap: 8px; }
+.section-head .btn { margin-left: auto; }
+.attn-row { gap: 12px; }
+.attn-main { flex: 1; min-width: 0; display: flex; flex-direction: column; color: var(--text); text-decoration: none; }
+.attn-main:hover .attn-title { text-decoration: underline; }
+.attn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .live-line { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .live-line.stalled { color: var(--warn); }

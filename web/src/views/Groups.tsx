@@ -7,6 +7,7 @@ import { Avatar, Icon, Markdown, Spinner, relTime, useEscToStop } from "../compo
 import { AgentPicker } from "./Skills.tsx";
 import { WorkLog } from "./AgentChat.tsx";
 import { WorkDocuments } from "./Room.tsx";
+import { LiveBar, useSeenRoom } from "../components/Live.tsx";
 
 const MENTION = /@([A-Za-z0-9][A-Za-z0-9_-]*)/g;
 
@@ -22,9 +23,10 @@ function mentioned(text: string, members: Agent[]) {
 // ---------------------------------------------------------------------------
 
 export function GroupChat({ id }: { id: string }) {
-  const { groups, agents, everyone, threads, live, loadThread } = useStore();
+  const { groups, agents, everyone, threads, live, loadThread, progress } = useStore();
   const group = groups.find((g) => g.id === id);
   const thread = threads[id];
+  useSeenRoom(id);
   useEffect(() => {
     loadThread(id).catch(() => {});
   }, [id, loadThread]);
@@ -67,6 +69,12 @@ export function GroupChat({ id }: { id: string }) {
 
       {thread ? <GroupTimeline group={group} members={members} lead={lead} data={thread} live={live} /> : <div className="timeline" />}
 
+      <LiveBar
+        items={Object.values(progress).filter((p) => p.group_id === id)}
+        taskOf={(tid) => thread?.tasks.find((t) => t.id === tid)}
+        stepsOf={(tid) => thread?.steps.filter((s) => s.task_id === tid) ?? []}
+      />
+
       {group.paused && (
         <div className="paused-bar" role="status">
           Paused after 12 agent replies since your last message, so agents can't loop without you.
@@ -93,7 +101,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
   group: Group; members: Agent[]; lead?: Agent;
   data: { messages: Message[]; tasks: Task[]; steps: Step[] }; live: Record<string, string>;
 }) {
-  const { agents, everyone } = useStore();
+  const { agents, everyone, progress } = useStore();
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const tasks = useMemo(() => new Map(data.tasks.map((t) => [t.id, t])), [data.tasks]);
@@ -157,12 +165,15 @@ function GroupTimeline({ group, members, lead, data, live }: {
             return <p key={t.id} className="system-note"><Avatar name={a.name} color={a.color} size={16} /> {a.name} is up next</p>;
           }
           const text = live[t.id];
+          // A working member's status lives in the bar below; here only its reply as it's written.
+          const tracked = !!progress[t.id];
+          if (tracked && !text) return null;
           return (
             <div key={t.id} className="msg">
               <Avatar name={a.name} color={a.color} size={28} />
               <div style={{ minWidth: 0 }}>
                 <div className="msg-meta"><strong>{a.name}</strong><span className="hint">replying…</span></div>
-                <WorkLog task={t} steps={stepsOf(t.id)} />
+                {!tracked && <WorkLog task={t} steps={stepsOf(t.id)} />}
                 {text ? <Markdown text={text} streaming home={a.home} /> : <p className="msg-note"><Spinner />Thinking…</p>}
               </div>
             </div>
