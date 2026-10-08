@@ -20,6 +20,12 @@ export type Agent = {
   can_scale?: number;
   retired_at?: string | null;
 };
+export type DocumentInfo = {
+  path: string; name: string; folder: string; location: string; size: number; modified: string;
+  source: "home" | "written"; task_id: string | null; task_title: string | null;
+};
+export const fileUrl = (path: string, download = false) =>
+  `/api/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
 export type RetiredAgent = { id: string; name: string; color: string; base_agent_id: string | null };
 
 export type Skill = { name: string; description: string; body: string; files: string[]; agents: string[]; updated_at: string };
@@ -84,6 +90,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 
 export const api = {
   state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
+  documents: (agentId: string) => call<DocumentInfo[]>("GET", `/api/agents/${agentId}/documents`),
   spawnReplica: (baseId: string) => call<Agent>("POST", `/api/agents/${baseId}/replicas`),
   retireReplica: (id: string) => call("POST", `/api/agents/${id}/retire`),
   pauseAll: (stopRunning: boolean) => call("POST", "/api/pause", { stopRunning }),

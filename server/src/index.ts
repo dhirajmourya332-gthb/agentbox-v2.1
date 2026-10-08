@@ -12,6 +12,7 @@ import {
 } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
 import { activity, graph } from "./activity.ts";
+import { allowed, contentType, listDocuments } from "./documents.ts";
 import { openTasksOf, pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
 import {
@@ -118,6 +119,32 @@ app.put("/api/agents/:id/instructions", async (req) => {
   if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Instructions can't be empty");
   writeInstructions(a, text);
   return { ok: true };
+});
+app.get("/api/agents/:id/documents", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  // A base agent's list includes what its replicas wrote; they share its home.
+  const base = a.base_agent_id ? getAgent(a.base_agent_id) ?? a : a;
+  const ids = [base.id, ...(all(`SELECT id FROM agents WHERE base_agent_id = ?`, base.id) as any[]).map((r) => r.id)];
+  return listDocuments(base, a.base_agent_id ? [a.id] : ids);
+});
+// Serve a document for viewing or download. Only files under /agents or /work.
+app.get("/api/file", async (req, reply) => {
+  const q = req.query as any;
+  const p = String(q.path ?? "");
+  if (!allowed(p)) throw new HttpError(403, "That file isn't available");
+  let st: fs.Stats;
+  try { st = fs.statSync(p); } catch { throw new HttpError(404, "File not found"); }
+  if (!st.isFile()) throw new HttpError(404, "Not a file");
+  const name = path.basename(p).replace(/"/g, "");
+  reply.header("content-type", contentType(p));
+  reply.header("content-disposition", `${q.download ? "attachment" : "inline"}; filename="${name}"`);
+  reply.header("cache-control", "no-store");
+  // HTML/SVG from an agent mustn't run scripts against the agentbox UI. (Not applied to PDFs:
+  // a sandboxed response stops the browser's built-in PDF viewer.)
+  if (/\.(html?|svg)$/i.test(p)) {
+    reply.header("content-security-policy", "sandbox; default-src 'none'; img-src * data:; style-src 'unsafe-inline' *; font-src *");
+  }
+  return reply.send(fs.createReadStream(p));
 });
 app.post("/api/agents/:id/replicas", async (req) => agentView(spawnReplica(mustAgent((req.params as any).id).id)));
 app.post("/api/agents/:id/retire", async (req) => {

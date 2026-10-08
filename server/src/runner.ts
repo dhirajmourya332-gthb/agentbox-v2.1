@@ -208,6 +208,13 @@ skill covers it), or the owner asks you to remember how to do something, call
 \`mcp__team__propose_skill\` with a reusable, general version of the steps. The owner reviews
 proposals before they join the library.
 
+## Documents
+When you write a document for the owner or the team (a plan, requirements, report, analysis,
+runbook), save it in ${homeOf(agent)}/docs/ (create the folder) with a dated, descriptive name,
+e.g. docs/2026-10-08-msp-api-keys-requirements.md, unless it belongs in a repo. Documents in your
+home and documents you create with the Write tool appear in your Documents tab in agentbox, newest
+first. Mention the file path in your reply.
+
 ## Memory
 Your memory lives in ${homeOf(agent)}/memory/ with MEMORY.md as the index. Read the index when
 a task may depend on past work. When you learn something durable (a preference, a decision,

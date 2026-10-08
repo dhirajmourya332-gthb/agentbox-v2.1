@@ -3,8 +3,9 @@ import { api, type Agent } from "../api.ts";
 import { Avatar, Icon, Markdown, StatusGlyph, relTime } from "../components/ui.tsx";
 import { go } from "../router.ts";
 import { useStore } from "../store.tsx";
+import { AgentDocuments } from "./Documents.tsx";
 
-type Tab = "overview" | "instructions" | "skills" | "memory";
+type Tab = "overview" | "documents" | "instructions" | "skills" | "memory";
 
 export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -19,7 +20,7 @@ export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => vo
   return (
     <aside className="panel" aria-label={`${agent.name} details`}>
       <div className="tabs" role="tablist">
-        {(["overview", "instructions", "skills", "memory"] as Tab[]).map((t) => (
+        {(["overview", "documents", "instructions", "skills", "memory"] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -32,6 +33,7 @@ export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => vo
         {tab === "overview" && <Overview agent={agent} />}
         {tab === "instructions" && data && <Instructions agent={agent} text={data.instructions} onSaved={reload} />}
         {tab === "skills" && <AgentSkills agent={agent} />}
+        {tab === "documents" && <AgentDocuments agent={agent} />}
         {tab === "memory" && data && <Memory files={data.memory} agent={agent} />}
       </div>
     </aside>
