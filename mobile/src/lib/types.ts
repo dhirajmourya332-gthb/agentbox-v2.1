@@ -79,5 +79,5 @@ export type Attention = {
   title: string; created_at: string; seen_at: string | null;
 };
 
-/** Contract C. */
-export type Transcript = { text: string; raw: string; duration_s: number; cleaned: boolean };
+/** Voice v2: the phone recognises speech itself and sends only the text for cleanup. */
+export type CleanedText = { text: string; raw: string; cleaned: boolean };

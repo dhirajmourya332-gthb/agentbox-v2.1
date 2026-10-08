@@ -2,7 +2,7 @@
   "expo": {
     "name": "agentbox",
     "slug": "agentbox",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "platforms": [
       "android"
     ],
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "local.agentbox.mobile",
-      "versionCode": 3,
+      "versionCode": 4,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -72,7 +72,7 @@
       [
         "expo-image-picker",
         {
-          "microphonePermission": "agentbox uses the microphone only while you record a voice note, to turn it into text."
+          "microphonePermission": "agentbox uses the microphone only while you dictate, to turn your speech into text."
         }
       ],
       [
@@ -84,15 +84,6 @@
         }
       ],
       [
-        "expo-audio",
-        {
-          "microphonePermission": "agentbox uses the microphone only while you record a voice note, to turn it into text.",
-          "recordAudioAndroid": true,
-          "enableBackgroundRecording": false,
-          "enableBackgroundPlayback": false
-        }
-      ],
-      [
         "expo-notifications",
         {
           "icon": "./assets/android-icon-monochrome.png",
@@ -100,7 +91,16 @@
           "defaultChannel": "attention"
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "agentbox uses the microphone only while you dictate, to turn your speech into text.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ]
     ],
     "extra": {
       "eas": {

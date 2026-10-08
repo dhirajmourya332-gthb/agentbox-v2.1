@@ -1,10 +1,11 @@
 import Constants from "expo-constants";
 import { useCallback, useEffect, useState } from "react";
 import { showDialog } from "../ui/dialog";
-import { AppState, Linking, ScrollView, StyleSheet, View } from "react-native";
+import { AppState, Linking, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { downloadModel, LANGS, langLabel, onDeviceStatus, recognitionAvailable, setVoicePrefs, useVoicePrefs, type OnDeviceStatus } from "../lib/speech";
 import { permissionState, requestPermission, syncPushToken } from "../lib/push";
 import { usePairing, useSession, LOCK_AFTER_MS } from "../lib/session";
-import { Button, Card, Screen, T } from "../ui/kit";
+import { Button, Card, Screen, Segmented, T } from "../ui/kit";
 import { usePalette } from "../ui/theme";
 
 export function SettingsScreen() {
@@ -71,6 +72,7 @@ export function SettingsScreen() {
             <Button small label={notif === "denied" ? "Open Android settings" : "Turn on notifications"} onPress={enableNotifications} style={{ alignSelf: "flex-start" }} />
           )}
         </Card>
+        <VoiceCard />
         <Button label="Lock now" onPress={lock} />
         <Button variant="danger" label="Forget this device" onPress={confirmForget} />
         <T muted size={13}>Screenshots and screen recording are blocked in this app.</T>
@@ -79,7 +81,67 @@ export function SettingsScreen() {
   );
 }
 
+/** Voice settings: language, and whether speech may leave the phone. */
+function VoiceCard() {
+  const p = usePalette();
+  const prefs = useVoicePrefs();
+  const [status, setStatus] = useState<OnDeviceStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const available = recognitionAvailable();
+
+  const check = useCallback(() => {
+    setStatus(null);
+    onDeviceStatus(prefs.lang).then(setStatus, () => setStatus("unknown"));
+  }, [prefs.lang]);
+  useEffect(() => {
+    check();
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") check(); });
+    return () => sub.remove();
+  }, [check]);
+
+  const download = async () => {
+    setBusy(true);
+    const msg = await downloadModel(prefs.lang).catch(() => "Couldn't start the download.");
+    setBusy(false);
+    showDialog("Offline model", msg);
+    check();
+  };
+
+  const where = status === "installed"
+    ? `On-device: the ${langLabel(prefs.lang)} model is installed, so your speech stays on this phone.`
+    : status === "unsupported"
+      ? "This phone can't recognise speech on-device (needs Android 13 or later with on-device recognition)."
+      : status === "missing"
+        ? `The on-device model for ${langLabel(prefs.lang)} isn't installed.`
+        : status === "unknown" ? "Couldn't check for an on-device model." : "Checking…";
+  const fallback = prefs.onDeviceOnly
+    ? "On-device only is on: if the model isn't there, voice won't start."
+    : "Without the on-device model, speech goes to Google's online recognition. The listening bar shows which one is in use.";
+
+  return (
+    <Card style={{ gap: 10 }}>
+      <T muted size={13}>Voice</T>
+      {!available && (
+        <T size={13} style={{ color: p.bad }}>No speech recognition service found. Install or enable Google's speech services (or the Google app).</T>
+      )}
+      <Segmented value={prefs.lang} options={LANGS.map((l) => ({ key: l.key, label: l.short }))}
+        onChange={(lang) => { setVoicePrefs({ lang }).catch(() => {}); }} />
+      <View style={st.switchRow}>
+        <T style={{ flex: 1 }}>On-device only</T>
+        <Switch value={prefs.onDeviceOnly} onValueChange={(v) => { setVoicePrefs({ onDeviceOnly: v }).catch(() => {}); }}
+          accessibilityLabel="Voice: on-device only" trackColor={{ true: p.accent, false: p.border }} />
+      </View>
+      <T muted size={13}>{where} {fallback}</T>
+      {(status === "missing" || status === "unknown") && (
+        <Button small label="Download offline model" busy={busy} disabled={busy} onPress={download} style={{ alignSelf: "flex-start" }} />
+      )}
+      <T muted size={13}>Only the recognised text is sent to agentbox to tidy up. It goes in the box for you to check; nothing is sent until you tap Send.</T>
+    </Card>
+  );
+}
+
 const st = StyleSheet.create({
+  switchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   row: { gap: 2 },
   mono: { fontFamily: "monospace", fontSize: 17, letterSpacing: 1 },
 });

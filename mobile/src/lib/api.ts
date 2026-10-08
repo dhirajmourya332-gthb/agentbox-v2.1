@@ -3,7 +3,7 @@ import * as keyring from "./keyring";
 import { base64url, strictEncode } from "../crypto/encoding";
 import { isSafeId } from "../crypto/sign";
 import type {
-  Agent, Attention, DisplayHolder, DocumentInfo, Group, Progress, RetiredAgent, Routine, RoomView, Task, ThreadData, Transcript, Usage, WorkRoom,
+  Agent, Attention, DisplayHolder, DocumentInfo, Group, Progress, RetiredAgent, Routine, RoomView, Task, ThreadData, CleanedText, Usage, WorkRoom,
 } from "./types";
 
 /**
@@ -56,7 +56,7 @@ const seg = (id: string) => {
 
 const TIMEOUT_MS = 20_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
-const TRANSCRIBE_TIMEOUT_MS = 180_000;
+const CLEAN_TIMEOUT_MS = 60_000;
 const WHOAMI = "/m/v1/whoami";
 
 type Res = Awaited<ReturnType<typeof expoFetch>>;
@@ -188,9 +188,9 @@ export const api = {
   tasks: (limit = 60) => json<Task[]>("GET", `/m/v1/tasks?limit=${Math.max(1, Math.min(200, Math.floor(limit)))}`),
   roomDocuments: (rootId: string) => json<DocumentInfo[]>("GET", `/m/v1/work/${seg(rootId)}/documents`),
   groupDocuments: (groupId: string) => json<DocumentInfo[]>("GET", `/m/v1/groups/${seg(groupId)}/documents`),
-  // Contract C. The audio is sent once as base64 JSON; nothing is kept on the phone afterwards.
-  transcribe: (body: { audio: string; mime: string; purpose: "task" | "message"; agent_id?: string }) =>
-    json<Transcript>("POST", "/m/v1/voice/transcribe", body, TRANSCRIBE_TIMEOUT_MS),
+  // Voice v2. Only text goes to agentbox (the phone did the recognition); it never sends anything.
+  cleanVoice: (body: { text: string; purpose: "task" | "message"; agent_id?: string; lang?: string }) =>
+    json<CleanedText>("POST", "/m/v1/voice/clean", body, CLEAN_TIMEOUT_MS),
 };
 
 export type { Task };
