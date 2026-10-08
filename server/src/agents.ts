@@ -38,6 +38,10 @@ export type Agent = {
   label?: string | null;
   /** Instances: a finished task room the owner chose to keep visible. */
   kept?: number;
+  /** Task rooms (root instance): the room's shared folder. */
+  workspace?: string | null;
+  /** Instances: conversation size after the last turn, in tokens. */
+  context_tokens?: number | null;
 };
 
 /** Per creator: how many live instances of one role an agent may run at once (role.max_replicas overrides). */
@@ -153,7 +157,11 @@ export function updateAgent(
   return next;
 }
 
-export type Spawn = { label: string; createdBy: string; parentInstanceId?: string | null };
+export type Spawn = {
+  label: string; createdBy: string; parentInstanceId?: string | null;
+  /** A task bringing in its one lead (e.g. tech-lead): allowed although only the owner starts such roles. */
+  asLead?: boolean;
+};
 
 /**
  * Start an instance of a role for one task. Numbers only go up (coder#1, coder#2, …) so a retired
@@ -165,8 +173,9 @@ export function spawnInstance(roleId: string, s: Spawn) {
   if (role.base_agent_id) throw new Error(`${role.name} is an instance; start work on its agent, ${getAgent(role.base_agent_id)?.name}`);
   const live = (get<{ n: number }>(`SELECT COUNT(*) AS n FROM agents WHERE base_agent_id IS NOT NULL AND retired_at IS NULL`)?.n ?? 0) as number;
   if (live >= MAX_LIVE_INSTANCES) throw new Error(`There are already ${live} live tasks, the limit. Finish some first.`);
-  const byAgent = s.createdBy !== "owner" && !s.createdBy.startsWith("routine:") && !s.createdBy.startsWith("group:");
-  if (byAgent) {
+  const byAgent = s.createdBy !== "owner" && !s.createdBy.startsWith("routine:") && !s.createdBy.startsWith("group:")
+    && !s.createdBy.startsWith("lead:");
+  if (byAgent && !s.asLead) {
     if (role.can_scale) throw new Error(`Only the owner starts ${role.name} tasks.`);
     const limit = role.max_replicas || DEFAULT_PER_CREATOR;
     const mine = (get<{ n: number }>(
@@ -194,6 +203,36 @@ export function spawnInstance(roleId: string, s: Spawn) {
   run(`INSERT INTO threads (id, kind, agent_id, created_at) VALUES (?, 'dm', ?, ?)`, threadId, agent.id, now());
   publish({ type: "agent.created", agent: { ...agent, status: "idle", dm_thread_id: threadId } });
   return agent;
+}
+
+/** A task room's shared folder (/work/rooms/<title>-<id>), created on first use. */
+export function ensureWorkspace(root: Agent): string {
+  if (root.workspace) {
+    fs.mkdirSync(path.join(root.workspace, "scripts"), { recursive: true });
+    return root.workspace;
+  }
+  const base = slugify(root.label ?? root.name).slice(0, 40) || "task";
+  const dir = path.join(WORK_ROOT, "rooms", `${base}-${root.id.slice(0, 6)}`);
+  fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "notes"), { recursive: true });
+  const state = path.join(dir, "state.md");
+  if (!fs.existsSync(state)) {
+    fs.writeFileSync(state, `# ${root.label ?? root.name}: state
+
+Where this work stands. Every agent in this work reads this first and updates it
+at the end of a turn when something changed.
+
+## Open
+
+## Done
+
+## Decisions
+
+## Waiting on the owner
+`);
+  }
+  run(`UPDATE agents SET workspace = ? WHERE id = ?`, dir, root.id);
+  return dir;
 }
 
 /** The owner's "Add replica" on the agent panel: a blank task. */

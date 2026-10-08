@@ -1,7 +1,7 @@
 import { all, now } from "./db.ts";
 import { getAgent, instanceTree, listAgents, retireReplica, type Agent } from "./agents.ts";
 import { agentStatus, openTasksOf } from "./runner.ts";
-import { documentsForWork } from "./documents.ts";
+import { documentsInFolder, documentsForWork } from "./documents.ts";
 
 /**
  * Work: top-level tasks (instances started by the owner) and the task rooms they grow into
@@ -75,6 +75,7 @@ export function roomView(rootId: string) {
   return {
     root: instanceSummary(root),
     members: tree.map(instanceSummary),
+    workspace: root.workspace ?? null,
     threads,
     messages, tasks, steps,
   };
@@ -82,7 +83,11 @@ export function roomView(rootId: string) {
 
 export function roomDocuments(rootId: string) {
   const v = roomView(rootId);
-  return documentsForWork((v.tasks as any[]).map((t) => t.id), v.threads.map((t) => t.id));
+  const docs = documentsForWork((v.tasks as any[]).map((t) => t.id), v.threads.map((t) => t.id));
+  // Plus everything in the room's shared folder (state, scripts, notes).
+  const seen = new Set(docs.map((d) => d.path));
+  const shared = v.workspace ? documentsInFolder(v.workspace).filter((d) => !seen.has(d.path)) : [];
+  return [...docs, ...shared].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
 /** Finish a task and everything started under it. Refuses while any of it is still working. */

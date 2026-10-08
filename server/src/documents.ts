@@ -181,3 +181,29 @@ export function allDocuments(roles: Agent[], instancesOf: (roleId: string) => st
   }
   return [...out.values()].sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, 1000);
 }
+
+const SCRIPT_EXT = new Set([".sh", ".bash", ".py", ".js", ".mjs", ".ts", ".sql", ".jq", ".json", ".yml", ".yaml"]);
+
+/** Every document or script in a shared folder (a task room's workspace). */
+export function documentsInFolder(dir: string): (DocumentInfo & { author: string | null })[] {
+  const out: string[] = [];
+  const walk = (d: string, depth: number) => {
+    if (depth > 4 || out.length > 300) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(p, depth + 1); }
+      else if (e.isFile() && (isDoc(p) || SCRIPT_EXT.has(path.extname(p).toLowerCase()))) out.push(p);
+    }
+  };
+  walk(dir, 0);
+  return out.map((p) => {
+    const st = fs.statSync(p);
+    const rel = path.relative(dir, path.dirname(p));
+    return {
+      path: p, name: path.basename(p), folder: path.dirname(p), location: rel ? `shared/${rel}` : "shared",
+      size: st.size, modified: st.mtime.toISOString(), source: "home" as const, task_id: null, task_title: null, author: null,
+    };
+  });
+}

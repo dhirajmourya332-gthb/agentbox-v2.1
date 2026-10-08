@@ -41,7 +41,7 @@ export type InstanceSummary = {
 };
 export type WorkRoom = { root: InstanceSummary; members: InstanceSummary[]; last_activity: string | null; hides_at?: string | null };
 export type RoomView = {
-  root: InstanceSummary; members: InstanceSummary[]; threads: { id: string; agent_id: string; kind: string }[];
+  root: InstanceSummary; members: InstanceSummary[]; workspace: string | null; threads: { id: string; agent_id: string; kind: string }[];
   messages: Message[]; tasks: Task[]; steps: Step[];
 };
 export type RetiredAgent = { id: string; name: string; color: string; base_agent_id: string | null };
@@ -73,13 +73,16 @@ export type RoutineRun = { id: string; at: string; trigger: "schedule" | "manual
 export type Routine = {
   id: string; agent_id: string; thread_id: string; name: string; cron: string; timezone: string; prompt: string;
   enabled: boolean; created_by: string; created_at: string; next_runs: string[]; describe: string; last_run: RoutineRun | null;
+  instance_id: string | null; context_mode: "continue" | "fresh"; workspace: string | null;
+  group: { id: string; name: string; label: string | null; role_id: string; context_tokens: number | null }[];
+  compaction: { runs_since: number; last_at: string | null; context_tokens: number; due: string[] };
 };
 export type DisplayHolder = { holder: string; reason: string; since: string; last_used: string; task_id: string | null } | null;
 export type ActivityItem = {
   id: string; ts: string; kind: string; actor: string; agent_id: string | null; title: string; detail?: string; task_id?: string | null; link?: string;
 };
 export type GraphEdge = { from: string; to: string; kind: string; n: number; last: string };
-export type RoutineInput = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean };
+export type RoutineInput = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean; context_mode?: "continue" | "fresh" };
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
 
 export type Usage = {
@@ -164,6 +167,8 @@ export const api = {
   createRoutine: (b: RoutineInput) => call<Routine>("POST", "/api/routines", b),
   updateRoutine: (id: string, b: RoutineInput) => call<Routine>("PUT", `/api/routines/${id}`, b),
   deleteRoutine: (id: string) => call("DELETE", `/api/routines/${id}`),
+  compactRoutine: (id: string) => call("POST", `/api/routines/${id}/compact`),
+  freshRoutine: (id: string) => call("POST", `/api/routines/${id}/fresh`),
   runRoutine: (id: string) => call<{ started: boolean; routine: Routine }>("POST", `/api/routines/${id}/run`),
   previewCron: (cron: string, timezone: string) => call<{ next_runs: string[]; describe: string }>("POST", "/api/routines/preview", { cron, timezone }),
   thread: (id: string) => call<ThreadData>("GET", `/api/threads/${id}`),

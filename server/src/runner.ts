@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish, type AgentStatus } from "./bus.ts";
-import { baseOf, DEFAULT_PER_CREATOR, getAgent, homeOf, WORK_ROOT, type Agent } from "./agents.ts";
+import { baseOf, DEFAULT_PER_CREATOR, ensureWorkspace, getAgent, homeOf, rootOf, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillsOf } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
 import { afterAgentReply, groupPrompt, isNoReply } from "./groups.ts";
@@ -58,7 +58,7 @@ export const taskRow = (id: string) => get(`SELECT * FROM tasks WHERE id = ?`, i
 export type NewTask = {
   agentId: string;
   threadId: string;
-  source: "user" | "agent" | "message" | "result" | "cron" | "group";
+  source: "user" | "agent" | "message" | "result" | "cron" | "group" | "compact";
   title: string;
   prompt: string;
   fromAgentId?: string | null;
@@ -146,6 +146,31 @@ function finishTask(taskId: string, f: { status: string; result?: string; error?
 // ---------------------------------------------------------------------------
 // Running one turn.
 
+/** This work's shared folder, and the lead's role, for instances in a task room or routine. */
+function workNote(agent: Agent) {
+  if (!agent.base_agent_id || agent.created_by?.startsWith("group:")) return "";
+  const root = rootOf(agent);
+  const folder = ensureWorkspace(root);
+  const lead = agent.created_by?.startsWith("lead:")
+    ? `You're the **lead** for "${root.label ?? root.name}" (started as ${root.name}'s task). ${root.name} and others in this work bring you
+what needs planning, review, merging, testing or deployment; delegate hands-on work as usual. You stay with this work, so keep
+its state current rather than relying on memory alone.
+
+`
+    : "";
+  return `## This work's shared folder
+${lead}All agents on "${root.label ?? root.name}" share ${folder}:
+- \`state.md\`: where this work stands (open items, done, decisions, waiting on the owner). Read it first; update it at the end
+  of every turn in which something changed.
+- \`scripts/\`: reusable scripts for this work. Check here before writing a one-off command; when you repeat a step, save
+  it as a script (with a one-line comment on what it does) and keep scripts working.
+- \`notes/\`: anything else worth keeping for this work.
+A lead brought into this work (e.g. tech-lead) stays with it for later handoffs; don't retire it. It's closed when the
+work itself is marked done.
+
+`;
+}
+
 function scaleNote(agent: Agent) {
   if (!agent.can_scale) return "";
   return `
@@ -225,7 +250,7 @@ skill covers it), or the owner asks you to remember how to do something, call
 \`mcp__team__propose_skill\` with a reusable, general version of the steps. The owner reviews
 proposals before they join the library.
 
-## Documents
+${workNote(agent)}## Documents
 When you write a document for the owner or the team (a plan, requirements, report, analysis,
 runbook), save it in ${homeOf(agent)}/docs/ (create the folder) with a dated, descriptive name,
 e.g. docs/2026-10-08-msp-api-keys-requirements.md, unless it belongs in a repo. Documents in your
@@ -306,6 +331,8 @@ async function runTask(taskId: string) {
   const texts: string[] = [];
   let seq = 0;
   let streamed = false;
+  let contextTokens: number | null = null;
+  let compacted: { pre_tokens?: number; post_tokens?: number } | null = null;
   let liveText = ""; // what the owner has seen stream in, kept if the turn is stopped
   let sessionId: string | undefined =
     get(`SELECT session_id FROM agent_sessions WHERE agent_id = ? AND thread_id = ?`, agent.id, task.thread_id)?.session_id;
@@ -334,6 +361,7 @@ async function runTask(taskId: string) {
     switch (msg.type) {
       case "system":
         if (msg.subtype === "init" && msg.session_id) saveSession(msg.session_id);
+        if (msg.subtype === "compact_boundary" && msg.compact_metadata) compacted = msg.compact_metadata;
         break;
       case "stream_event":
         if (msg.parent_tool_use_id !== null) break;
@@ -350,6 +378,12 @@ async function runTask(taskId: string) {
         break;
       case "assistant":
         if (msg.parent_tool_use_id !== null) break;
+        {
+          // Conversation size as of this call: everything the model read plus what it wrote.
+          const u = msg.message.usage ?? {};
+          const size = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
+          if (size > 0) contextTokens = size;
+        }
         for (const b of msg.message.content ?? []) {
           if (b.type === "text" && b.text.trim()) texts.push(b.text);
           if (b.type === "tool_use") {
@@ -391,6 +425,7 @@ async function runTask(taskId: string) {
   const runOnce = async (resume: string | undefined) => {
     const q = query({
       prompt: task.source === "group" ? groupPrompt(task, agent) : task.prompt,
+      // (A compaction task's prompt is the /compact command itself.)
       options: {
         cwd: homeOf(agent),
         model: agent.model,
@@ -431,9 +466,21 @@ async function runTask(taskId: string) {
     }
     if (abort.signal.aborted && result?.subtype !== "success") throw new Error("aborted");
     let content = texts.join("\n\n") || result?.result || "";
-    // In a group, a turn that ends with "nothing to add" isn't posted (or routed).
-    if (task.source === "group" && isNoReply(texts.at(-1) ?? content)) content = "NO_REPLY";
-    else postAgentMessage(agent, task, content);
+    if (task.source === "compact") {
+      // A compaction isn't a reply: note it in the conversation instead. (Set by the stream handler.)
+      const c = compacted as { pre_tokens?: number; post_tokens?: number } | null;
+      const k = (n?: number) => (n ? `${Math.round(n / 1000)}k` : "?");
+      content = c ? `Context compacted: ${k(c.pre_tokens)} → ${k(c.post_tokens)} tokens.` : "Context compaction ran.";
+      postSystemNote(task.thread_id, content);
+      if (c?.post_tokens) contextTokens = c.post_tokens;
+    } else if (task.source === "group" && isNoReply(texts.at(-1) ?? content)) {
+      // In a group, a turn that ends with "nothing to add" isn't posted (or routed).
+      content = "NO_REPLY";
+    } else postAgentMessage(agent, task, content);
+    if (contextTokens !== null) {
+      run(`UPDATE agents SET context_tokens = ? WHERE id = ?`, contextTokens, agent.id);
+      publish({ type: "agent.updated", agent: getAgent(agent.id) });
+    }
     finishTask(taskId, {
       status: result?.subtype === "success" ? "done" : "failed",
       result: content,
@@ -485,6 +532,15 @@ function screenGuard(agent: Agent, taskId: string) {
 }
 
 export { displayState };
+
+function postSystemNote(threadId: string, content: string) {
+  const message = { id: newId(), thread_id: threadId, author: "system", task_id: null, content, created_at: now() };
+  run(
+    `INSERT INTO messages (id, thread_id, author, task_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    message.id, message.thread_id, message.author, message.task_id, message.content, message.created_at,
+  );
+  publish({ type: "message.created", message });
+}
 
 function postAgentMessage(agent: Agent, task: any, content: string) {
   const message = { id: newId(), thread_id: task.thread_id, author: agent.id, task_id: task.id, content, created_at: now() };

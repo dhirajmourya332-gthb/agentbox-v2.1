@@ -87,6 +87,7 @@ export function Room({ id }: { id: string }) {
             const inst = member(byThread.get(m.thread_id));
             const from = m.author !== inst?.id ? member(m.author) : undefined;
             if (!visible(inst?.id, from?.id)) return null;
+            if (m.author === "system") return <p key={m.id} className="system-note">{inst ? `${inst.label ?? inst.name}: ` : ""}{m.content}</p>;
             const task = m.task_id ? taskById.get(m.task_id) : undefined;
             const isReply = !!task && task.agent_id === m.author;
             const author = m.author === "user" ? null : everyone.find((a) => a.id === m.author);
@@ -136,7 +137,7 @@ export function Room({ id }: { id: string }) {
         {!done && rootThread && <RoomComposer threadId={rootThread} lead={root} />}
         {done && <p className="composer-hint" style={{ padding: "12px 24px 20px", margin: 0, maxWidth: "none", textAlign: "center" }}>This task room is done; its history stays readable.</p>}
       </section>
-      {panel && <RoomPanel id={id} members={members} onClose={() => setPanel(false)} />}
+      {panel && <RoomPanel id={id} members={members} workspace={view.workspace} onClose={() => setPanel(false)} />}
     </>
   );
 }
@@ -217,7 +218,7 @@ function RoomLifecycle({ root }: { root: InstanceSummary }) {
   );
 }
 
-function RoomPanel({ id, members, onClose }: { id: string; members: InstanceSummary[]; onClose: () => void }) {
+function RoomPanel({ id, members, workspace, onClose }: { id: string; members: InstanceSummary[]; workspace: string | null; onClose: () => void }) {
   const [tab, setTab] = useState<"tasks" | "documents">("tasks");
   return (
     <aside className="panel" aria-label="Room details">
@@ -227,6 +228,9 @@ function RoomPanel({ id, members, onClose }: { id: string; members: InstanceSumm
         <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close details" onClick={onClose}><Icon name="close" /></button>
       </div>
       <div className="panel-body" role="tabpanel">
+        {tab === "tasks" && workspace && (
+          <p className="hint" style={{ margin: 0 }}>Shared folder: <span className="mono">{workspace}</span><br />State, scripts and notes for this work (also in Documents).</p>
+        )}
         {tab === "tasks" && (
           <div className="rows">
             {members.map((m) => (

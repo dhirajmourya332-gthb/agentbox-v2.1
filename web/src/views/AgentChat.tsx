@@ -282,6 +282,7 @@ function Input({ message, task }: { message: Message; task?: Task }) {
       </div>
     );
   }
+  if (message.author === "system") return <p className="system-note">{message.content}</p>;
   if (message.author === "routine") {
     return (
       <div className="msg">

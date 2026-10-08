@@ -316,6 +316,13 @@ _Nothing yet._
   Existing conversations migrated with a backup; counts verified unchanged.
 - **6. Documents across agents and in rooms/groups** — Documents page (search, agent and type filters), Documents tab
   on task rooms, groups (panel), tasks and agents.
+- **7. A tech-lead on demand** — handing work to a planning agent from inside a task or routine creates that work's one
+  lead (`Lead · <task>`, joins the room) or reuses it; agents can't retire it; finishing the work closes it.
+- **8. Routines keep their group's context** — Continue (default) / Fresh per routine; `/compact` (verified through the
+  SDK) before a run after 5 runs, 24 h or 100k tokens; overlap check covers the whole group; Compact now / Start fresh;
+  context size per agent on the routine page.
+- **9. Room workspace** — `/work/rooms/<title>-<id>/` with `state.md`, `scripts/`, `notes/`, created on first use;
+  every agent in the work is told to read/update it; listed in the room's Documents.
 
 ---
 

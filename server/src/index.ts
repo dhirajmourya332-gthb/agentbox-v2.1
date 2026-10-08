@@ -18,7 +18,7 @@ import { migrateToInstances } from "./migrate.ts";
 import { openTasksOf, pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
 import {
-  createRoutine, deleteRoutine, describeCron, forgetAgentRoutines, getRoutine, listRoutines, routineRuns, runRoutine, startRoutines,
+  compactRoutine, createRoutine, deleteRoutine, describeCron, freshRoutine, forgetAgentRoutines, getRoutine, listRoutines, routineRuns, runRoutine, startRoutines,
   updateRoutine, validateCron,
 } from "./routines.ts";
 import { continueGroup, createGroup, deleteGroup, getGroup, listGroups, postAsOwner, updateGroup } from "./groups.ts";
@@ -364,6 +364,7 @@ app.post("/api/groups/:id/continue", async (req) => {
 const routineInput = (b: any) => ({
   agent_id: String(b?.agent_id ?? ""), name: String(b?.name ?? ""), cron: String(b?.cron ?? ""),
   timezone: String(b?.timezone ?? "UTC"), prompt: String(b?.prompt ?? ""), enabled: b?.enabled !== false,
+  context_mode: b?.context_mode ? String(b.context_mode) : undefined,
 });
 const mustRoutine = (id: string) => {
   const r = getRoutine(id);
@@ -380,6 +381,14 @@ app.get("/api/routines/:id", async (req) => ({ routine: mustRoutine((req.params 
 app.put("/api/routines/:id", async (req) => updateRoutine(mustRoutine((req.params as any).id).id, routineInput(req.body)));
 app.delete("/api/routines/:id", async (req) => {
   deleteRoutine(mustRoutine((req.params as any).id).id);
+  return { ok: true };
+});
+app.post("/api/routines/:id/compact", async (req) => {
+  try { compactRoutine(mustRoutine((req.params as any).id).id); } catch (e: any) { throw new HttpError(409, e.message); }
+  return { ok: true };
+});
+app.post("/api/routines/:id/fresh", async (req) => {
+  try { freshRoutine(mustRoutine((req.params as any).id).id); } catch (e: any) { throw new HttpError(409, e.message); }
   return { ok: true };
 });
 app.post("/api/routines/:id/run", async (req) => {

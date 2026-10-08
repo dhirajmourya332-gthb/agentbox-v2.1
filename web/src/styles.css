@@ -560,3 +560,5 @@ button.row.doc-table-row:hover { background: var(--raised); }
 .member-strip { display: flex; flex-wrap: wrap; gap: 4px; }
 .member-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; }
 .member-pill .glyph { width: 7px; height: 7px; }
+.context-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--surface); }

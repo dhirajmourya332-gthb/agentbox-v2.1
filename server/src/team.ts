@@ -2,7 +2,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
-import { dmThreadOf, getAgent, listAgents, retireReplica, spawnInstance, type Agent } from "./agents.ts";
+import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, rootOf, spawnInstance, type Agent } from "./agents.ts";
 import { proposeSkill, skillsOf } from "./skills.ts";
 import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
@@ -72,9 +72,10 @@ export function handOff(h: Handoff) {
   const checked = check(h);
   if (typeof checked === "string") throw new Error(checked);
   // Delegating to an agent (role) starts a fresh instance for this one task; delegating to an
-  // instance sends it a follow-up in its own conversation.
-  const target = checked.base_agent_id
-    ? checked
+  // instance sends it a follow-up in its own conversation. A planning agent (tech-lead) is
+  // different: each piece of work gets at most one, as its lead, reused for later handoffs.
+  const target = checked.base_agent_id ? checked
+    : checked.can_scale && h.from.base_agent_id ? leadFor(checked, h)
     : spawnInstance(checked.id, { label: h.title, createdBy: h.from.id, parentInstanceId: h.from.base_agent_id ? h.from.id : null });
   const threadId = dmThreadOf(target.id)!;
   const prompt = h.kind === "task"
@@ -103,6 +104,22 @@ ${h.from.name} back (send_message) if they genuinely need to know something.`;
     parentTaskId: h.fromTask.id,
     depth: (h.fromTask.depth ?? 0) + 1,
     input: { author: h.from.id, content: h.kind === "task" ? `**${h.title}**\n\n${h.body}` : h.body },
+  });
+}
+
+/** The work item's lead of this role: the existing one, or a new one joining its room. */
+function leadFor(role: Agent, h: Handoff): Agent {
+  const root = rootOf(h.from);
+  const existing = instanceTree(root.id).find((a) => a.base_agent_id === role.id && !a.retired_at);
+  if (existing) {
+    if (existing.id === h.from.id) throw new Error("That's you. Do the work yourself or pick a teammate.");
+    if (h.fromTask.from_agent_id === existing.id) {
+      throw new Error(`${existing.name} handed this task to you. Don't hand it back: put questions or blockers in your final reply, which goes to ${existing.name} automatically.`);
+    }
+    return existing;
+  }
+  return spawnInstance(role.id, {
+    label: `Lead · ${root.label ?? root.name}`, createdBy: `lead:${root.id}`, parentInstanceId: root.id, asLead: true,
   });
 }
 
@@ -163,7 +180,7 @@ export function teamServer(agent: Agent, taskId: string) {
                 `${open.length > (running ? 1 : 0) ? `, ${open.length - (running ? 1 : 0)} queued` : ""} (started by ${by}${i.created_by === agent.id ? ": you" : ""})`;
             });
             return `- ${r.name} — ${r.title}: ${r.summary} Skills: ${skillsOf(r.id).join(", ") || "none"}.` +
-              (r.can_scale ? " (Only the owner starts its tasks.)" : "") +
+              (r.can_scale ? " (Hand it work to bring it in as your work's lead: one per piece of work, reused for later handoffs.)" : "") +
               (lines.length ? `\n  Live tasks:\n${lines.join("\n")}` : "\n  No live tasks.");
           });
           return text(rows.length ? rows.join("\n") : "No matching agents.");
@@ -201,7 +218,7 @@ export function teamServer(agent: Agent, taskId: string) {
 
       tool(
         "retire_instance",
-        "Finish a task you started: retire the instance (e.g. coder#3) once its report is in and nothing is queued for it. You can only retire instances you started. Its history stays.",
+        "Finish a task you started: retire the instance (e.g. coder#3) once its report is in and nothing is queued for it. You can only retire instances you started. Not for a lead that joined your work (e.g. tech-lead): it stays for later handoffs. Its history stays.",
         { name: z.string().describe("e.g. coder#3") },
         async ({ name }) => {
           const r = findAgent(name);
@@ -313,6 +330,6 @@ export function rosterFor(agent: Agent) {
   const myRole = agent.base_agent_id ?? agent.id;
   const roles = listAgents().filter((a) => !a.base_agent_id && a.id !== myRole);
   return roles.length
-    ? roles.map((a) => `- **${a.name}** (${a.title}): ${a.summary}${a.can_scale ? " (only the owner starts its tasks)" : ""}`).join("\n")
+    ? roles.map((a) => `- **${a.name}** (${a.title}): ${a.summary}${a.can_scale ? " (hand it work to bring it in as this work's lead)" : ""}`).join("\n")
     : "- (no other agents yet)";
 }

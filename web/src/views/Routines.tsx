@@ -109,6 +109,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
     timezone: existing?.timezone ?? BROWSER_TZ,
     prompt: existing?.prompt ?? "",
     enabled: existing?.enabled ?? true,
+    context_mode: existing?.context_mode ?? "continue",
   }));
   const [preview, setPreview] = useState<{ next_runs: string[]; describe: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -118,7 +119,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
-    if (existing) setForm({ agent_id: existing.agent_id, name: existing.name, cron: existing.cron, timezone: existing.timezone, prompt: existing.prompt, enabled: existing.enabled });
+    if (existing) setForm({ agent_id: existing.agent_id, name: existing.name, cron: existing.cron, timezone: existing.timezone, prompt: existing.prompt, enabled: existing.enabled, context_mode: existing.context_mode });
   }, [existing?.id]);
   useEffect(() => {
     if (!id) return;
@@ -226,7 +227,20 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
           <textarea id="r-prompt" className="text" rows={7} value={form.prompt}
             placeholder={"Review open PRs in Brandsek/digital_risk that you haven't reviewed at their latest commit, using the review-pr skill. Skip drafts. Post a short summary of what you reviewed in Teams only if something is blocking."}
             onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
-          <span className="hint">Write it as a standalone instruction: each run starts a fresh conversation. The agent's job description and skills still apply.</span>
+          <span className="hint">Write it as a standalone instruction for every run. The agent's job description and skills still apply.</span>
+        </div>
+
+        <div className="field">
+          <span style={{ fontWeight: 500 }} id="r-ctx">Between runs</span>
+          <div className="segmented" role="group" aria-labelledby="r-ctx">
+            <button aria-pressed={form.context_mode !== "fresh"} onClick={() => setForm({ ...form, context_mode: "continue" })}>Continue</button>
+            <button aria-pressed={form.context_mode === "fresh"} onClick={() => setForm({ ...form, context_mode: "fresh" })}>Fresh every run</button>
+          </div>
+          <span className="hint">
+            {form.context_mode === "fresh"
+              ? "Each run starts a new conversation and relies on the shared folder and memory. Fine for simple checks."
+              : "The routine's agents carry their conversation from run to run, so they don't re-explore. It's compacted after 5 runs, 24 hours or 100k tokens, whichever comes first."}
+          </span>
         </div>
 
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -251,6 +265,8 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
           <button className="btn primary" onClick={save}>{existing ? "Save" : "Create routine"}</button>
         </div>
 
+        {existing && <RoutineGroup routine={existing} />}
+
         {existing && (
           <div className="field">
             <span style={{ fontWeight: 500 }}>Recent runs</span>
@@ -266,10 +282,67 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
                 ))}
               </div>
             )}
-            <a href={`#/agents/${existing.agent_id}/threads/${existing.thread_id}`} style={{ fontSize: 13 }}>Open the routine's conversation</a>
+            {existing.instance_id && <a href={`#/work/${existing.instance_id}`} style={{ fontSize: 13 }}>Open the routine's room</a>}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Who works this routine (its agent, its lead, anything they started), its context, its folder. */
+function RoutineGroup({ routine }: { routine: Routine }) {
+  const { everyone } = useStore();
+  const [note, setNote] = useState<string | null>(null);
+  const [confirmFresh, setConfirmFresh] = useState(false);
+  const k = (n: number | null | undefined) => (n ? `${Math.round(n / 1000)}k tokens` : "—");
+  const c = routine.compaction;
+  const act = async (fn: () => Promise<unknown>, ok: string) => {
+    setNote(null);
+    try { await fn(); setNote(ok); } catch (e: any) { setNote(e.message); }
+  };
+  return (
+    <div className="field">
+      <span style={{ fontWeight: 500 }}>Who works it</span>
+      <div className="rows">
+        {routine.group.map((m) => {
+          const role = everyone.find((a) => a.id === m.role_id);
+          return (
+            <a key={m.id} className="row task-line" href={`#/agents/${m.id}`}>
+              <Avatar name={role?.name ?? m.name} color={role?.color ?? "var(--muted)"} size={20} />
+              <span className="task-line-main">
+                <span>{m.label ?? m.name}</span>
+                <span className="hint">{m.name}{routine.context_mode !== "fresh" ? ` · context ${k(m.context_tokens)}` : ""}</span>
+              </span>
+            </a>
+          );
+        })}
+      </div>
+      <span className="hint">
+        The routine wakes only {routine.group[0]?.name ?? "its agent"}. When something needs review, merging or deployment it hands it to
+        tech-lead, which then stays with this routine as its lead.
+      </span>
+      {routine.context_mode !== "fresh" && (
+        <div className="context-line">
+          <span className="hint">
+            Context {k(c.context_tokens)} · {c.last_at ? `compacted ${relTime(c.last_at)}` : "not compacted yet"} · {c.runs_since} run{c.runs_since === 1 ? "" : "s"} since
+            {c.due.length > 0 && <> · <strong>compacts before the next run</strong> ({c.due.join(", ")})</>}
+          </span>
+          <span style={{ display: "inline-flex", gap: 6 }}>
+            <button className="btn sm" onClick={() => act(() => api.compactRoutine(routine.id), "Compacting now; it runs before anything else.")}>Compact now</button>
+            {confirmFresh ? (
+              <>
+                <button className="btn sm danger" onClick={() => { setConfirmFresh(false); act(() => api.freshRoutine(routine.id), "The next run starts fresh (shared folder and memory stay)."); }}>Start fresh</button>
+                <button className="btn sm ghost" onClick={() => setConfirmFresh(false)}>Cancel</button>
+              </>
+            ) : <button className="btn sm ghost" onClick={() => setConfirmFresh(true)}>Start fresh…</button>}
+          </span>
+        </div>
+      )}
+      {note && <span className="hint" role="status">{note}</span>}
+      {routine.workspace && (
+        <span className="hint">Shared folder: <span className="mono">{routine.workspace}</span> (state, scripts and notes; listed in the room's Documents)</span>
+      )}
     </div>
   );
 }

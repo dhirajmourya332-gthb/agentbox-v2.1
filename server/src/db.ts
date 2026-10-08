@@ -158,6 +158,8 @@ for (const [col, type] of [
   ["parent_instance_id", "TEXT"],
   ["label", "TEXT"],
   ["kept", "INTEGER NOT NULL DEFAULT 0"],
+  ["workspace", "TEXT"],           // task rooms: the shared folder (on the room's root instance)
+  ["context_tokens", "INTEGER"],   // instances: size of the conversation after its last turn
 ] as const) {
   if (!columns("agents").includes(col)) db.exec(`ALTER TABLE agents ADD COLUMN ${col} ${type}`);
 }
