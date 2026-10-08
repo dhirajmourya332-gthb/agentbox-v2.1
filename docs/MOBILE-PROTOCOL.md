@@ -398,3 +398,42 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
   FOREGROUND_SERVICE (and its MICROPHONE / MEDIA_PLAYBACK types), RECEIVE_BOOT_COMPLETED,
   MODIFY_AUDIO_SETTINGS, storage and media. Firebase Messaging's library manifest adds its own
   delivery permissions (WAKE_LOCK, ACCESS_NETWORK_STATE, c2dm RECEIVE) at build time.
+**Live progress and "needs you" (CONTRACTS-v2 § A, B; workstream "live")**
+- Allowlisted, signed, same JSON as the portal:
+  - `GET /m/v1/progress` → `Progress[]`, one per running task, oldest first.
+  - `GET /m/v1/attention` → `{ items: Attention[] }`, unseen first (newest first), at most 100.
+  - `POST /m/v1/attention/:id/seen` → the updated item (unknown id: 410, like any API 404).
+  - `POST /m/v1/attention/seen-all` → `{ seen: n }`.
+  - `POST /m/v1/attention/seen-room/:roomId` → `{ seen: n }`. Addition to the contract: marks every
+    unseen item whose `room_id` is that task-room root or group id. The portal calls it whenever a
+    room, a group or an owner-started task is open and visible; the app should do the same when it
+    opens a room or group.
+  - All bodyless. These seen calls aren't audited (they change nothing an agent does, and the app
+    makes them on every room it opens).
+- Events added to the phone stream: `progress.updated` `{progress}`, `progress.cleared`
+  `{agent_id, task_id}`, `attention.updated` `{item}`. `progress.*` aren't kept in the events log.
+- Progress details:
+  - `root_id` is the task-room root for owner-started work (any task in the room, delegated ones
+    included), the group id for group turns (and for tasks a group member delegated), and `null`
+    for routine work. `group_id` is set only for groups.
+  - `progress.updated` is sent when the activity, state, summary or current step changes, at most
+    once per agent every 2 s; `stalled_for_s` alone changing doesn't send one, so show elapsed
+    time from `step.started_at` (or `last_step_at`) on the device.
+  - Stalled: nothing for `AGENTBOX_STALL_MIN` (alias `STALL_MIN`, default 10) minutes, or one shell
+    step running that long, checked every 30 s (`AGENTBOX_PROGRESS_TICK_MS`). "Nothing" also counts
+    any SDK message the runner receives (thinking, streamed text, a subagent's own steps) as a sign
+    of life, so a long subagent or a long answer isn't flagged; a long shell step still is.
+  - Summaries are rule-based only (no LLM call): `gh pr checks` output ("3 checks failed: a, b, c;
+    5 pending"), test-runner totals, otherwise step counts with the last failed command. From 5 min
+    into a turn, at most one every 3 min.
+- Attention details:
+  - `reply`: the owner-started root task posts a reply in its own conversation, or a group turn
+    posts a reply that @mentions no other member (it comes back to the owner). One unseen `reply`
+    per room: a newer reply refreshes that item (same id; new `task_id`, `title`, `created_at`)
+    and `onAttention` fires again.
+  - `failed`: a turn fails (not stopped) anywhere in an owner-started room, or in a group.
+    Routine failures don't create items.
+  - `stalled`: from progress; created once per task while stalled, and marked seen automatically
+    (an `attention.updated` with `seen_at`) when the task resumes or its turn ends. Routine tasks
+    can stall too (`room_id` null).
+  - Table `attention` (additive, `server/src/db.ts`).

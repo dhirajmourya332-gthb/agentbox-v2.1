@@ -96,6 +96,21 @@ export type ActivityItem = {
 export type GraphEdge = { from: string; to: string; kind: string; n: number; last: string };
 export type RoutineInput = { agent_id: string; name: string; cron: string; timezone: string; prompt: string; enabled: boolean; context_mode?: "continue" | "fresh"; rules?: RoutineRules };
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
+/** Live progress of a running task (server progress.ts, CONTRACTS-v2 § A). */
+export type Progress = {
+  agent_id: string; task_id: string; root_id: string | null; group_id: string | null;
+  activity: string;
+  step: { name: string; summary: string; started_at: string } | null;
+  started_at: string; last_step_at: string;
+  state: "working" | "stalled"; stalled_for_s: number | null;
+  summary: string | null;
+};
+/** A "needs you" item (server attention.ts, CONTRACTS-v2 § B). room_id: task-room root or group id. */
+export type Attention = {
+  id: string; kind: "reply" | "failed" | "stalled" | "question";
+  agent_id: string; task_id: string | null; room_id: string | null;
+  title: string; created_at: string; seen_at: string | null;
+};
 
 export type Usage = {
   status: "allowed" | "allowed_warning" | "rejected";
@@ -212,6 +227,11 @@ export const api = {
   },
   upload: (name: string, type: string, data: string) => call<{ path: string; name: string; size: number }>("POST", "/api/uploads", { name, type, data }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),
+  progress: () => call<Progress[]>("GET", "/api/progress"),
+  attention: () => call<{ items: Attention[] }>("GET", "/api/attention"),
+  attentionSeen: (id: string) => call<Attention>("POST", `/api/attention/${id}/seen`),
+  attentionSeenAll: () => call<{ seen: number }>("POST", "/api/attention/seen-all"),
+  attentionSeenRoom: (roomId: string) => call<{ seen: number }>("POST", `/api/attention/seen-room/${roomId}`),
   // Device admin always sends a JSON body: the server requires it (it forces a CORS preflight).
   devices: () => call<{ pending: Device[]; active: Device[] }>("GET", "/api/devices"),
   newPairing: () => call<Pairing>("POST", "/api/devices/pairings", {}),

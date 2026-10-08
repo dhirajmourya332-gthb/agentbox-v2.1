@@ -30,7 +30,9 @@ import {
 import { health } from "./health.ts";
 import { VoiceError, transcribeVoice } from "./voice.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
-import { startPush } from "./push.ts";
+import { startPush, wirePush } from "./push.ts";
+import { listProgress, startProgress } from "./progress.ts";
+import { listAttention, markAllSeen, markRoomSeen, markSeen, onAttention, startAttention } from "./attention.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 7700);
@@ -421,6 +423,17 @@ app.post("/api/routines/:id/run", async (req) => {
   return { started: !!task, routine: getRoutine(r.id) };
 });
 
+// --- live progress and "needs you" (docs/CONTRACTS-v2.md § A, B) ---------------------------
+app.get("/api/progress", async () => listProgress());
+app.get("/api/attention", async () => ({ items: listAttention() }));
+app.post("/api/attention/seen-all", async () => ({ seen: markAllSeen() }));
+app.post("/api/attention/seen-room/:roomId", async (req) => ({ seen: markRoomSeen((req.params as any).roomId) }));
+app.post("/api/attention/:id/seen", async (req) => {
+  const item = markSeen((req.params as any).id);
+  if (!item) throw new HttpError(404, "No such item");
+  return item;
+});
+
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 registerDeviceAdmin(app, mobilePort);
 
@@ -440,9 +453,11 @@ if (fs.existsSync(webDist)) {
 migrateToInstances((m) => app.log.info(m));
 seedSkills();
 startRoutines();
-// Push notifications to paired phones (push.ts). The attention hook is connected with
-// wirePush(onAttention) once the attention module exists (docs/CONTRACTS-v2.md › B, D).
+// Push notifications to paired phones (push.ts); wired to "needs you" items below.
 startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });
+startProgress();
+startAttention();
+wirePush(onAttention); // new "needs you" items notify paired phones
 // Loopback only: Lima forwards 127.0.0.1-bound guest ports to the Mac, and nothing else in the VM
 // (e.g. a tailnet interface) should reach the portal.
 await app.listen({ host: "127.0.0.1", port });

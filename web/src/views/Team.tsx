@@ -1,11 +1,17 @@
 import { useStore } from "../store.tsx";
 import { Avatar, Icon, StatusGlyph, relTime } from "../components/ui.tsx";
+import { NeedsYou } from "../components/Live.tsx";
+import type { Progress } from "../api.ts";
 
-/** Overview: what's in progress, and who's on the team. */
+/** Overview: what needs you, what's in progress, and who's on the team. */
 export function Team() {
-  const { agents, loaded, work } = useStore();
+  const { agents, loaded, work, progress } = useStore();
   if (!loaded) return <div className="page" />;
   const roles = agents.filter((a) => !a.base_agent_id);
+  // What each room is doing now: a stall first, else its longest-running turn.
+  const nowIn = (rootId: string): Progress | undefined =>
+    Object.values(progress).filter((p) => p.root_id === rootId)
+      .sort((a, b) => Number(b.state === "stalled") - Number(a.state === "stalled") || a.started_at.localeCompare(b.started_at))[0];
   return (
     <div className="page">
       <div className="page-inner" style={{ maxWidth: 1000 }}>
@@ -16,6 +22,8 @@ export function Team() {
           </div>
           {roles.length > 0 && <a className="btn primary" href="#/new"><Icon name="plus" />New task</a>}
         </div>
+
+        <NeedsYou />
 
         <h2>In progress</h2>
         {work.live.length === 0 ? (
@@ -28,6 +36,8 @@ export function Team() {
             {work.live.map((w) => {
               const isRoom = w.members.length > 1;
               const working = w.members.filter((m) => m.status === "working").length;
+              const now = nowIn(w.root.id);
+              const who = now ? w.members.find((m) => m.id === now.agent_id)?.name : undefined;
               return (
                 <a key={w.root.id} className={`card${isRoom ? " room-card" : ""}`} href={isRoom ? `#/work/${w.root.id}` : `#/agents/${w.root.id}`}>
                   <div className="who">
@@ -35,8 +45,13 @@ export function Team() {
                     <strong style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.root.label ?? w.root.name}</strong>
                   </div>
                   <div className="sub">
-                    {isRoom ? `${w.members.length} tasks · ${working} working` : `${w.root.name}${w.root.current ? ` · ${w.root.current}` : ""}`}
+                    {isRoom ? `${w.members.length} tasks · ${working} working` : `${w.root.name}${w.root.current && !now ? ` · ${w.root.current}` : ""}`}
                   </div>
+                  {now && (
+                    <div className={`live-line${now.state === "stalled" ? " stalled" : ""}`}>
+                      {now.state === "stalled" ? "Possibly stuck: " : ""}{isRoom && who ? `${who}: ` : ""}{now.activity}
+                    </div>
+                  )}
                   {isRoom && (
                     <div className="member-strip">
                       {w.members.map((m) => (

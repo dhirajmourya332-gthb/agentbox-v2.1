@@ -6,13 +6,15 @@ import { useStore } from "../store.tsx";
 import { Avatar, Icon, Markdown, Spinner, StatusGlyph, relTime, useEscToStop } from "../components/ui.tsx";
 import { WorkLog } from "./AgentChat.tsx";
 import { DocumentReader } from "./Documents.tsx";
+import { LiveBar, useSeenRoom } from "../components/Live.tsx";
 
 /**
  * A task room: a task and every task it started, as one timeline. Each entry says which task it
  * belongs to; chips filter by task. The composer talks to the room's lead task.
  */
 export function Room({ id }: { id: string }) {
-  const { threads, live, loadThread, work, everyone } = useStore();
+  const { threads, live, loadThread, work, everyone, progress } = useStore();
+  useSeenRoom(id);
   const [view, setView] = useState<RoomView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
@@ -133,6 +135,9 @@ export function Room({ id }: { id: string }) {
             const inst = member(t.agent_id);
             if (!inst || !visible(inst.id)) return null;
             const a = everyone.find((x) => x.id === t.agent_id);
+            // A working task's status lives in the bar below; here only its reply as it's written.
+            if (t.status === "running" && progress[t.id] && !live[t.id]) return null;
+            const tracked = t.status === "running" && !!progress[t.id];
             return (
               <div key={t.id} className="msg">
                 <Avatar name={a?.name ?? "?"} color={a?.color ?? "var(--muted)"} size={28} />
@@ -140,15 +145,22 @@ export function Room({ id }: { id: string }) {
                   <div className="msg-meta">
                     <strong>{a?.name}</strong>
                     <span className="room-tag">{inst.label ?? inst.name}</span>
-                    <span className="hint">{t.status === "queued" ? "up next" : "working…"}</span>
+                    <span className="hint">{t.status === "queued" ? "up next" : tracked ? "writing…" : "working…"}</span>
                   </div>
-                  {t.status === "running" && <WorkLog task={t} steps={merged.steps.filter((s) => s.task_id === t.id)} />}
+                  {t.status === "running" && !tracked && <WorkLog task={t} steps={merged.steps.filter((s) => s.task_id === t.id)} />}
                   {t.status === "running" && (live[t.id] ? <Markdown text={live[t.id]} streaming home={a?.home} /> : <p className="msg-note"><Spinner />Thinking…</p>)}
                 </div>
               </div>
             );
           })}
         </RoomTimeline>
+
+        <LiveBar
+          items={Object.values(progress).filter((p) => p.root_id === id && visible(p.agent_id))}
+          taskOf={(tid) => taskById.get(tid)}
+          stepsOf={(tid) => merged.steps.filter((s) => s.task_id === tid)}
+          labelOf={members.length > 1 ? (aid) => member(aid)?.label : undefined}
+        />
 
         {!done && rootThread && <RoomComposer threadId={rootThread} lead={root} />}
         {done && <p className="composer-hint" style={{ padding: "12px 24px 20px", margin: 0, maxWidth: "none", textAlign: "center" }}>This task room is done; its history stays readable.</p>}

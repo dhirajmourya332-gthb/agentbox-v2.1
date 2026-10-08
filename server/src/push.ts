@@ -16,12 +16,8 @@ import { clearPushToken, pushTargets } from "./devices.ts";
  */
 
 /** Contract B. Defined here until the attention module lands; the shapes are identical. */
-export type Attention = {
-  id: string; kind: "reply" | "failed" | "stalled" | "question";
-  agent_id: string; task_id: string | null; room_id: string | null;
-  title: string;
-  created_at: string; seen_at: string | null;
-};
+export type { Attention } from "./attention.ts";
+import type { Attention } from "./attention.ts";
 
 export type PushLog = { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void };
 let log: PushLog = {
