@@ -29,6 +29,33 @@ execution, the same as clicking **Stop** in the chat header.
 - Avoid accidental stops: ignore Esc during IME composition, and ignore auto-repeat.
 - Decide: stop immediately, or a second Esc within ~1s to confirm? (Claude CLI stops on one.)
 
+### 2. Light theme, with a theme switch
+**Requirement:** a light theme you can choose, not just the dark one.
+
+**Where it stands today:** the UI already has light colour tokens, but they only apply when the
+Mac itself is in light mode (`prefers-color-scheme`). There's no way to pick a theme in agentbox.
+
+**Acceptance criteria**
+- A theme switch in the top bar (or a settings menu): **Light / Dark / System**. Default:
+  System. The choice is remembered per browser and applies immediately, without a reload.
+- Every screen reads well in light: rail, top bar, chats and work logs, code blocks and diffs, the
+  interview, skills, groups, routines, task board and graph, activity feed, popovers, the paused
+  bar, the screen preview, and error/warning boxes.
+- Contrast: text at least 4.5:1 against its background (3:1 for large text and icons). Status
+  colours (ok / warn / bad) and agent colours stay distinguishable in both themes.
+- Agent avatar colours stay recognisable and their initials stay readable on light backgrounds.
+- No flash of the wrong theme on load (apply the saved theme before first paint).
+
+**Notes**
+- Tokens live in `web/src/styles.css` (`:root` + the `prefers-color-scheme: light` block). Move the
+  light values under `:root[data-theme="light"]` (and keep the system default via the media
+  query when `data-theme` is unset), set `data-theme` from the switch, and persist it in
+  localStorage (wrapped in try/catch).
+- Check the hard-coded colours: avatar initials and the graph's node text use `#0E0F12`; the
+  noVNC/terminal iframes and `background: #000` stay dark (they show the VM screen) — fine, but
+  frame them so they don't look broken in light mode.
+- Update `docs/UI-DESIGN.md` › Visual system with the final light tokens.
+
 ## In progress
 
 _Nothing yet._
