@@ -92,7 +92,10 @@ function notLocal(req: FastifyRequest): { code: number; error: string } | null {
   if (origin !== undefined) {
     let host = "";
     try { const u = new URL(origin); host = u.protocol === "http:" || u.protocol === "https:" ? u.host : ""; } catch { /* malformed */ }
-    if (!LOOPBACK_NAME.test(host)) return { code: 403, error: "Cross-origin request refused" };
+    // Exactly the portal's own origin: another localhost port (a dev server) is another site.
+    if (!LOOPBACK_NAME.test(host) || host.toLowerCase() !== String(req.headers.host ?? "").toLowerCase()) {
+      return { code: 403, error: "Cross-origin request refused" };
+    }
   }
   if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
     const len = Number(req.headers["content-length"] ?? 0);
@@ -112,7 +115,14 @@ function notLocal(req: FastifyRequest): { code: number; error: string } | null {
 export function guardApi(app: FastifyInstance) {
   app.addHook("onRequest", async (req, reply) => {
     const { path } = splitUrl(req.url);
-    if (path !== "/api" && !path.startsWith("/api/")) return; // the static UI
+    // The router decodes the path before matching (/%61pi/pause is /api/pause), so judge both the
+    // decoded path and the route that matched. Real API paths never need percent-encoding: refuse.
+    let decoded = path;
+    try { decoded = decodeURIComponent(path); } catch { return reply.code(400).send(); }
+    const route = String(req.routeOptions?.url ?? "");
+    const isApi = (p: string) => p === "/api" || p.toLowerCase().startsWith("/api/");
+    if (!isApi(path) && !isApi(decoded) && !isApi(route)) return; // the static UI
+    if (decoded !== path) return reply.code(404).send();
     const marker = req.headers[GATEWAY_HEADER];
     if (marker !== undefined) {
       const rest = path.slice(5);
