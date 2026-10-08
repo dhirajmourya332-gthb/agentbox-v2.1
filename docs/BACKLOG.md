@@ -413,6 +413,55 @@ should show, live, what each agent is doing and how it's going.
 - Nothing extra is posted as chat messages (the timeline stays clean); live statuses disappear
   when the turn ends.
 
+### 12. Voice commands (portal on the Mac + Android app)
+**Requirement:** speak a task or a message instead of typing, like the Gemini app. The speech is
+transcribed and **cleaned up** (fillers, false starts, self-corrections, misheard jargon), then
+put in the message or new-task box for the owner to review before sending. Use Z.ai ("zcode")
+models already used in the company's infra.
+
+**Decisions so far**
+- **Speech-to-text:** Z.ai **GLM-ASR-2512** (`POST https://api.z.ai/api/paas/v4/audio/transcriptions`,
+  multipart: `model`, `file`, `stream`, `hotwords` (≤ 100), `prompt` (earlier text, < 8000 chars)).
+  - It accepts **WAV/MP3 only, at most 30 s and 25 MB per request**. So the server converts with
+    ffmpeg (16 kHz mono WAV) and splits longer audio into ≤ 28 s pieces, passing the earlier text
+    as `prompt`. Recordings are capped at 5 min.
+  - **Hotwords:** agent and instance names, repo names under /work, and terms like Dependabot,
+    Keycloak, MSSP, Brandsek, Scrutex, epic, PR, worktree, Swagger.
+  - Hindi isn't listed as supported. Mixed Hindi–English speech needs testing.
+- **Cleanup:** a GLM chat model (default `glm-5.3-flash`, as used by the queues' checker) with a
+  strict prompt. It removes fillers and stutters, resolves self-corrections, fixes jargon from
+  the glossary, writes issue and PR numbers as `#4957`, and outputs plain imperative English. It
+  must **never add, answer or drop** anything. If cleanup fails, the raw transcript is used.
+- **Key:** owner chose to reuse **`CHECKER_ZAI_API_KEY`** (AWS secret `brandsek-queues-env`),
+  copied into the VM at `/secrets/zai.env`. Verify it's a pay-per-use key: the Coding Plan key
+  only works on `/api/coding/paas/v4` and can't do ASR. It shares spend and limits with the
+  production queue workers.
+- **Never auto-send.** The text lands in the box with a "use raw transcript" option.
+- **Estimated LLM cost:** about 600 commands a month (≈ 300 audio minutes) comes to **under about $1
+  a month** (ASR ≈ $0.0024/min ≈ $0.72, plus a few cents of cleanup). Check current prices on
+  docs.z.ai.
+
+**Build outline**
+- **Server:**
+  - `POST /api/voice/transcribe` (JSON: base64 `audio`, `mime`, `purpose`, optional `agent_id`)
+    returns `{ text, raw, duration_s, cleaned }`;
+  - 503 if `/secrets/zai.env` is missing, 413 over the limits, 20 per minute;
+  - never logs audio or transcripts;
+  - added to the phone gateway allowlist, with audit "via phone";
+  - needs `ffmpeg` installed in the VM.
+- **Portal (Mac):**
+  - a mic button next to image attach in task chat, room, group and New task;
+  - MediaRecorder with a "● Listening 0:12" pill, Done and Cancel; Esc cancels without stopping
+    agents;
+  - "Transcribing…", then the text is inserted at the cursor.
+- **Android:**
+  - `expo-audio` (AAC/m4a); unblock RECORD_AUDIO and ask for it only when the mic is first
+    tapped; no background recording;
+  - recording is cancelled and discarded if the app locks or goes to the background;
+  - needs a new EAS build.
+- **Test** against a mock Z.ai server first (segmenting, multipart, failures), then once with the
+  real key.
+
 ## In progress
 
 _Nothing yet._
