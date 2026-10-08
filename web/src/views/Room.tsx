@@ -1,4 +1,5 @@
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
+import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type DocumentInfo, type InstanceSummary, type Message, type RoomView, type Step, type Task } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -183,6 +184,7 @@ function RoomComposer({ threadId, lead }: { threadId: string; lead: InstanceSumm
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [text]);
   const att = useAttachments();
+  const voice = useVoice({ input: ref, text, setText, purpose: "message", agentId: lead.id });
   const send = async () => {
     const v = text.trim();
     const images = att.paths;
@@ -193,11 +195,13 @@ function RoomComposer({ threadId, lead }: { threadId: string; lead: InstanceSumm
   return (
     <div className="composer-wrap">
       <AttachmentStrip a={att} />
+      <VoiceStatus v={voice} />
       <div className={`composer${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
         <textarea ref={ref} rows={1} value={text} placeholder={`Message the room's lead (${lead.name})…`} aria-label="Message the room's lead"
           onChange={(e) => setText(e.target.value)} onPaste={att.onPaste}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
         <AttachButton a={att} />
+        <MicButton v={voice} />
         <button className="btn primary sm" style={{ minHeight: 34 }} disabled={(!text.trim() && !att.paths.length) || att.uploading} onClick={send} aria-label="Send"><Icon name="send" size={14} /></button>
       </div>
       <p className="composer-hint">{error ? <span style={{ color: "var(--bad)" }}>{error}</span> : att.uploading ? "Uploading image…" : <>Goes to {lead.name} ({lead.label}), who coordinates the room · ⏎ send · Esc stops</>}</p>

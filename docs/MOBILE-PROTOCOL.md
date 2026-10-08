@@ -191,7 +191,7 @@ security review.
   such task, file not found, …) becomes 410** with the API's body, so a 404 from the gateway
   always means "not authenticated or not allowed". The app treats 410 as "not found".
 - `GET` responses are streamed (`payloadAsStream`), so `/m/v1/file` handles large and binary files.
-- Body limits: 16 MB for `uploads`, 8 KB for `/m/pair/claim`, 1 MB otherwise. Over the limit:
+- Body limits: 16 MB for `uploads`, 21 MB for `voice/transcribe`, 8 KB for `/m/pair/claim`, 1 MB otherwise. Over the limit:
   empty 404 and the connection is closed.
 - Malformed HTTP also gets a bare 404 (`clientErrorHandler`); there are no `server` or
   `x-powered-by` headers. `HEAD` routes aren't exposed.
@@ -260,6 +260,13 @@ phone allowlist instead; a wrong token gets 404. The static UI isn't guarded.
 feed). The Activity
 feed shows it as kind `phone`, e.g. "You started a task · via phone (Pixel 8)", linking to the
 task where it can.
+
+**Voice (CONTRACTS-v2 C):** `POST voice/transcribe` is allowlisted with its own **21 MB** body
+limit (base64 of at most 15 MB of audio). It forwards to `POST /api/voice/transcribe`
+(`server/src/voice.ts`) and returns `{text, raw, duration_s, cleaned}`; it never sends anything. A
+2xx is audited "dictated by voice · via phone (…)" with no `ref_id`; the audio and text are never
+stored or logged. Errors: 400, 413, 429 (20 a minute, 2 at once), 502 (provider), 503 (no
+`/secrets/zai.env`). Tests: `server/test/voice.test.ts`.
 
 **Testing:** `server/test/mobile-gateway.test.ts` runs against a rehearsal server; the recipe is in
 `docs/MOBILE-SETUP.md` › Testing. It includes the cross-check vector (RFC 8032 TEST 1 key,

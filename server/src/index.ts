@@ -28,6 +28,7 @@ import {
   setAgentSkills, setSkillAgents, skillsOf,
 } from "./skills.ts";
 import { health } from "./health.ts";
+import { VoiceError, transcribeVoice } from "./voice.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
 import { startPush } from "./push.ts";
 
@@ -294,6 +295,14 @@ app.post("/api/skill-drafts/:id/reject", async (req) => {
 app.get("/api/threads/:id", async (req) => threadView((req.params as any).id));
 app.post("/api/uploads", { bodyLimit: 16 * 1024 * 1024 }, async (req) => {
   try { return saveUpload(req.body as any); } catch (e: any) { throw new HttpError(400, e.message); }
+});
+// Voice input: transcribe and clean up; the text goes back into the box for review, never sent.
+// base64 of 15 MB of audio plus the JSON around it.
+app.post("/api/voice/transcribe", { bodyLimit: 21 * 1024 * 1024 }, async (req) => {
+  try { return await transcribeVoice(req.body); } catch (e: any) {
+    if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
+    throw new HttpError(500, "Transcription failed");
+  }
 });
 app.post("/api/threads/:id/messages", async (req) => {
   const threadId = (req.params as any).id;
