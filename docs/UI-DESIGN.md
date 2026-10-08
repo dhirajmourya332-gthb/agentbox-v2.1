@@ -275,3 +275,62 @@ React + Vite + TypeScript, served as static files by the orchestrator.
 | 4 | Groups: create, members, lead, mentions, turn-limit banner |
 | 5 | Routines table and editor |
 | 6 | Activity timeline, graph view, screen PiP, display-lock UI, Pause all |
+
+---
+
+## Revision: work-first navigation (backlog #3–#6)
+
+agentbox now runs **one instance per task**. An agent (tech-lead, coder, devops…) is a **role**: its
+job description, skills, model and memory. Work happens on **instances** (`coder#2`), each doing
+one task with its own conversation. The UI is organised around that, so it stays simple however
+many instances run.
+
+### Words used in the UI
+- **Agent**: a role you hire through the interview. Shown under **Team**.
+- **Task** (instance): one piece of work by one agent. Shown by its title ("Backend API keys"),
+  with `coder#2` as a small subtitle.
+- **Task room**: a task that started other tasks (tech-lead's "MSP API keys" plus its coder,
+  devops… tasks). Opens as one combined timeline.
+
+### Sidebar
+```
+[ + New task ]
+Overview · Activity · Tasks · Routines · Documents · Skills
+WORK
+ ▾ ◆ MSP API keys            ⟳     ← task room (has sub-tasks): accent diamond
+      Backend API keys       ⟳       coder#1
+      Portal token page      ○       coder#2
+ ▸ ○ Alert #3232 tinypool           ← single task
+   Done (2) ▸                        ← finished in the last 24 h, then hidden (Keep pins)
+TEAM
+   tech-lead    1 working  ▸        ← expand: its live tasks
+   coder        2 working  ▸
+   devops       idle
+   + New agent
+GROUPS
+COMPUTER  Screen · Terminal · System
+```
+- Work shows only top-level tasks; sub-tasks fold under their room. Routine and group tasks
+  live under Routines and Groups, never in Work.
+- Every section collapses and remembers it. Counts and live status replace long lists.
+
+### Starting work
+**New task** opens one small dialog: pick who (tech-lead is suggested for anything with more than
+one step), write what's needed, Start. That creates the task and opens its chat. There's no
+"chat with a role": each conversation is a task, so contexts never mix.
+
+### A task (instance) page
+The chat as before, with the task title in the header, `coder#2 · from tech-lead#1` under it, and
+**Done** (retires it after confirming). The side panel has **Overview** (what it's doing, who
+started it, tasks it started) and **Documents**. Instructions, skills and memory belong to the
+role and are edited on the role's page.
+
+### A task room
+One timeline of every task in the room, each entry labelled with its task and agent, with chips
+to filter by task. The composer talks to the room's lead. The side panel has **Tasks** (members
+with status) and **Documents**. When the room's lead task is marked done, the room shows
+"Hidden in 24 h — Keep".
+
+### An agent (role) page
+Header with the agent and **New task**. Tabs: **Tasks** (live and recent), **Instructions**,
+**Skills**, **Memory**, **Documents**, **Settings** (model, limits, can scale, delete).
