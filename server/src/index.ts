@@ -12,6 +12,7 @@ import {
 } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
 import { activity, graph } from "./activity.ts";
+import { checkImages, displayWithImages, saveUpload } from "./uploads.ts";
 import { allDocuments, allowed, contentType, documentsForWork, listDocuments } from "./documents.ts";
 import { finishTree, roomDocuments, roomView, workList } from "./work.ts";
 import { migrateToInstances } from "./migrate.ts";
@@ -149,11 +150,13 @@ app.post("/api/work", async (req) => {
   const role = mustAgent(String(b?.role_id ?? ""));
   if (role.base_agent_id) throw new HttpError(400, "Pick an agent, not an instance");
   const text = String(b?.text ?? "").trim();
-  if (!text) throw new HttpError(400, "Say what needs doing");
-  const firstLine = text.split("\n")[0];
+  let images: string[];
+  try { images = checkImages(b?.images); } catch (e: any) { throw new HttpError(400, e.message); }
+  if (!text && !images.length) throw new HttpError(400, "Say what needs doing");
+  const firstLine = text.split("\n")[0] || "Task from an image";
   const label = String(b?.title ?? "").trim() || (firstLine.length > 70 ? firstLine.slice(0, 67) + "…" : firstLine);
   const inst = spawnInstance(role.id, { label, createdBy: "owner" });
-  sendMessage(inst.id, dmThreadOf(inst.id)!, text);
+  sendMessage(inst.id, dmThreadOf(inst.id)!, text, images);
   return agentView(inst);
 });
 app.get("/api/work/:id", async (req) => {
@@ -283,18 +286,23 @@ app.post("/api/skill-drafts/:id/reject", async (req) => {
 
 // --- conversations ----------------------------------------------------------
 app.get("/api/threads/:id", async (req) => threadView((req.params as any).id));
+app.post("/api/uploads", { bodyLimit: 16 * 1024 * 1024 }, async (req) => {
+  try { return saveUpload(req.body as any); } catch (e: any) { throw new HttpError(400, e.message); }
+});
 app.post("/api/threads/:id/messages", async (req) => {
   const threadId = (req.params as any).id;
-  const text = (req.body as any)?.text;
-  if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Message is empty");
+  const text = String((req.body as any)?.text ?? "");
+  let images: string[];
+  try { images = checkImages((req.body as any)?.images); } catch (e: any) { throw new HttpError(400, e.message); }
+  if (!text.trim() && !images.length) throw new HttpError(400, "Message is empty");
   const thread = get(`SELECT * FROM threads WHERE id = ?`, threadId);
   if (!thread) throw new HttpError(404, "No such thread");
-  if (thread.kind === "group") return postAsOwner(threadId, text.trim());
+  if (thread.kind === "group") return postAsOwner(threadId, displayWithImages(text.trim(), images));
   if (thread.kind !== "dm") throw new HttpError(400, "Handoff threads between agents are read-only");
   const owner = getAgent(thread.agent_id);
   if (!owner?.base_agent_id) throw new HttpError(400, "Start a task for this agent instead (New task)");
   if (owner.retired_at) throw new HttpError(400, "This task is done. Start a new task to continue.");
-  return sendMessage(thread.agent_id, threadId, text.trim());
+  return sendMessage(thread.agent_id, threadId, text.trim(), images);
 });
 app.post("/api/tasks/:id/stop", async (req) => {
   stopTask((req.params as any).id);

@@ -1,3 +1,4 @@
+import { imagesForAgent } from "./uploads.ts";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 import { getAgent, listAgents, spawnInstance, type Agent } from "./agents.ts";
@@ -229,7 +230,7 @@ export function groupPrompt(task: any, agent: Agent) {
   );
   const nameOf = (author: string) =>
     author === "user" ? "Owner" : author === "system" ? "agentbox" : getAgent(author)?.name ?? "someone";
-  const transcript = missed.map((m) => `**${nameOf(m.author)}:** ${m.content}`).join("\n\n");
+  const transcript = missed.map((m) => `**${nameOf(m.author)}:** ${imagesForAgent(m.content)}`).join("\n\n");
   return `[agentbox group #${group.name}]${group.purpose ? `\nPurpose: ${group.purpose}` : ""}
 Members:
 ${people}

@@ -110,6 +110,7 @@ export function allowed(p: string) {
 }
 
 const TYPES: Record<string, string> = {
+  ".gif": "image/gif", ".webp": "image/webp",
   ".md": "text/markdown; charset=utf-8", ".markdown": "text/markdown; charset=utf-8", ".mdx": "text/markdown; charset=utf-8",
   ".txt": "text/plain; charset=utf-8", ".rst": "text/plain; charset=utf-8", ".adoc": "text/plain; charset=utf-8",
   ".csv": "text/csv; charset=utf-8", ".tsv": "text/tab-separated-values; charset=utf-8",

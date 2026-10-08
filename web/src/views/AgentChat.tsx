@@ -1,3 +1,4 @@
+import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, type Agent, type Message, type Step, type Task, type Thread } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -424,6 +425,7 @@ function StepRow({ step }: { step: Step }) {
 
 function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; empty: boolean }) {
   const [text, setText] = useState("");
+  const att = useAttachments();
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -437,11 +439,13 @@ function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; 
 
   async function send(value = text) {
     const v = value.trim();
-    if (!v) return;
+    const images = att.paths;
+    if ((!v && !images.length) || att.uploading) return;
     setError(null);
     setText("");
     try {
-      await api.send(threadId, v);
+      await api.send(threadId, v, images);
+      att.clear();
     } catch (e: any) {
       setError(e.message);
       setText(v);
@@ -461,17 +465,20 @@ function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; 
           {STARTERS.map((s) => <button key={s} className="pill" onClick={() => send(s)}>{s}</button>)}
         </div>
       )}
-      <div className="composer">
+      <AttachmentStrip a={att} />
+      <div className={`composer${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
         <textarea ref={ref} rows={1} value={text} placeholder={`Message ${agent.name}…`} aria-label={`Message ${agent.name}`}
-          onChange={(e) => setText(e.target.value)} onKeyDown={onKey} />
-        <button className="btn primary sm" style={{ minHeight: 34 }} disabled={!text.trim()} onClick={() => send()} aria-label="Send">
+          onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={att.onPaste} />
+        <AttachButton a={att} />
+        <button className="btn primary sm" style={{ minHeight: 34 }} disabled={(!text.trim() && !att.paths.length) || att.uploading} onClick={() => send()} aria-label="Send">
           <Icon name="send" size={14} />
         </button>
       </div>
       <p className="composer-hint">
         {error ? <span style={{ color: "var(--bad)" }}>{error}</span>
+          : att.uploading ? "Uploading image…"
           : agent.status === "working" ? `${agent.name} is working · Esc to stop · new messages queue up and run next`
-          : "⏎ send · ⇧⏎ new line"}
+          : "⏎ send · ⇧⏎ new line · paste or drop images"}
       </p>
     </div>
   );

@@ -1,3 +1,4 @@
+import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type DocumentInfo, type InstanceSummary, type Message, type RoomView, type Step, type Task } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -181,21 +182,25 @@ function RoomComposer({ threadId, lead }: { threadId: string; lead: InstanceSumm
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [text]);
+  const att = useAttachments();
   const send = async () => {
     const v = text.trim();
-    if (!v) return;
+    const images = att.paths;
+    if ((!v && !images.length) || att.uploading) return;
     setText(""); setError(null);
-    try { await api.send(threadId, v); } catch (e: any) { setError(e.message); setText(v); }
+    try { await api.send(threadId, v, images); att.clear(); } catch (e: any) { setError(e.message); setText(v); }
   };
   return (
     <div className="composer-wrap">
-      <div className="composer">
+      <AttachmentStrip a={att} />
+      <div className={`composer${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
         <textarea ref={ref} rows={1} value={text} placeholder={`Message the room's lead (${lead.name})…`} aria-label="Message the room's lead"
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => setText(e.target.value)} onPaste={att.onPaste}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
-        <button className="btn primary sm" style={{ minHeight: 34 }} disabled={!text.trim()} onClick={send} aria-label="Send"><Icon name="send" size={14} /></button>
+        <AttachButton a={att} />
+        <button className="btn primary sm" style={{ minHeight: 34 }} disabled={(!text.trim() && !att.paths.length) || att.uploading} onClick={send} aria-label="Send"><Icon name="send" size={14} /></button>
       </div>
-      <p className="composer-hint">{error ? <span style={{ color: "var(--bad)" }}>{error}</span> : <>Goes to {lead.name} ({lead.label}), who coordinates the room · ⏎ send · Esc stops</>}</p>
+      <p className="composer-hint">{error ? <span style={{ color: "var(--bad)" }}>{error}</span> : att.uploading ? "Uploading image…" : <>Goes to {lead.name} ({lead.label}), who coordinates the room · ⏎ send · Esc stops</>}</p>
     </div>
   );
 }

@@ -125,7 +125,7 @@ export const api = {
   state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
-  newTask: (roleId: string, text: string, title?: string) => call<Agent>("POST", "/api/work", { role_id: roleId, text, title }),
+  newTask: (roleId: string, text: string, title?: string, images?: string[]) => call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images }),
   room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
@@ -184,6 +184,7 @@ export const api = {
   runRoutine: (id: string) => call<{ started: boolean; routine: Routine }>("POST", `/api/routines/${id}/run`),
   previewCron: (cron: string, timezone: string) => call<{ next_runs: string[]; describe: string }>("POST", "/api/routines/preview", { cron, timezone }),
   thread: (id: string) => call<ThreadData>("GET", `/api/threads/${id}`),
-  send: (threadId: string, text: string) => call("POST", `/api/threads/${threadId}/messages`, { text }),
+  send: (threadId: string, text: string, images?: string[]) => call("POST", `/api/threads/${threadId}/messages`, { text, images }),
+  upload: (name: string, type: string, data: string) => call<{ path: string; name: string; size: number }>("POST", "/api/uploads", { name, type, data }),
   stop: (taskId: string) => call("POST", `/api/tasks/${taskId}/stop`),
 };

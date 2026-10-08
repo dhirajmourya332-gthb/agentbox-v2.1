@@ -1,3 +1,4 @@
+import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -15,6 +16,7 @@ export function NewTask({ roleId }: { roleId?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const att = useAttachments();
 
   useEffect(() => {
     if (!picked && loaded) setPicked(roleId ?? lead?.id ?? roles[0]?.id ?? null);
@@ -23,11 +25,12 @@ export function NewTask({ roleId }: { roleId?: string }) {
 
   const role = roles.find((r) => r.id === picked);
   async function start() {
-    if (!role || !text.trim()) return;
+    if (!role || (!text.trim() && !att.paths.length) || att.uploading) return;
     setBusy(true);
     setError(null);
     try {
-      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined);
+      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths);
+      att.clear();
       go({ name: "agent", id: inst.id });
     } catch (e: any) {
       setError(e.message);
@@ -78,10 +81,15 @@ export function NewTask({ roleId }: { roleId?: string }) {
           )}
         </div>
 
-        <div className="field">
-          <label htmlFor="nt-text">What needs doing?</label>
-          <textarea id="nt-text" ref={ref} className="text" rows={7} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
+        <div className={`field drop-zone${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <label htmlFor="nt-text">What needs doing?</label>
+            <AttachButton a={att} />
+          </div>
+          <textarea id="nt-text" ref={ref} className="text" rows={7} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={att.onPaste}
             placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the MSP portal. Ask me before filing the epic." : "e.g. Fix Dependabot alert #3232 in scrutex-guard/console."} />
+          <AttachmentStrip a={att} />
+          <span className="hint">{att.uploading ? "Uploading image…" : "Paste (⌘V), drop or attach screenshots; the agent can open them."}</span>
         </div>
         <div className="field">
           <label htmlFor="nt-title">Title <span className="hint">(optional; defaults to the first line)</span></label>
@@ -92,7 +100,7 @@ export function NewTask({ roleId }: { roleId?: string }) {
           <a className="btn ghost" href="#/">Cancel</a>
           <span className="grow" />
           <span className="hint">⌘⏎ to start</span>
-          <button className="btn primary" disabled={!role || !text.trim() || busy} onClick={start}>
+          <button className="btn primary" disabled={!role || (!text.trim() && !att.paths.length) || att.uploading || busy} onClick={start}>
             {busy ? "Starting…" : `Start${role ? ` with ${role.name}` : ""}`}
           </button>
         </div>

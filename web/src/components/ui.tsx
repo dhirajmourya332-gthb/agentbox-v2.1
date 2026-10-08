@@ -41,6 +41,7 @@ const PATHS: Record<string, string> = {
   moon: "M13.5 9.5A5.5 5.5 0 1 1 6.5 2.5a4.5 4.5 0 0 0 7 7Z",
   room: "M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5ZM8 5 11 8 8 11 5 8 8 5Z",
   doc: "M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 11h4.5",
+  image: "M2.5 2.5h11a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1ZM1.5 11l3.5-3.5 3 3 2-2 4.5 4.5M10.5 6.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
   sparkle: "M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M3.4 3.4l2 2M10.6 10.6l2 2M3.4 12.6l2-2M10.6 5.4l2-2",
 };
 
@@ -132,7 +133,12 @@ export function Markdown({ text, streaming = false, home }: { text: string; stre
     () => linkPaths(DOMPurify.sanitize(marked.parse(text, { async: false }) as string), home),
     [text, home],
   );
-  return <div className={`prose${streaming ? " cursor" : ""}`} dangerouslySetInnerHTML={{ __html: html }} />;
+  // Images (e.g. attached screenshots) open full size in a new tab.
+  const openImage = (e: React.MouseEvent) => {
+    const img = (e.target as HTMLElement).closest("img");
+    if (img) window.open(img.src, "_blank", "noopener");
+  };
+  return <div className={`prose${streaming ? " cursor" : ""}`} onClick={openImage} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 /**
