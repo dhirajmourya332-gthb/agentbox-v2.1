@@ -3,7 +3,7 @@ import { api, type Usage } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { href, type Route } from "../router.ts";
 import { Avatar, Icon, StatusGlyph } from "./ui.tsx";
-import { PauseControl, PausedBar, ScreenPip } from "./Controls.tsx";
+import { PauseControl, PausedBar, ScreenPip, ThemeSwitch } from "./Controls.tsx";
 
 function UsageChip({ usage }: { usage: Usage | null }) {
   if (!usage) return null;
@@ -89,6 +89,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </a>
         <UsageChip usage={usage} />
         <VmChip />
+        <ThemeSwitch />
         <PauseControl />
       </header>
       <div className="bar-slot"><PausedBar /></div>

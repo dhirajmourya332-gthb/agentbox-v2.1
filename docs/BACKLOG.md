@@ -244,7 +244,8 @@ _Nothing yet._
 
 ## Done
 
-_Nothing yet._
+- **1. Esc stops the current execution** — agent chats and groups; Esc closes the reader, popovers, @-mention suggestions and an overlaid panel first; hints in the composer and on Stop.
+- **2. Light theme** — Light / Dark / System switch in the top bar, remembered per browser, applied before first paint.
 
 ---
 

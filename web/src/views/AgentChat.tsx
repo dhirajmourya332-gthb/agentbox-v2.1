@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, type Agent, type Message, type Step, type Task, type Thread } from "../api.ts";
 import { useStore } from "../store.tsx";
-import { Avatar, Icon, Markdown, Spinner, StatusGlyph, duration, relTime } from "../components/ui.tsx";
+import { Avatar, Icon, Markdown, Spinner, StatusGlyph, duration, relTime, useEscToStop } from "../components/ui.tsx";
 import { AgentPanel } from "./AgentPanel.tsx";
 
 const STARTERS = [
@@ -31,9 +31,19 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
     if (threadId) loadThread(threadId).catch(() => {});
   }, [threadId, loadThread]);
 
-  if (!agent) return <div className="page"><div className="page-inner"><p className="lede">No such agent.</p></div></div>;
-
   const running = thread?.tasks.find((t) => t.status === "running");
+  useEscToStop(!!running, () => { if (running) api.stop(running.id); });
+  // On narrow screens the panel overlays the chat; Esc closes it.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const panel = document.querySelector(".panel");
+      if (e.key === "Escape" && panel && getComputedStyle(panel).position === "fixed" && !document.querySelector(".reader-backdrop, .popover")) setPanel(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  if (!agent) return <div className="page"><div className="page-inner"><p className="lede">No such agent.</p></div></div>;
 
   return (
     <>
@@ -47,7 +57,7 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
           <div className="actions">
             <StatusGlyph status={agent.status} withLabel />
             {running && (
-              <button className="btn sm danger" onClick={() => api.stop(running.id)}>
+              <button className="btn sm danger" onClick={() => api.stop(running.id)} title="Stop (Esc)">
                 <Icon name="stop" size={14} />Stop
               </button>
             )}
@@ -353,7 +363,7 @@ function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; 
       </div>
       <p className="composer-hint">
         {error ? <span style={{ color: "var(--bad)" }}>{error}</span>
-          : agent.status === "working" ? `${agent.name} is working — new messages queue up and run next.`
+          : agent.status === "working" ? `${agent.name} is working · Esc to stop · new messages queue up and run next`
           : "⏎ send · ⇧⏎ new line"}
       </p>
     </div>

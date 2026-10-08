@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { AgentStatus } from "../api.ts";
@@ -37,6 +37,8 @@ const PATHS: Record<string, string> = {
   activity: "M2.5 4h11M2.5 8h7M2.5 12h9",
   graph: "M4 4.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM12 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM5 14.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM5.3 3.8l5.4 3M10.6 8.3 6.3 12",
   refresh: "M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3",
+  sun: "M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1",
+  moon: "M13.5 9.5A5.5 5.5 0 1 1 6.5 2.5a4.5 4.5 0 0 0 7 7Z",
   sparkle: "M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M3.4 3.4l2 2M10.6 10.6l2 2M3.4 12.6l2-2M10.6 5.4l2-2",
 };
 
@@ -129,6 +131,26 @@ export function Markdown({ text, streaming = false, home }: { text: string; stre
     [text, home],
   );
   return <div className={`prose${streaming ? " cursor" : ""}`} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/**
+ * Esc stops a running agent (backlog #1). Anything open on top — the reader, a popover, @-mention
+ * suggestions, an overlaid side panel — gets the key first, so Esc there just closes it.
+ */
+export function useEscToStop(active: boolean, stop: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.repeat || e.isComposing || e.defaultPrevented) return;
+      if (document.querySelector(".reader-backdrop, .popover, [data-esc-owner]")) return;
+      const panel = document.querySelector(".panel");
+      if (panel && getComputedStyle(panel).position === "fixed") return; // narrow screens: Esc closes the panel
+      e.preventDefault();
+      stop();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [active, stop]);
 }
 
 export function Spinner() {

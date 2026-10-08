@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import { api, type Agent, type Group, type Message, type Step, type Task } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
-import { Avatar, Icon, Markdown, Spinner, relTime } from "../components/ui.tsx";
+import { Avatar, Icon, Markdown, Spinner, relTime, useEscToStop } from "../components/ui.tsx";
 import { AgentPicker } from "./Skills.tsx";
 import { WorkLog } from "./AgentChat.tsx";
 
@@ -27,10 +27,12 @@ export function GroupChat({ id }: { id: string }) {
     loadThread(id).catch(() => {});
   }, [id, loadThread]);
 
+  const running = thread?.tasks.filter((t) => t.status === "running") ?? [];
+  useEscToStop(running.length > 0, () => running.forEach((t) => api.stop(t.id)));
+
   if (!group) return <div className="page"><div className="page-inner"><p className="lede">No such group.</p></div></div>;
   const members = group.members.map((m) => everyone.find((a) => a.id === m)).filter(Boolean) as Agent[];
   const lead = everyone.find((a) => a.id === group.lead_agent_id) ?? members[0];
-  const running = thread?.tasks.filter((t) => t.status === "running") ?? [];
 
   return (
     <section className="chat" aria-label={`Group ${group.name}`}>
@@ -50,7 +52,7 @@ export function GroupChat({ id }: { id: string }) {
             ))}
           </span>
           {running.length > 0 && (
-            <button className="btn sm danger" onClick={() => running.forEach((t) => api.stop(t.id))}>
+            <button className="btn sm danger" onClick={() => running.forEach((t) => api.stop(t.id))} title="Stop (Esc)">
               <Icon name="stop" size={14} />Stop
             </button>
           )}
@@ -159,8 +161,10 @@ function GroupTimeline({ group, members, lead, data, live }: {
 function GroupComposer({ group, members, lead }: { group: Group; members: Agent[]; lead?: Agent }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => ref.current?.focus(), [group.id]);
+  useEffect(() => setDismissed(false), [text]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -169,7 +173,7 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
   }, [text]);
 
   const partial = text.match(/@([A-Za-z0-9_-]*)$/)?.[1];
-  const suggestions = partial === undefined ? [] : members.filter((a) => a.slug.startsWith(partial.toLowerCase()));
+  const suggestions = partial === undefined || dismissed ? [] : members.filter((a) => a.slug.startsWith(partial.toLowerCase()));
   const targets = mentioned(text, members);
 
   function insert(a: Agent) {
@@ -189,6 +193,11 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
     }
   }
   const onKey = (e: KeyboardEvent) => {
+    if (suggestions.length && e.key === "Escape") {
+      e.preventDefault(); // closes the suggestions instead of stopping agents
+      setDismissed(true);
+      return;
+    }
     if (suggestions.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
       e.preventDefault();
       insert(suggestions[0]);
@@ -203,7 +212,7 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
   return (
     <div className="composer-wrap">
       {suggestions.length > 0 && (
-        <div className="choices" style={{ maxWidth: 820, margin: "0 auto 8px" }} role="listbox" aria-label="Mention a member">
+        <div className="choices" style={{ maxWidth: 820, margin: "0 auto 8px" }} role="listbox" aria-label="Mention a member" data-esc-owner="">
           {suggestions.map((a) => (
             <button key={a.id} className="pill" onClick={() => insert(a)}>
               <Avatar name={a.name} color={a.color} size={16} />@{a.slug}
