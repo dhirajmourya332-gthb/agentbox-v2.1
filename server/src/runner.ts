@@ -10,6 +10,7 @@ import { skillsOf } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
 import { afterAgentReply, groupPrompt, isNoReply } from "./groups.ts";
 import { displayState, releaseDisplay, setPaused, useDisplay, whenRunning } from "./control.ts";
+import { heartbeat } from "./progress.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -364,6 +365,7 @@ async function runTask(taskId: string) {
 
   const handle = (m: SDKMessage) => {
     const msg = m as any;
+    heartbeat(taskId); // live progress: any message (a subagent's too) means the turn isn't stuck
     switch (msg.type) {
       case "system":
         if (msg.subtype === "init" && msg.session_id) saveSession(msg.session_id);

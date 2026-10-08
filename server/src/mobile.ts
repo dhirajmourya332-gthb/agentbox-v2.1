@@ -51,15 +51,19 @@ const PHONE_EVENTS = new Set([
   "agent.created", "agent.updated", "agent.deleted", "agent.retired", "agent.status",
   "task.updated", "message.created", "turn.delta", "step.updated", "thread.created", "usage",
   "group.updated", "group.deleted", "routine.updated", "routine.deleted", "display.updated", "paused",
+  // Live progress and "needs you" (CONTRACTS-v2 § A, B): the same records GET progress / attention return.
+  "progress.updated", "progress.cleared", "attention.updated",
 ]);
 
 // --- the allowlist ------------------------------------------------------------------------
 
 const ID = "[A-Za-z0-9_-]{1,128}";
 const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
-  ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control"]
+  ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control",
+    "progress", "attention"]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
-  ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads"]
+  ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads",
+    `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`]
     .map((p) => ({ method: "POST" as const, re: new RegExp(`^${p}$`) })),
 ];
 
@@ -431,7 +435,9 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     // The raw body bytes the phone signed, untouched.
     const res = await app.inject({ method, url: target, headers, payload: body.length ? body : undefined });
     if (res.statusCode >= 300 && res.statusCode < 400) return empty(reply); // the gateway never redirects
-    if (res.statusCode >= 200 && res.statusCode < 300) {
+    // Marking "needs you" items seen changes nothing an agent does, and the app does it on every
+    // room it opens: not audited.
+    if (res.statusCode >= 200 && res.statusCode < 300 && !rest.startsWith("attention/")) {
       let ref: string | null = rest.split("/")[1] ?? null;
       if (rest === "work") {
         try { ref = String(JSON.parse(res.payload).id ?? "") || null; } catch { ref = null; }

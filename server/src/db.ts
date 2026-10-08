@@ -204,6 +204,22 @@ CREATE TABLE IF NOT EXISTS device_audit (
 );
 CREATE INDEX IF NOT EXISTS device_audit_ts ON device_audit(ts);
 `);
+// "Needs you" items (attention.ts, docs/CONTRACTS-v2.md § B). room_id is a task room's root
+// instance id or a group id.
+db.exec(`
+CREATE TABLE IF NOT EXISTS attention (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,                -- reply | failed | stalled | question
+  agent_id TEXT NOT NULL,
+  task_id TEXT,
+  room_id TEXT,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  seen_at TEXT
+);
+CREATE INDEX IF NOT EXISTS attention_unseen ON attention(seen_at, created_at);
+CREATE INDEX IF NOT EXISTS attention_room ON attention(room_id, seen_at);
+`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS threads_handoff ON threads(kind, agent_id, peer_agent_id) WHERE kind = 'handoff'`);
 
 // A task that was running when the server stopped can never finish; mark it.
