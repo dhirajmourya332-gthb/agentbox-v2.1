@@ -2,7 +2,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
-import { getAgent, listAgents, retireReplica, spawnReplica, type Agent } from "./agents.ts";
+import { dmThreadOf, getAgent, listAgents, retireReplica, spawnInstance, type Agent } from "./agents.ts";
 import { proposeSkill, skillsOf } from "./skills.ts";
 import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
@@ -40,9 +40,19 @@ type Handoff = { kind: "task" | "message"; from: Agent; fromTask: any; to: strin
 
 /** Checks shared by delegations and messages. Returns an error for the agent, or the target. */
 function check(h: Handoff): string | Agent {
-  const target = findAgent(h.to);
-  const names = listAgents().filter((a) => a.id !== h.from.id).map((a) => a.name).join(", ") || "none";
-  if (!target) return `No teammate called "${h.to}". Teammates: ${names}.`;
+  let target = findAgent(h.to);
+  const names = listAgents().filter((a) => !a.base_agent_id && a.id !== h.from.base_agent_id).map((a) => a.name).join(", ") || "none";
+  if (!target) return `No teammate called "${h.to}". Agents: ${names}. (Delegate to an agent to start a fresh task, or to a live instance such as coder#2 for a follow-up.)`;
+  // A message to an agent goes to its live instance in your work, if there's exactly one.
+  if (h.kind === "message" && !target.base_agent_id) {
+    const live = listAgents().filter((a) => a.base_agent_id === target!.id && a.created_by === h.from.id);
+    if (live.length !== 1) {
+      return live.length
+        ? `${target.name} has several live tasks from you (${live.map((a) => a.name).join(", ")}); message one of them by name.`
+        : `${target.name} has no live task from you to message. Use delegate_task to give it work.`;
+    }
+    target = live[0];
+  }
   if (target.id === h.from.id) return "That's you. Do the work yourself or pick a teammate.";
   if (h.fromTask.from_agent_id && h.fromTask.from_agent_id === target.id) {
     return `${target.name} handed this task to you. Don't hand it back: finish what you can and put questions or blockers in your final reply, which goes to ${target.name} automatically.`;
@@ -59,9 +69,14 @@ function check(h: Handoff): string | Agent {
 }
 
 export function handOff(h: Handoff) {
-  const target = check(h);
-  if (typeof target === "string") throw new Error(target);
-  const threadId = handoffThread(target, h.from);
+  const checked = check(h);
+  if (typeof checked === "string") throw new Error(checked);
+  // Delegating to an agent (role) starts a fresh instance for this one task; delegating to an
+  // instance sends it a follow-up in its own conversation.
+  const target = checked.base_agent_id
+    ? checked
+    : spawnInstance(checked.id, { label: h.title, createdBy: h.from.id, parentInstanceId: h.from.base_agent_id ? h.from.id : null });
+  const threadId = dmThreadOf(target.id)!;
   const prompt = h.kind === "task"
     ? `[agentbox] Task from ${h.from.name} (${h.from.title})
 
@@ -130,27 +145,30 @@ export function teamServer(agent: Agent, taskId: string) {
     tools: [
       tool(
         "list_agents",
-        "List your teammates (including replicas such as coder#2): role, status, what each is working on and has queued, skills. Pass pool to list just one agent and its replicas.",
-        { pool: z.string().optional().describe("e.g. coder → coder and coder#1, coder#2…") },
+        "List the agents you can delegate to, with each one's live tasks (instances such as coder#2): what they're doing, status and who started them. Pass pool to see just one agent.",
+        { pool: z.string().optional().describe("An agent's name, e.g. coder") },
         async ({ pool }) => {
-        const base = pool ? findAgent(pool) : undefined;
-        if (pool && !base) return refuse(`No teammate called "${pool}".`);
-        const baseId = base ? base.base_agent_id ?? base.id : undefined;
-        const rows = listAgents()
-          .filter((a) => a.id !== agent.id)
-          .filter((a) => !baseId || a.id === baseId || a.base_agent_id === baseId)
-          .map((a) => {
-          const open = openTasksOf(a.id);
-          const running = open.find((t) => t.status === "running");
-          const queued = open.filter((t) => t.status === "queued");
-          const kind = a.base_agent_id ? ` (replica of ${getAgent(a.base_agent_id)?.name})` : a.max_replicas ? ` (up to ${a.max_replicas} replicas)` : "";
-          return `- ${a.name}${kind} — ${a.title}: ${agentStatus(a.id).status}` +
-            (running ? `; working on "${running.title}" (${running.id})` : "") +
-            (queued.length ? `; queued: ${queued.map((t) => `"${t.title}"`).join(", ")}` : "") +
-            (a.base_agent_id ? "" : `. ${a.summary} Skills: ${skillsOf(a.id).join(", ") || "none"}`);
-        });
-        return text(rows.length ? rows.join("\n") : "No matching teammates.");
-      }),
+          const base = pool ? findAgent(pool) : undefined;
+          if (pool && !base) return refuse(`No agent called "${pool}".`);
+          const roleId = base ? base.base_agent_id ?? base.id : undefined;
+          const roles = listAgents().filter((a) => !a.base_agent_id && (!roleId || a.id === roleId));
+          const rows = roles.map((r) => {
+            const live = listAgents().filter((a) => a.base_agent_id === r.id && a.id !== agent.id);
+            const lines = live.map((i) => {
+              const open = openTasksOf(i.id);
+              const running = open.find((t) => t.status === "running");
+              const by = i.created_by === "owner" ? "the owner" : i.created_by?.startsWith("routine:") ? "a routine"
+                : i.created_by?.startsWith("group:") ? "a group" : getAgent(i.created_by ?? "")?.name ?? "?";
+              return `    - ${i.name} "${i.label ?? ""}" — ${agentStatus(i.id).status}${running ? `, working on "${running.title}"` : ""}` +
+                `${open.length > (running ? 1 : 0) ? `, ${open.length - (running ? 1 : 0)} queued` : ""} (started by ${by}${i.created_by === agent.id ? ": you" : ""})`;
+            });
+            return `- ${r.name} — ${r.title}: ${r.summary} Skills: ${skillsOf(r.id).join(", ") || "none"}.` +
+              (r.can_scale ? " (Only the owner starts its tasks.)" : "") +
+              (lines.length ? `\n  Live tasks:\n${lines.join("\n")}` : "\n  No live tasks.");
+          });
+          return text(rows.length ? rows.join("\n") : "No matching agents.");
+        },
+      ),
 
       tool(
         "find_work",
@@ -182,31 +200,14 @@ export function teamServer(agent: Agent, taskId: string) {
       ),
 
       tool(
-        "spawn_replica",
-        "Start a replica of a teammate (e.g. coder → coder#2) to take work in parallel. It shares their job description, skills and memory. Delegate to it by its name. Only for agents the owner allows to scale the team.",
-        { of: z.string().describe("Base agent's name, e.g. coder") },
-        async ({ of }) => {
-          if (!agent.can_scale) return refuse("You're not allowed to spawn replicas; ask the owner.");
-          const base = findAgent(of);
-          if (!base) return refuse(`No teammate called "${of}".`);
-          try {
-            const r = spawnReplica(base.id);
-            return text(`Started ${r.name}. Delegate to it with to="${r.name}".`);
-          } catch (e: any) {
-            return refuse(e.message);
-          }
-        },
-      ),
-
-      tool(
-        "retire_replica",
-        "Retire a replica whose work is done (its report is in and nothing is queued). Its history stays readable.",
-        { name: z.string().describe("e.g. coder#2") },
+        "retire_instance",
+        "Finish a task you started: retire the instance (e.g. coder#3) once its report is in and nothing is queued for it. You can only retire instances you started. Its history stays.",
+        { name: z.string().describe("e.g. coder#3") },
         async ({ name }) => {
-          if (!agent.can_scale) return refuse("You're not allowed to retire replicas; ask the owner.");
           const r = findAgent(name);
-          if (!r) return refuse(`No active agent called "${name}".`);
-          if (!r.base_agent_id) return refuse(`${r.name} isn't a replica.`);
+          if (!r) return refuse(`No live instance called "${name}".`);
+          if (!r.base_agent_id) return refuse(`${r.name} is an agent, not an instance.`);
+          if (r.created_by !== agent.id) return refuse(`You didn't start ${r.name}, so you can't retire it. The owner (or whoever started it) can.`);
           const open = openTasksOf(r.id);
           if (open.length) return refuse(`${r.name} still has ${open.length} task(s) running or queued ("${open[0].title}"). Wait for its report first.`);
           retireReplica(r.id);
@@ -309,10 +310,9 @@ export function teamServer(agent: Agent, taskId: string) {
 }
 
 export function rosterFor(agent: Agent) {
-  const others = listAgents().filter((a) => a.id !== agent.id);
-  return others.length
-    ? others.map((a) => a.base_agent_id
-        ? `- **${a.name}**: replica of ${getAgent(a.base_agent_id)?.name} (same job; takes work in parallel)`
-        : `- **${a.name}** (${a.title}): ${a.summary}`).join("\n")
-    : "- (no teammates yet)";
+  const myRole = agent.base_agent_id ?? agent.id;
+  const roles = listAgents().filter((a) => !a.base_agent_id && a.id !== myRole);
+  return roles.length
+    ? roles.map((a) => `- **${a.name}** (${a.title}): ${a.summary}${a.can_scale ? " (only the owner starts its tasks)" : ""}`).join("\n")
+    : "- (no other agents yet)";
 }

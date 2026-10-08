@@ -7,173 +7,24 @@ import { AgentDocuments } from "./Documents.tsx";
 
 type Tab = "overview" | "documents" | "instructions" | "skills" | "memory";
 
-export function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>("overview");
-  const [data, setData] = useState<{ instructions: string; memory: { file: string; content: string }[] } | null>(null);
-  const reload = () => api.agent(agent.id).then((r) => setData({ instructions: r.instructions, memory: r.memory })).catch(() => {});
 
-  useEffect(() => {
-    setData(null);
-    reload();
-  }, [agent.id, tab]);
 
-  return (
-    <aside className="panel" aria-label={`${agent.name} details`}>
-      <div className="tabs" role="tablist">
-        {(["overview", "documents", "instructions", "skills", "memory"] as Tab[]).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-        <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close details" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </div>
-      <div className="panel-body" role="tabpanel">
-        {tab === "overview" && <Overview agent={agent} />}
-        {tab === "instructions" && data && <Instructions agent={agent} text={data.instructions} onSaved={reload} />}
-        {tab === "skills" && <AgentSkills agent={agent} />}
-        {tab === "documents" && <AgentDocuments agent={agent} />}
-        {tab === "memory" && data && <Memory files={data.memory} agent={agent} />}
-      </div>
-    </aside>
-  );
-}
 
-function Overview({ agent }: { agent: Agent }) {
-  const { everyone } = useStore();
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  const base = agent.base_agent_id ? everyone.find((a) => a.id === agent.base_agent_id) : undefined;
-  return (
-    <>
-      {base && (
-        <div className="replica-note">
-          Replica #{agent.replica_no} of <a href={`#/agents/${base.id}`}>{base.name}</a>. It shares {base.name}'s instructions,
-          skills and memory, and takes work in parallel.
-        </div>
-      )}
-      <p>{agent.summary}</p>
-      <dl className="kv">
-        <dt>Role</dt><dd>{agent.title}</dd>
-        <dt>Model</dt>
-        <dd>
-          {base ? <>{agent.model} <span className="hint">(follows {base.name})</span></> : (
-            <select className="text" style={{ padding: "4px 8px" }} value={agent.model} aria-label="Model"
-              onChange={(e) => api.updateAgent(agent.id, { model: e.target.value })}>
-              <option value="opus">Opus</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="haiku">Haiku</option>
-            </select>
-          )}
-        </dd>
-        <dt>Max turns</dt><dd>{agent.max_turns} tool rounds per task</dd>
-        <dt>Home</dt><dd className="mono">/agents/{base?.slug ?? agent.slug}</dd>
-        <dt>Created</dt><dd>{relTime(agent.created_at)}</dd>
-      </dl>
-      <div className="field">
-        <span style={{ fontWeight: 500 }}>Conversation</span>
-        <span className="hint">
-          {agent.name} remembers this chat across turns. Start fresh when context gets long or off-track; memory files and
-          history stay.
-        </span>
-        {confirmReset ? (
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn sm danger" onClick={async () => {
-              await api.resetSession(agent.id);
-              setConfirmReset(false);
-              setNote("Next message starts a fresh conversation.");
-            }}>Start fresh</button>
-            <button className="btn sm ghost" onClick={() => setConfirmReset(false)}>Cancel</button>
-          </div>
-        ) : (
-          <button className="btn sm" style={{ alignSelf: "flex-start" }} onClick={() => setConfirmReset(true)}>Start a fresh conversation…</button>
-        )}
-        {note && <span className="hint">{note}</span>}
-      </div>
-      {!base && <Replicas agent={agent} />}
-      {!base && <ScaleSwitch agent={agent} />}
-      {base ? <RetireReplica agent={agent} /> : <DeleteAgent agent={agent} />}
-    </>
-  );
-}
-
-function Replicas({ agent }: { agent: Agent }) {
-  const { agents, board } = useStore();
-  const [error, setError] = useState<string | null>(null);
-  const replicas = agents.filter((a) => a.base_agent_id === agent.id);
-  const max = agent.max_replicas ?? 0;
-  const current = (id: string) => Object.values(board).find((t) => t.agent_id === id && t.status === "running");
-  return (
-    <div className="field">
-      <span style={{ fontWeight: 500 }}>Replicas</span>
-      <span className="hint">
-        Extra copies of {agent.name} ({agent.name}#1, #2…) that take work in parallel. They share its instructions, skills and
-        memory. Each running replica uses VM memory and your Claude plan.
-      </span>
-      <label className="hint" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        At most
-        <select className="text" style={{ width: "auto", padding: "2px 6px" }} value={max} aria-label="Maximum replicas"
-          onChange={(e) => api.updateAgent(agent.id, { max_replicas: Number(e.target.value) }).catch((er) => setError(er.message))}>
-          {[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-        at a time{max === 0 && " (replicas off)"}
-      </label>
-      {replicas.length > 0 && (
-        <div className="rows">
-          {replicas.map((r) => {
-            const t = current(r.id);
-            return (
-              <div key={r.id} className="row" style={{ fontSize: 13, gap: 8 }}>
-                <StatusGlyph status={r.status} />
-                <a href={`#/agents/${r.id}`} style={{ minWidth: 70 }}>{r.name}</a>
-                <span className="hint" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {t ? t.title : "idle"}
-                </span>
-                <button className="btn sm ghost" disabled={r.status === "working"} title={r.status === "working" ? "Busy: wait or stop its task first" : "Retire"}
-                  onClick={() => api.retireReplica(r.id).catch((er) => setError(er.message))}>Retire</button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <button className="btn sm" style={{ alignSelf: "flex-start" }} disabled={replicas.length >= max}
-        onClick={() => { setError(null); api.spawnReplica(agent.id).catch((er) => setError(er.message)); }}>
-        <Icon name="plus" size={14} />Add replica
-      </button>
-      {error && <div className="error-box">{error}</div>}
-    </div>
-  );
-}
-
-function ScaleSwitch({ agent }: { agent: Agent }) {
+export function ScaleSwitch({ agent }: { agent: Agent }) {
   return (
     <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
       <input type="checkbox" checked={!!agent.can_scale} style={{ marginTop: 3 }}
         onChange={(e) => api.updateAgent(agent.id, { can_scale: e.target.checked })} />
       <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ fontWeight: 500 }}>Can scale the team</span>
-        <span className="hint">{agent.name} may spawn and retire replicas of agents that allow them (within their limits).</span>
+        <span style={{ fontWeight: 500 }}>Plans and delegates</span>
+        <span className="hint">{agent.name} splits work and starts tasks for other agents (several at once), and finishes them when they're done. Only you start {agent.name} tasks.</span>
       </span>
     </label>
   );
 }
 
-function RetireReplica({ agent }: { agent: Agent }) {
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <div className="field" style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--line)" }}>
-      <span className="hint">Retiring removes {agent.name} from the team. Its conversations and tasks stay in the history.</span>
-      <button className="btn sm danger" style={{ alignSelf: "flex-start" }} disabled={agent.status === "working"}
-        onClick={async () => {
-          try { await api.retireReplica(agent.id); go({ name: "agent", id: agent.base_agent_id! }); } catch (e: any) { setError(e.message); }
-        }}>Retire {agent.name}</button>
-      {error && <div className="error-box">{error}</div>}
-    </div>
-  );
-}
 
-function DeleteAgent({ agent }: { agent: Agent }) {
+export function DeleteAgent({ agent }: { agent: Agent }) {
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -181,7 +32,7 @@ function DeleteAgent({ agent }: { agent: Agent }) {
       {confirm ? (
         <>
           <span className="hint">
-            Deletes {agent.name}, its chat history, memory and home folder. Work it pushed to GitHub or elsewhere stays.
+            Deletes {agent.name} with all its tasks and their history, its memory and home folder. Work it pushed to GitHub or elsewhere stays.
           </span>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn sm danger" onClick={async () => {
@@ -203,7 +54,7 @@ function DeleteAgent({ agent }: { agent: Agent }) {
   );
 }
 
-function Instructions({ agent, text, onSaved }: { agent: Agent; text: string; onSaved: () => void }) {
+export function Instructions({ agent, text, onSaved }: { agent: Agent; text: string; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
   const [error, setError] = useState<string | null>(null);
@@ -247,7 +98,7 @@ function Instructions({ agent, text, onSaved }: { agent: Agent; text: string; on
   );
 }
 
-function AgentSkills({ agent }: { agent: Agent }) {
+export function AgentSkills({ agent }: { agent: Agent }) {
   const { skills } = useStore();
   const [error, setError] = useState<string | null>(null);
   if (agent.base_agent_id) {
@@ -284,7 +135,7 @@ function AgentSkills({ agent }: { agent: Agent }) {
   );
 }
 
-function Memory({ files, agent }: { files: { file: string; content: string }[]; agent: Agent }) {
+export function Memory({ files, agent }: { files: { file: string; content: string }[]; agent: Agent }) {
   return (
     <>
       <span className="hint">
@@ -296,6 +147,83 @@ function Memory({ files, agent }: { files: { file: string; content: string }[]; 
           <pre>{f.content}</pre>
         </details>
       ))}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A task's (instance's) side panel: what it is and what it produced.
+
+export function TaskPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+  const [tab, setTab] = useState<"overview" | "documents">("overview");
+  return (
+    <aside className="panel" aria-label="Task details">
+      <div className="tabs" role="tablist">
+        {(["overview", "documents"] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+            {t === "overview" ? "Overview" : "Documents"}
+          </button>
+        ))}
+        <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close details" onClick={onClose}>
+          <Icon name="close" />
+        </button>
+      </div>
+      <div className="panel-body" role="tabpanel">
+        {tab === "overview" && <TaskOverview agent={agent} />}
+        {tab === "documents" && <AgentDocuments agent={agent} />}
+      </div>
+    </aside>
+  );
+}
+
+function TaskOverview({ agent }: { agent: Agent }) {
+  const { agents, everyone, board } = useStore();
+  const role = everyone.find((a) => a.id === agent.base_agent_id);
+  const children = agents.filter((a) => a.parent_instance_id === agent.id);
+  const current = Object.values(board).find((t) => t.agent_id === agent.id && t.status === "running");
+  const [note, setNote] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  return (
+    <>
+      <dl className="kv">
+        <dt>Agent</dt><dd>{role ? <a href={`#/agents/${role.id}`}>{role.name}</a> : "—"} <span className="hint">({agent.name})</span></dd>
+        <dt>Status</dt><dd>{agent.retired_at ? `Done ${relTime(agent.retired_at)}` : current ? `Working: ${current.title}` : agent.status === "idle" ? "Idle, waiting for you" : agent.status}</dd>
+        <dt>Started</dt><dd>{relTime(agent.created_at)}</dd>
+        <dt>Model</dt><dd>{agent.model} <span className="hint">(set on the agent)</span></dd>
+      </dl>
+      {children.length > 0 && (
+        <div className="field">
+          <span style={{ fontWeight: 500 }}>Tasks it started</span>
+          <div className="rows">
+            {children.map((c) => (
+              <a key={c.id} className="row skill-row" href={`#/agents/${c.id}`} style={{ fontSize: 13 }}>
+                <StatusGlyph status={c.status} />
+                <span className="desc" style={{ color: "var(--text)" }}>{c.label ?? c.name}</span>
+                <span className="hint">{c.name}</span>
+              </a>
+            ))}
+          </div>
+          <a href={`#/work/${agent.id}`} style={{ fontSize: 13 }}>Open the task room</a>
+        </div>
+      )}
+      <p className="hint">
+        Instructions, skills and memory belong to {role ? <a href={`#/agents/${role.id}`}>{role.name}</a> : "the agent"} and are shared by all its tasks.
+      </p>
+      {!agent.retired_at && (
+        <div className="field">
+          <span style={{ fontWeight: 500 }}>Conversation</span>
+          <span className="hint">If the context gets long or off-track, start this task's conversation fresh. History and memory stay.</span>
+          {confirmReset ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn sm danger" onClick={async () => { await api.resetSession(agent.id); setConfirmReset(false); setNote("The next message starts fresh."); }}>Start fresh</button>
+              <button className="btn sm ghost" onClick={() => setConfirmReset(false)}>Cancel</button>
+            </div>
+          ) : (
+            <button className="btn sm" style={{ alignSelf: "flex-start" }} onClick={() => setConfirmReset(true)}>Start the conversation fresh…</button>
+          )}
+          {note && <span className="hint">{note}</span>}
+        </div>
+      )}
     </>
   );
 }

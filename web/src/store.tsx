@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type DisplayHolder, type RetiredAgent, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
+import { api, type Agent, type DisplayHolder, type RetiredAgent, type WorkRoom, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage } from "./api.ts";
 
 type State = {
   connected: boolean;
@@ -13,6 +13,7 @@ type State = {
   paused: boolean;
   display: DisplayHolder;
   retired: RetiredAgent[];
+  work: { live: WorkRoom[]; done: WorkRoom[] };
   /** Bumped on any event that could change the activity feed. */
   activityVersion: number;
   threads: Record<string, ThreadData>;
@@ -30,6 +31,7 @@ type Action =
   | { type: "thread"; id: string; data: ThreadData }
   | { type: "board"; tasks: Task[] }
   | { type: "routines"; routines: Routine[] }
+  | { type: "work"; work: { live: WorkRoom[]; done: WorkRoom[] } }
   | { type: "event"; e: any };
 
 const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T) => number) => {
@@ -48,6 +50,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, threads: { ...s.threads, [a.id]: a.data } };
     case "routines":
       return { ...s, routines: a.routines };
+    case "work":
+      return { ...s, work: a.work };
     case "board":
       return { ...s, board: Object.fromEntries(a.tasks.map((t) => [t.id, t])) };
     case "event": {
@@ -155,15 +159,22 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0,
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0,
   });
   const openThreads = useRef(new Set<string>());
+  // The Work list is derived on the server; refetch it (debounced) when tasks or agents change.
+  const workTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const refreshWork = useCallback(() => {
+    clearTimeout(workTimer.current);
+    workTimer.current = setTimeout(() => { api.work().then((w) => dispatch({ type: "work", work: w })).catch(() => {}); }, 400);
+  }, []);
 
   const refresh = useCallback(async () => {
     const [s, k, t, r] = await Promise.all([api.state(), api.skills(), api.tasks(), api.routines()]);
     dispatch({ type: "routines", routines: r });
     dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups, paused: s.paused, display: s.display, retired: s.retired });
     dispatch({ type: "board", tasks: t });
+    refreshWork();
   }, []);
 
   const loadThread = useCallback(async (id: string) => {
@@ -184,7 +195,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         refresh().catch(() => {});
         openThreads.current.forEach((id) => loadThread(id).catch(() => {}));
       };
-      ws.onmessage = (m) => dispatch({ type: "event", e: JSON.parse(m.data) });
+      ws.onmessage = (m) => {
+        const e = JSON.parse(m.data);
+        dispatch({ type: "event", e });
+        if (["agent.created", "agent.retired", "agent.updated", "agent.status", "task.updated", "agent.deleted"].includes(e.type)) refreshWork();
+      };
       ws.onclose = () => {
         dispatch({ type: "connected", value: false });
         if (!closed) retry = setTimeout(connect, 2000);
@@ -196,7 +211,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearTimeout(retry);
       ws?.close();
     };
-  }, [refresh, loadThread]);
+  }, [refresh, loadThread, refreshWork]);
 
   // Active and retired agents, for naming things in history.
   const everyone = [...state.agents, ...(state.retired as unknown as Agent[])];

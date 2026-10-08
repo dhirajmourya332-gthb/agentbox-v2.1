@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import { api, type Agent, type Message, type Step, type Task, type Thread } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Avatar, Icon, Markdown, Spinner, StatusGlyph, duration, relTime, useEscToStop } from "../components/ui.tsx";
-import { AgentPanel } from "./AgentPanel.tsx";
+import { TaskPanel } from "./AgentPanel.tsx";
+import { RolePage } from "./RolePage.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -11,14 +12,27 @@ const STARTERS = [
 ];
 
 export function AgentChat({ agentId, threadParam }: { agentId: string; threadParam?: string }) {
-  const { agents, everyone, threads, live, loadThread, threadsVersion } = useStore();
-  const agent = everyone.find((a) => a.id === agentId);
+  const { agents, everyone } = useStore();
+  const live = agents.find((a) => a.id === agentId);
+  // Finished tasks aren't in the live list; load them so their history stays readable.
+  const [loaded, setLoaded] = useState<Agent | null>(null);
+  useEffect(() => {
+    if (!live) api.agent(agentId).then((r) => setLoaded(r.agent)).catch(() => setLoaded(null));
+  }, [agentId, !!live]);
+  const agent = live ?? loaded ?? (everyone.find((a) => a.id === agentId) as Agent | undefined);
+  if (!agent) return <div className="page"><div className="page-inner"><p className="lede">Loading…</p></div></div>;
+  if (!agent.base_agent_id) return <RolePage role={agent} />;
+  return <TaskChat key={agent.id} agent={agent} threadParam={threadParam} />;
+}
+
+function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }) {
+  const { everyone, threads, live, loadThread, threadsVersion } = useStore();
   const [threadList, setThreadList] = useState<Thread[]>([]);
   useEffect(() => {
-    api.agentThreads(agentId).then(setThreadList).catch(() => {});
-  }, [agentId, threadsVersion]);
-  const threadId = threadParam ?? agent?.dm_thread_id;
-  const isDm = !threadParam || threadParam === agent?.dm_thread_id;
+    api.agentThreads(agent.id).then(setThreadList).catch(() => {});
+  }, [agent.id, threadsVersion]);
+  const threadId = threadParam ?? agent.dm_thread_id ?? undefined;
+  const isMain = !threadParam || threadParam === agent.dm_thread_id;
   const thread = threadId ? threads[threadId] : undefined;
   const [panel, setPanel] = useState(() => {
     try { return localStorage.getItem("agentbox.panel") !== "closed"; } catch { return true; }
@@ -26,42 +40,42 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
   useEffect(() => {
     try { localStorage.setItem("agentbox.panel", panel ? "open" : "closed"); } catch { /* storage unavailable */ }
   }, [panel]);
-
   useEffect(() => {
     if (threadId) loadThread(threadId).catch(() => {});
   }, [threadId, loadThread]);
 
   const running = thread?.tasks.find((t) => t.status === "running");
   useEscToStop(!!running, () => { if (running) api.stop(running.id); });
-  // On narrow screens the panel overlays the chat; Esc closes it.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
-      const panel = document.querySelector(".panel");
-      if (e.key === "Escape" && panel && getComputedStyle(panel).position === "fixed" && !document.querySelector(".reader-backdrop, .popover")) setPanel(false);
+      const p = document.querySelector(".panel");
+      if (e.key === "Escape" && p && getComputedStyle(p).position === "fixed" && !document.querySelector(".reader-backdrop, .popover")) setPanel(false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  if (!agent) return <div className="page"><div className="page-inner"><p className="lede">No such agent.</p></div></div>;
+  const role = everyone.find((a) => a.id === agent.base_agent_id);
+  const done = !!agent.retired_at;
 
   return (
     <>
-      <section className="chat" aria-label={`Chat with ${agent.name}`}>
+      <section className="chat" aria-label={`Task: ${agent.label ?? agent.name}`}>
         <header className="chat-head">
-          <Avatar name={agent.name} color={agent.color} size={32} />
-          <div className="who">
-            <strong>{agent.name}</strong>
-            <span>{agent.title} · {agent.model}</span>
+          <Avatar name={role?.name ?? agent.name} color={agent.color} size={32} />
+          <div className="who" style={{ minWidth: 0 }}>
+            <TaskTitle agent={agent} />
+            <span><TaskOrigin agent={agent} /></span>
           </div>
           <div className="actions">
-            <StatusGlyph status={agent.status} withLabel />
+            {done ? <span className="chip">Done</span> : <StatusGlyph status={agent.status} withLabel />}
             {running && (
               <button className="btn sm danger" onClick={() => api.stop(running.id)} title="Stop (Esc)">
                 <Icon name="stop" size={14} />Stop
               </button>
             )}
-            <button className="icon-btn" aria-pressed={panel} aria-label="Agent details" title="Agent details" onClick={() => setPanel(!panel)}>
+            {!done && <FinishButton agent={agent} />}
+            <button className="icon-btn" aria-pressed={panel} aria-label="Task details" title="Task details" onClick={() => setPanel(!panel)}>
               <Icon name="panel" />
             </button>
           </div>
@@ -69,15 +83,107 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
 
         {threadList.length > 1 && <ThreadTabs agent={agent} threads={threadList} current={threadId} />}
         {thread ? <Timeline agent={agent} thread={thread} live={live} /> : <div className="timeline" />}
-        {threadId && isDm && <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0} />}
-        {threadId && !isDm && (
+        {threadId && isMain && !done && <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0} />}
+        {done && (
+          <p className="composer-hint" style={{ padding: "12px 24px 20px", margin: 0, maxWidth: "none", textAlign: "center" }}>
+            This task is done; its history stays here. <a href={`#/new/${agent.base_agent_id}`}>Start a new task for {role?.name ?? "this agent"}</a>
+          </p>
+        )}
+        {threadId && !isMain && !done && (
           <p className="composer-hint" style={{ padding: "10px 24px 18px", margin: 0, maxWidth: "none", textAlign: "center" }}>
-            This thread is read-only. To talk to {agent.name}, use the <a href={`#/agents/${agent.id}`}>You</a> thread.
+            This thread is read-only. <a href={`#/agents/${agent.id}`}>Back to the task</a>
           </p>
         )}
       </section>
-      {panel && <AgentPanel agent={agent} onClose={() => setPanel(false)} />}
+      {panel && <TaskPanel agent={agent} onClose={() => setPanel(false)} />}
     </>
+  );
+}
+
+/** The task's title; click to rename. */
+function TaskTitle({ agent }: { agent: Agent }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(agent.label ?? "");
+  useEffect(() => setValue(agent.label ?? ""), [agent.label]);
+  const save = async () => {
+    setEditing(false);
+    if (value.trim() && value.trim() !== agent.label) await api.setTaskMeta(agent.id, { label: value.trim() }).catch(() => {});
+  };
+  if (editing) {
+    return (
+      <input className="text title-input" autoFocus value={value} aria-label="Task title" maxLength={120}
+        onChange={(e) => setValue(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { e.stopPropagation(); setValue(agent.label ?? ""); setEditing(false); } }} />
+    );
+  }
+  return (
+    <button className="title-button" onClick={() => setEditing(true)} title="Rename this task">
+      <strong>{agent.label ?? agent.name}</strong>
+    </button>
+  );
+}
+
+/** "coder#2 · Coder · started by tech-lead#1 · in MSP API keys" */
+export function TaskOrigin({ agent }: { agent: Agent }) {
+  const { everyone } = useStore();
+  const by = agent.created_by;
+  const creator = by && !["owner"].includes(by) && !by.includes(":") ? everyone.find((a) => a.id === by) : undefined;
+  const root = agent.parent_instance_id ? rootOfLocal(agent, everyone) : undefined;
+  return (
+    <>
+      {agent.name} · {agent.title}
+      {by === "owner" && " · started by you"}
+      {by?.startsWith("routine:") && " · routine"}
+      {by?.startsWith("group:") && " · group"}
+      {creator && <> · started by <a href={`#/agents/${creator.id}`}>{creator.name}</a></>}
+      {root && root.id !== agent.id && <> · in <a href={`#/work/${root.id}`}>{root.label ?? root.name}</a></>}
+    </>
+  );
+}
+
+function rootOfLocal(a: Agent, all: Agent[]) {
+  let cur = a;
+  for (let i = 0; i < 20 && cur.parent_instance_id; i++) {
+    const next = all.find((x) => x.id === cur.parent_instance_id);
+    if (!next) break;
+    cur = next;
+  }
+  return cur;
+}
+
+/** Done: finish this task (and anything it started). */
+function FinishButton({ agent }: { agent: Agent }) {
+  const [confirm, setConfirm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!confirm) return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setConfirm(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [confirm]);
+  return (
+    <div className="popover-anchor" ref={ref}>
+      <button className="btn sm" onClick={() => { setError(null); setConfirm(!confirm); }} title="Mark this task done">
+        <Icon name="check" size={14} />Done
+      </button>
+      {confirm && (
+        <div className="popover" role="dialog" aria-label="Finish task">
+          <strong>Mark this task done?</strong>
+          <p className="hint">
+            It leaves the live list and the agent stops taking messages here. Any tasks it started are finished too.
+            The history stays readable.
+          </p>
+          {error && <div className="error-box">{error}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn sm primary" onClick={async () => {
+              try { await api.finishTask(agent.id); setConfirm(false); } catch (e: any) { setError(e.message); }
+            }}>Mark done</button>
+            <button className="btn sm ghost" onClick={() => setConfirm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -145,12 +145,19 @@ export function PausedBar() {
 
 /** A small live view of the shared screen, pinned to the corner on every page. */
 export function ScreenPip() {
-  const [open, setOpen] = useState(() => {
-    try { return localStorage.getItem("agentbox.pip") !== "closed"; } catch { return true; }
+  const { display } = useStore();
+  // "auto": a small pill, opening by itself while an agent is using the screen. A choice made by
+  // hand (open / closed) sticks.
+  const [mode, setMode] = useState<"auto" | "open" | "closed">(() => {
+    try { const v = localStorage.getItem("agentbox.pip2"); return v === "open" || v === "closed" ? v : "auto"; } catch { return "auto"; }
   });
-  useEffect(() => {
-    try { localStorage.setItem("agentbox.pip", open ? "open" : "closed"); } catch { /* storage unavailable */ }
-  }, [open]);
+  const choose = (m: "open" | "closed") => {
+    setMode(m);
+    try { localStorage.setItem("agentbox.pip2", m); } catch { /* storage unavailable */ }
+  };
+  const agentOnScreen = !!display && display.holder !== "owner";
+  const open = mode === "open" || (mode === "auto" && agentOnScreen);
+  const setOpen = (v: boolean) => choose(v ? "open" : "closed");
 
   if (!open) {
     return (

@@ -9,6 +9,9 @@ export type Route =
   | { name: "new-group" }
   | { name: "routines" }
   | { name: "activity" }
+  | { name: "new-task"; role?: string }
+  | { name: "room"; id: string }
+  | { name: "documents" }
   | { name: "routine"; id: string }
   | { name: "new-routine"; agent?: string }
   | { name: "new-agent" }
@@ -36,6 +39,9 @@ export function parse(hash: string): Route {
   if (parts[0] === "skills" && parts[1]) return { name: "skill", skill: parts[1] };
   if (parts[0] === "skills") return { name: "skills" };
   if (parts[0] === "activity") return { name: "activity" };
+  if (parts[0] === "new") return { name: "new-task", role: parts[1] };
+  if (parts[0] === "work" && parts[1]) return { name: "room", id: parts[1] };
+  if (parts[0] === "documents") return { name: "documents" };
   if (parts[0] === "screen" || parts[0] === "terminal" || parts[0] === "system") return { name: parts[0] };
   return { name: "home" };
 }
@@ -48,6 +54,8 @@ export function href(r: Route): string {
     case "group-settings": return `#/groups/${r.id}/settings`;
     case "new-group": return "#/groups/new";
     case "routine": return `#/routines/${r.id}`;
+    case "new-task": return r.role ? `#/new/${r.role}` : "#/new";
+    case "room": return `#/work/${r.id}`;
     case "new-routine": return r.agent ? `#/routines/new/${r.agent}` : "#/routines/new";
     case "tasks": return r.task ? `#/tasks/${r.task}` : "#/tasks";
     case "new-agent": return "#/agents/new";

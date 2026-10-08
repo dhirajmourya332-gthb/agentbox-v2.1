@@ -1,6 +1,6 @@
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
-import { getAgent, listAgents, type Agent } from "./agents.ts";
+import { getAgent, listAgents, spawnInstance, type Agent } from "./agents.ts";
 import { enqueueTask } from "./runner.ts";
 
 /**
@@ -38,10 +38,12 @@ export const groupsOf = (agentId: string) => listGroups().filter((g) => g.member
 function validate(input: { name: string; members: string[]; lead: string | null }) {
   const name = input.name.trim().toLowerCase().replace(/^#/, "").replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   if (!name) throw new Error("Give the group a name");
-  const members = [...new Set(input.members)];
+  // Members are agents (roles); an instance picked by mistake counts as its agent.
+  const members = [...new Set(input.members.map((id) => getAgent(id)?.base_agent_id ?? id))];
   if (members.length === 0) throw new Error("Pick at least one member");
   for (const id of members) if (!getAgent(id)) throw new Error("Unknown agent in members");
-  const lead = input.lead && members.includes(input.lead) ? input.lead : members[0];
+  const leadRole = input.lead ? getAgent(input.lead)?.base_agent_id ?? input.lead : null;
+  const lead = leadRole && members.includes(leadRole) ? leadRole : members[0];
   return { name, members, lead };
 }
 
@@ -80,7 +82,9 @@ export function deleteGroup(id: string) {
 }
 
 /** Member ids @mentioned in `text` (by slug or name), in order, excluding `except`. */
+/** Member agents (roles) @mentioned in `text`, in order, excluding the agent `except` (a role or instance). */
 export function mentions(group: Group, text: string, except?: string): string[] {
+  except = except ? getAgent(except)?.base_agent_id ?? except : except;
   const members = group.members.map((id) => getAgent(id)).filter(Boolean) as Agent[];
   const found: string[] = [];
   for (const m of text.matchAll(/@([A-Za-z0-9][A-Za-z0-9_-]*)/g)) {
@@ -110,8 +114,15 @@ function systemNote(groupId: string, content: string) {
   publish({ type: "message.created", message });
 }
 
+/** The member agent's instance for this group's conversation (one per agent per group). */
+function groupInstance(group: Group, roleId: string) {
+  const live = listAgents().find((a) => a.base_agent_id === roleId && a.created_by === `group:${group.id}`);
+  return live ?? spawnInstance(roleId, { label: `#${group.name}`, createdBy: `group:${group.id}` });
+}
+
 /** Give each target agent a turn in the group, unless it already has one waiting. */
-function trigger(group: Group, targets: string[], why: string) {
+function trigger(group: Group, roleTargets: string[], why: string) {
+  const targets = roleTargets.map((r) => groupInstance(group, r).id);
   const remaining = TURN_LIMIT - turnsSinceOwner(group.id);
   const queued = new Set(
     all<{ agent_id: string }>(`SELECT agent_id FROM tasks WHERE thread_id = ? AND status = 'queued'`, group.id).map((r) => r.agent_id),
@@ -128,8 +139,10 @@ function trigger(group: Group, targets: string[], why: string) {
     });
   }
   if (later.length) {
-    run(`UPDATE threads SET paused_mentions = ? WHERE id = ?`, JSON.stringify(later), group.id);
-    const names = later.map((id) => getAgent(id)?.name).filter(Boolean).join(", ");
+    // Remember the waiting agents (roles), so Continue finds them as group members.
+    const roles = later.map((id) => getAgent(id)?.base_agent_id ?? id);
+    run(`UPDATE threads SET paused_mentions = ? WHERE id = ?`, JSON.stringify(roles), group.id);
+    const names = roles.map((id) => getAgent(id)?.name).filter(Boolean).join(", ");
     systemNote(group.id, `Paused after ${TURN_LIMIT} agent replies since your last message. Waiting to hear from: ${names}.`);
     publish({ type: "group.updated", group: getGroup(group.id)! });
   }
@@ -191,10 +204,11 @@ export function afterAgentReply(task: any, content: string) {
 /** The prompt for an agent's turn in a group: who's here and what it missed. */
 export function groupPrompt(task: any, agent: Agent) {
   const group = getGroup(task.thread_id)!;
+  const me = agent.base_agent_id ?? agent.id;
   const people = group.members
     .map((id) => getAgent(id))
     .filter(Boolean)
-    .map((a) => `@${a!.slug}${a!.id === group.lead_agent_id ? " (lead)" : ""}${a!.id === agent.id ? " (you)" : ""} — ${a!.title}`)
+    .map((a) => `@${a!.slug}${a!.id === group.lead_agent_id ? " (lead)" : ""}${a!.id === me ? " (you)" : ""} — ${a!.title}`)
     .join("\n");
   // Everything posted since this agent last read the group, including while it was busy.
   const seen = get<{ seen_at: string }>(
@@ -229,7 +243,7 @@ You were brought in because: ${task.prompt}.
 How this group works:
 - Your final reply is posted to the group for everyone to read.
 - An @mention gives that member a turn right away. @mention someone only when you need them to act
-  now (e.g. "@${listAgents().find((a) => group.members.includes(a.id) && a.id !== agent.id)?.slug ?? "teammate"} please run the tests").
+  now (e.g. "@${listAgents().find((a) => group.members.includes(a.id) && a.id !== me)?.slug ?? "teammate"} please run the tests").
   To refer to someone without waking them, write their name without the @. Never @mention just
   to thank, acknowledge or keep someone informed.
 - Hand off one step at a time: don't mention the next person until the current step is done.

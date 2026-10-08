@@ -7,12 +7,14 @@ import { fileURLToPath } from "node:url";
 import { all, get } from "./db.ts";
 import { subscribe } from "./bus.ts";
 import {
-  createAgent, deleteAgent, dmThreadOf, getAgent, homeOf, listAgents, listMemory, listRetired, readInstructions, retireReplica, spawnReplica,
-  updateAgent, writeInstructions,
+  createAgent, deleteAgent, dmThreadOf, getAgent, homeOf, listAgents, listMemory, listRetired, readInstructions, retireReplica, setInstanceMeta,
+  spawnInstance, spawnReplica, updateAgent, writeInstructions,
 } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
 import { activity, graph } from "./activity.ts";
-import { allowed, contentType, listDocuments } from "./documents.ts";
+import { allDocuments, allowed, contentType, documentsForWork, listDocuments } from "./documents.ts";
+import { finishTree, roomDocuments, roomView, workList } from "./work.ts";
+import { migrateToInstances } from "./migrate.ts";
 import { openTasksOf, pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
 import {
@@ -50,6 +52,7 @@ const agentView = (a: ReturnType<typeof getAgent> & {}) => ({
   dm_thread_id: dmThreadOf(a.id),
   skills: skillsOf(a.id),
   home: homeOf(a),
+  live_instances: a.base_agent_id ? undefined : listAgents().filter((x) => x.base_agent_id === a.id).length,
 });
 const mustAgent = (id: string) => {
   const a = getAgent(id);
@@ -123,10 +126,58 @@ app.put("/api/agents/:id/instructions", async (req) => {
 });
 app.get("/api/agents/:id/documents", async (req) => {
   const a = mustAgent((req.params as any).id);
-  // A base agent's list includes what its replicas wrote; they share its home.
-  const base = a.base_agent_id ? getAgent(a.base_agent_id) ?? a : a;
-  const ids = [base.id, ...(all(`SELECT id FROM agents WHERE base_agent_id = ?`, base.id) as any[]).map((r) => r.id)];
-  return listDocuments(base, a.base_agent_id ? [a.id] : ids);
+  if (a.base_agent_id) {
+    // An instance: what its own task produced.
+    const tasks = all<{ id: string }>(`SELECT id FROM tasks WHERE agent_id = ?`, a.id).map((t) => t.id);
+    const threads = all<{ id: string }>(`SELECT id FROM threads WHERE agent_id = ?`, a.id).map((t) => t.id);
+    return documentsForWork(tasks, threads);
+  }
+  // An agent: everything in its home plus what any of its instances wrote.
+  const ids = [a.id, ...(all(`SELECT id FROM agents WHERE base_agent_id = ?`, a.id) as any[]).map((r) => r.id)];
+  return listDocuments(a, ids);
+});
+app.get("/api/documents", async () =>
+  allDocuments(
+    listAgents().filter((a) => !a.base_agent_id),
+    (roleId) => (all(`SELECT id FROM agents WHERE base_agent_id = ?`, roleId) as any[]).map((r) => r.id),
+  ));
+
+// --- work: tasks (instances) and task rooms ------------------------------------------------
+app.get("/api/work", async () => workList());
+app.post("/api/work", async (req) => {
+  const b = req.body as any;
+  const role = mustAgent(String(b?.role_id ?? ""));
+  if (role.base_agent_id) throw new HttpError(400, "Pick an agent, not an instance");
+  const text = String(b?.text ?? "").trim();
+  if (!text) throw new HttpError(400, "Say what needs doing");
+  const firstLine = text.split("\n")[0];
+  const label = String(b?.title ?? "").trim() || (firstLine.length > 70 ? firstLine.slice(0, 67) + "…" : firstLine);
+  const inst = spawnInstance(role.id, { label, createdBy: "owner" });
+  sendMessage(inst.id, dmThreadOf(inst.id)!, text);
+  return agentView(inst);
+});
+app.get("/api/work/:id", async (req) => {
+  try { return roomView((req.params as any).id); } catch (e: any) { throw new HttpError(404, e.message); }
+});
+app.get("/api/work/:id/documents", async (req) => roomDocuments((req.params as any).id));
+app.post("/api/agents/:id/done", async (req) => {
+  const a = mustAgent((req.params as any).id);
+  if (!a.base_agent_id) throw new HttpError(400, "Only tasks (instances) can be marked done");
+  try { return finishTree(a.id); } catch (e: any) { throw new HttpError(409, e.message); }
+});
+app.patch("/api/agents/:id/meta", async (req) => {
+  const b = req.body as any;
+  return agentView(setInstanceMeta(mustAgent((req.params as any).id).id, { label: b?.label, kept: b?.kept }));
+});
+app.get("/api/groups/:id/documents", async (req) => {
+  const id = (req.params as any).id;
+  if (!getGroup(id)) throw new HttpError(404, "No such group");
+  // The group's own turns plus anything they delegated further.
+  const tasks = all<{ id: string }>(
+    `WITH RECURSIVE t(id) AS (SELECT id FROM tasks WHERE thread_id = ? UNION ALL SELECT tasks.id FROM tasks JOIN t ON tasks.parent_task_id = t.id)
+     SELECT id FROM t`, id,
+  ).map((r) => r.id);
+  return documentsForWork(tasks, [id]);
 });
 // What the reader needs to show a file someone linked to.
 app.get("/api/file/info", async (req) => {
@@ -176,7 +227,9 @@ app.delete("/api/agents/:id", async (req) => {
 });
 app.post("/api/agents/:id/reset-session", async (req) => {
   const a = mustAgent((req.params as any).id);
-  resetSession(a.id, dmThreadOf(a.id));
+  const thread = dmThreadOf(a.id);
+  if (!thread) throw new HttpError(400, "This agent has no conversation; its tasks each have their own");
+  resetSession(a.id, thread);
   return { ok: true };
 });
 
@@ -238,6 +291,9 @@ app.post("/api/threads/:id/messages", async (req) => {
   if (!thread) throw new HttpError(404, "No such thread");
   if (thread.kind === "group") return postAsOwner(threadId, text.trim());
   if (thread.kind !== "dm") throw new HttpError(400, "Handoff threads between agents are read-only");
+  const owner = getAgent(thread.agent_id);
+  if (!owner?.base_agent_id) throw new HttpError(400, "Start a task for this agent instead (New task)");
+  if (owner.retired_at) throw new HttpError(400, "This task is done. Start a new task to continue.");
   return sendMessage(thread.agent_id, threadId, text.trim());
 });
 app.post("/api/tasks/:id/stop", async (req) => {
@@ -345,6 +401,7 @@ if (fs.existsSync(webDist)) {
   app.get("/", async () => "UI not built: run scripts/deploy.sh");
 }
 
+migrateToInstances((m) => app.log.info(m));
 seedSkills();
 startRoutines();
 await app.listen({ host: "0.0.0.0", port });

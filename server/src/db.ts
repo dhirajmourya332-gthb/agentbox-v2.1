@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-const dataDir = process.env.AGENTBOX_DATA ?? path.resolve("data");
+export const dataDir = process.env.AGENTBOX_DATA ?? path.resolve("data");
 fs.mkdirSync(dataDir, { recursive: true });
 
 export const db = new DatabaseSync(path.join(dataDir, "agentbox.db"));
@@ -154,6 +154,10 @@ for (const [col, type] of [
   ["retired_at", "TEXT"],
   ["max_replicas", "INTEGER NOT NULL DEFAULT 0"],
   ["can_scale", "INTEGER NOT NULL DEFAULT 0"],
+  ["created_by", "TEXT"],
+  ["parent_instance_id", "TEXT"],
+  ["label", "TEXT"],
+  ["kept", "INTEGER NOT NULL DEFAULT 0"],
 ] as const) {
   if (!columns("agents").includes(col)) db.exec(`ALTER TABLE agents ADD COLUMN ${col} ${type}`);
 }

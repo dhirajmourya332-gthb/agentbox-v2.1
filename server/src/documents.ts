@@ -121,3 +121,63 @@ const TYPES: Record<string, string> = {
   ".odt": "application/vnd.oasis.opendocument.text", ".rtf": "application/rtf",
 };
 export const contentType = (p: string) => TYPES[path.extname(p).toLowerCase()] ?? "application/octet-stream";
+
+// --- documents for a piece of work (task room, group, instance) and across everything ---------
+
+const PATH_IN_TEXT = /(?:\/agents|\/work)\/[^\s`'"<>()\[\]{},;|*]+/g;
+
+function describe(p: string, extra: Partial<DocumentInfo>): DocumentInfo | null {
+  try {
+    const st = fs.statSync(p);
+    if (!st.isFile()) return null;
+    return {
+      path: p, name: path.basename(p), folder: path.dirname(p), location: path.dirname(p), size: st.size,
+      modified: st.mtime.toISOString(), source: "written", task_id: null, task_title: null, ...extra,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Documents produced by some tasks: files they wrote with the Write tool, plus document files
+ * their conversations mention by full path (agents are told to give full paths).
+ */
+export function documentsForWork(taskIds: string[], threadIds: string[]): (DocumentInfo & { author: string | null })[] {
+  const out = new Map<string, DocumentInfo & { author: string | null }>();
+  for (let i = 0; i < taskIds.length; i += 400) {
+    const ids = taskIds.slice(i, i + 400);
+    const rows = all<{ path: string; task_id: string; title: string; agent_id: string }>(
+      `SELECT steps.summary AS path, steps.task_id, tasks.title, tasks.agent_id FROM steps JOIN tasks ON tasks.id = steps.task_id
+       WHERE steps.task_id IN (${ids.map(() => "?").join(",")}) AND steps.name = 'Write' AND steps.status = 'done'`,
+      ...ids,
+    );
+    for (const r of rows) {
+      if (!r.path || !isDoc(r.path) || !allowed(r.path) || /\/memory\/[^/]+$/.test(r.path)) continue;
+      const d = describe(r.path, { task_id: r.task_id, task_title: r.title });
+      if (d) out.set(r.path, { ...d, author: r.agent_id });
+    }
+  }
+  for (const t of threadIds) {
+    for (const m of all<{ content: string; author: string; task_id: string | null }>(`SELECT content, author, task_id FROM messages WHERE thread_id = ?`, t)) {
+      for (const raw of m.content.match(PATH_IN_TEXT) ?? []) {
+        const p = raw.replace(/[.:,!?]+$/, "");
+        if (out.has(p) || !isDoc(p) || !allowed(p) || /\/memory\/[^/]+$/.test(p) || p.endsWith("/CLAUDE.md")) continue;
+        const d = describe(p, { task_id: m.task_id });
+        if (d) out.set(p, { ...d, author: m.author === "user" ? null : m.author });
+      }
+    }
+  }
+  return [...out.values()].sort((a, b) => b.modified.localeCompare(a.modified));
+}
+
+/** Every document across all agents, newest first. */
+export function allDocuments(roles: Agent[], instancesOf: (roleId: string) => string[]) {
+  const out = new Map<string, DocumentInfo & { author: string | null; role: string }>();
+  for (const role of roles) {
+    for (const d of listDocuments(role, [role.id, ...instancesOf(role.id)])) {
+      if (!out.has(d.path)) out.set(d.path, { ...d, author: null, role: role.id });
+    }
+  }
+  return [...out.values()].sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, 1000);
+}

@@ -16,6 +16,9 @@ import { TaskBoard } from "./views/Tasks.tsx";
 import { GroupChat, GroupEditor } from "./views/Groups.tsx";
 import { RoutineEditor, RoutinesList } from "./views/Routines.tsx";
 import { Activity } from "./views/Activity.tsx";
+import { NewTask } from "./views/NewTask.tsx";
+import { Room } from "./views/Room.tsx";
+import { DocumentsPage } from "./views/DocumentsPage.tsx";
 import { LinkedFileReader } from "./views/Documents.tsx";
 
 /** Clicking a file path anywhere opens it in the reader (Cmd/Ctrl/middle-click still opens a tab). */
@@ -48,6 +51,9 @@ function App() {
       {route.name === "group-settings" && <GroupEditor key={route.id} id={route.id} />}
       {route.name === "new-group" && <GroupEditor />}
       {route.name === "activity" && <Activity />}
+      {route.name === "new-task" && <NewTask key={route.role ?? "any"} roleId={route.role} />}
+      {route.name === "room" && <Room key={route.id} id={route.id} />}
+      {route.name === "documents" && <DocumentsPage />}
       {route.name === "routines" && <RoutinesList />}
       {route.name === "routine" && <RoutineEditor key={route.id} id={route.id} />}
       {route.name === "new-routine" && <RoutineEditor agentId={route.agent} />}

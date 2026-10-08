@@ -246,6 +246,14 @@ _Nothing yet._
 
 - **1. Esc stops the current execution** — agent chats and groups; Esc closes the reader, popovers, @-mention suggestions and an overlaid panel first; hints in the composer and on Stop.
 - **2. Light theme** — Light / Dark / System switch in the top bar, remembered per browser, applied before first paint.
+- **5. One instance per task** (and with it **3** and **4**) — agents are roles; every task runs on its own instance
+  (`coder#2`), started by you (New task), by a planning agent's delegation (up to 5 per agent per starter; only you start
+  tech-lead tasks), by a routine (one per routine) or a group (one per member per group). Done retires a task and
+  everything it started; finished task rooms leave Work after 24 h unless kept. Sidebar is work-first (Work · Team ·
+  Groups · Computer, all collapsible). Task rooms merge every task's conversation into one timeline with filters.
+  Existing conversations migrated with a backup; counts verified unchanged.
+- **6. Documents across agents and in rooms/groups** — Documents page (search, agent and type filters), Documents tab
+  on task rooms, groups (panel), tasks and agents.
 
 ---
 

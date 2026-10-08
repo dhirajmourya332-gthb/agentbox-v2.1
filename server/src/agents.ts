@@ -28,9 +28,22 @@ export type Agent = {
   retired_at?: string | null;
   /** On a base agent: how many replicas may run at once (0 = none). */
   max_replicas?: number;
-  /** May this agent spawn and retire replicas? */
+  /** May this agent start instances of other roles (a manager role, e.g. tech-lead)? */
   can_scale?: number;
+  /** Instances: who started it — "owner", "routine:<id>", "group:<id>", or the creating instance's id. */
+  created_by?: string | null;
+  /** Instances: the instance whose task this one is part of (task rooms are these trees). */
+  parent_instance_id?: string | null;
+  /** Instances: the task, as a short title. */
+  label?: string | null;
+  /** Instances: a finished task room the owner chose to keep visible. */
+  kept?: number;
 };
+
+/** Per creator: how many live instances of one role an agent may run at once (role.max_replicas overrides). */
+export const DEFAULT_PER_CREATOR = 5;
+/** Safety cap on live instances overall (VM memory and Claude usage). */
+export const MAX_LIVE_INSTANCES = 40;
 
 export function slugify(name: string) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
@@ -110,10 +123,8 @@ export function createAgent(input: {
     agent.id, agent.slug, agent.name, agent.title, agent.summary, agent.model, agent.color,
     agent.max_turns, JSON.stringify(input.interview ?? {}), agent.created_at,
   );
-  const threadId = newId();
-  run(`INSERT INTO threads (id, kind, agent_id, created_at) VALUES (?, 'dm', ?, ?)`, threadId, agent.id, now());
-
-  publish({ type: "agent.created", agent: { ...agent, status: "idle", dm_thread_id: threadId } });
+  // An agent is a role: no conversation of its own. Work happens on its instances (tasks).
+  publish({ type: "agent.created", agent: { ...agent, status: "idle", dm_thread_id: null } });
   return agent;
 }
 
@@ -142,45 +153,42 @@ export function updateAgent(
   return next;
 }
 
-/** Start a replica of `baseId` (coder → coder#1), reusing the lowest free number. */
-export function spawnReplica(baseId: string) {
-  const base = getAgent(baseId);
-  if (!base || base.retired_at) throw new Error("No such agent");
-  if (base.base_agent_id) throw new Error(`${base.name} is itself a replica; spawn from ${getAgent(base.base_agent_id)?.name}`);
-  const active = replicasOf(base.id);
-  const max = base.max_replicas ?? 0;
-  if (active.length >= max) {
-    throw new Error(max === 0
-      ? `${base.name} isn't set up for replicas. The owner can allow them in ${base.name}'s settings.`
-      : `${base.name} already has ${active.length} replica(s), the limit (${max}). Retire one first.`);
-  }
-  const used = new Set(active.map((r) => r.replica_no));
-  let n = 1;
-  while (used.has(n)) n++;
-  const slug = `${base.slug}-${n}`;
-  const name = `${base.name}#${n}`;
+export type Spawn = { label: string; createdBy: string; parentInstanceId?: string | null };
 
-  const retired = get<Agent>(`SELECT * FROM agents WHERE base_agent_id = ? AND replica_no = ?`, base.id, n);
-  if (retired) {
-    // Bring the retired row back: same name and history, fresh conversations.
-    run(`UPDATE agents SET retired_at = NULL, title = ?, summary = ?, model = ?, max_turns = ? WHERE id = ?`,
-      base.title, base.summary, base.model, base.max_turns, retired.id);
-    run(`DELETE FROM agent_sessions WHERE agent_id = ?`, retired.id);
-    const agent = getAgent(retired.id)!;
-    publish({ type: "agent.created", agent: { ...agent, status: "idle", dm_thread_id: dmThreadOf(agent.id) } });
-    return agent;
+/**
+ * Start an instance of a role for one task. Numbers only go up (coder#1, coder#2, …) so a retired
+ * instance's history never mixes with a new task's.
+ */
+export function spawnInstance(roleId: string, s: Spawn) {
+  const role = getAgent(roleId);
+  if (!role || role.retired_at) throw new Error("No such agent");
+  if (role.base_agent_id) throw new Error(`${role.name} is an instance; start work on its agent, ${getAgent(role.base_agent_id)?.name}`);
+  const live = (get<{ n: number }>(`SELECT COUNT(*) AS n FROM agents WHERE base_agent_id IS NOT NULL AND retired_at IS NULL`)?.n ?? 0) as number;
+  if (live >= MAX_LIVE_INSTANCES) throw new Error(`There are already ${live} live tasks, the limit. Finish some first.`);
+  const byAgent = s.createdBy !== "owner" && !s.createdBy.startsWith("routine:") && !s.createdBy.startsWith("group:");
+  if (byAgent) {
+    if (role.can_scale) throw new Error(`Only the owner starts ${role.name} tasks.`);
+    const limit = role.max_replicas || DEFAULT_PER_CREATOR;
+    const mine = (get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM agents WHERE base_agent_id = ? AND created_by = ? AND retired_at IS NULL`, role.id, s.createdBy,
+    )?.n ?? 0) as number;
+    if (mine >= limit) throw new Error(`You already have ${mine} live ${role.name} task(s), your limit. Retire finished ones first.`);
   }
-  if (get(`SELECT 1 FROM agents WHERE slug = ?`, slug)) throw new Error(`An agent called "${slug}" already exists`);
+  const n = ((get<{ n: number }>(`SELECT MAX(replica_no) AS n FROM agents WHERE base_agent_id = ?`, role.id)?.n ?? 0) as number) + 1;
+  let slug = `${role.slug}-${n}`;
+  while (get(`SELECT 1 FROM agents WHERE slug = ?`, slug)) slug += "x";
   const agent: Agent = {
-    id: newId(), slug, name, title: base.title, summary: base.summary, model: base.model, color: base.color,
-    max_turns: base.max_turns, created_at: now(), base_agent_id: base.id, replica_no: n, home_slug: base.home_slug ?? base.slug,
-    retired_at: null, max_replicas: 0, can_scale: 0,
+    id: newId(), slug, name: `${role.name}#${n}`, title: role.title, summary: role.summary, model: role.model, color: role.color,
+    max_turns: role.max_turns, created_at: now(), base_agent_id: role.id, replica_no: n, home_slug: role.home_slug ?? role.slug,
+    retired_at: null, max_replicas: 0, can_scale: role.can_scale ?? 0,
+    created_by: s.createdBy, parent_instance_id: s.parentInstanceId ?? null, label: s.label.trim().slice(0, 120) || "Task", kept: 0,
   };
   run(
-    `INSERT INTO agents (id, slug, name, title, summary, model, color, max_turns, interview, created_at, base_agent_id, replica_no, home_slug)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)`,
-    agent.id, agent.slug, agent.name, agent.title, agent.summary, agent.model, agent.color, agent.max_turns,
-    agent.created_at, agent.base_agent_id, agent.replica_no, agent.home_slug,
+    `INSERT INTO agents (id, slug, name, title, summary, model, color, max_turns, interview, created_at, base_agent_id, replica_no,
+                         home_slug, can_scale, created_by, parent_instance_id, label)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    agent.id, agent.slug, agent.name, agent.title, agent.summary, agent.model, agent.color, agent.max_turns, agent.created_at,
+    agent.base_agent_id, agent.replica_no, agent.home_slug, agent.can_scale, agent.created_by, agent.parent_instance_id, agent.label,
   );
   const threadId = newId();
   run(`INSERT INTO threads (id, kind, agent_id, created_at) VALUES (?, 'dm', ?, ?)`, threadId, agent.id, now());
@@ -188,14 +196,47 @@ export function spawnReplica(baseId: string) {
   return agent;
 }
 
-/** Retire a replica: it leaves the team, its history stays. */
+/** The owner's "Add replica" on the agent panel: a blank task. */
+export const spawnReplica = (roleId: string) => spawnInstance(roleId, { label: "New task", createdBy: "owner" });
+
+/** Retire (finish) an instance: it leaves the live views; its history stays. */
 export function retireReplica(id: string) {
   const a = getAgent(id);
-  if (!a || a.retired_at) throw new Error("No such replica");
-  if (!a.base_agent_id) throw new Error(`${a.name} isn't a replica; only replicas can be retired`);
+  if (!a || a.retired_at) throw new Error("No such task");
+  if (!a.base_agent_id) throw new Error(`${a.name} isn't an instance; only instances are retired`);
   run(`UPDATE agents SET retired_at = ? WHERE id = ?`, now(), id);
   run(`DELETE FROM thread_members WHERE agent_id = ?`, id);
   publish({ type: "agent.retired", agentId: id });
+}
+
+/** An instance and every instance started under it (retired ones included). */
+export function instanceTree(rootId: string): Agent[] {
+  return all<Agent>(
+    `WITH RECURSIVE t(id) AS (SELECT ? UNION ALL SELECT a.id FROM agents a JOIN t ON a.parent_instance_id = t.id)
+     SELECT agents.* FROM agents JOIN t USING (id) ORDER BY agents.created_at`,
+    rootId,
+  );
+}
+
+/** The top of the task room an instance belongs to. */
+export function rootOf(a: Agent): Agent {
+  let cur = a;
+  for (let i = 0; i < 20 && cur.parent_instance_id; i++) cur = getAgent(cur.parent_instance_id) ?? cur;
+  return cur;
+}
+
+export function setInstanceMeta(id: string, patch: { label?: string; kept?: boolean }) {
+  const a = getAgent(id);
+  if (!a || !a.base_agent_id) throw new Error("No such task");
+  if (patch.label !== undefined) {
+    const label = patch.label.trim().slice(0, 120);
+    if (!label) throw new Error("Give the task a title");
+    run(`UPDATE agents SET label = ? WHERE id = ?`, label, id);
+  }
+  if (patch.kept !== undefined) run(`UPDATE agents SET kept = ? WHERE id = ?`, patch.kept ? 1 : 0, id);
+  const next = getAgent(id)!;
+  publish({ type: "agent.updated", agent: next });
+  return next;
 }
 
 export function deleteAgent(id: string) {
@@ -210,8 +251,9 @@ export function deleteAgent(id: string) {
   publish({ type: "agent.deleted", agentId: id });
 }
 
-export function dmThreadOf(agentId: string) {
-  return get<{ id: string }>(`SELECT id FROM threads WHERE kind = 'dm' AND agent_id = ?`, agentId)!.id;
+/** An instance's conversation (roles have none). */
+export function dmThreadOf(agentId: string): string | null {
+  return get<{ id: string }>(`SELECT id FROM threads WHERE kind IN ('dm', 'routine') AND agent_id = ? ORDER BY kind = 'dm' DESC`, agentId)?.id ?? null;
 }
 
 export function listMemory(a: Agent) {

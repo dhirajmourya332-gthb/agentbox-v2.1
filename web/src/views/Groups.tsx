@@ -5,6 +5,7 @@ import { go } from "../router.ts";
 import { Avatar, Icon, Markdown, Spinner, relTime, useEscToStop } from "../components/ui.tsx";
 import { AgentPicker } from "./Skills.tsx";
 import { WorkLog } from "./AgentChat.tsx";
+import { WorkDocuments } from "./Room.tsx";
 
 const MENTION = /@([A-Za-z0-9][A-Za-z0-9_-]*)/g;
 
@@ -29,12 +30,14 @@ export function GroupChat({ id }: { id: string }) {
 
   const running = thread?.tasks.filter((t) => t.status === "running") ?? [];
   useEscToStop(running.length > 0, () => running.forEach((t) => api.stop(t.id)));
+  const [docs, setDocs] = useState(false);
 
   if (!group) return <div className="page"><div className="page-inner"><p className="lede">No such group.</p></div></div>;
   const members = group.members.map((m) => everyone.find((a) => a.id === m)).filter(Boolean) as Agent[];
   const lead = everyone.find((a) => a.id === group.lead_agent_id) ?? members[0];
 
   return (
+    <>
     <section className="chat" aria-label={`Group ${group.name}`}>
       <header className="chat-head">
         <span className="avatar you-avatar" style={{ width: 32, height: 32, fontSize: 16 }} aria-hidden="true">#</span>
@@ -56,6 +59,7 @@ export function GroupChat({ id }: { id: string }) {
               <Icon name="stop" size={14} />Stop
             </button>
           )}
+          <button className="icon-btn" aria-pressed={docs} aria-label="Group documents" title="Documents" onClick={() => setDocs(!docs)}><Icon name="doc" /></button>
           <a className="icon-btn" href={`#/groups/${id}/settings`} aria-label="Group settings" title="Group settings"><Icon name="panel" /></a>
         </div>
       </header>
@@ -71,6 +75,16 @@ export function GroupChat({ id }: { id: string }) {
       )}
       <GroupComposer group={group} members={members} lead={lead} />
     </section>
+    {docs && (
+      <aside className="panel" aria-label="Group documents">
+        <div className="tabs" role="tablist">
+          <button role="tab" aria-selected="true">Documents</button>
+          <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close" onClick={() => setDocs(false)}><Icon name="close" /></button>
+        </div>
+        <div className="panel-body"><WorkDocuments load={() => api.groupDocuments(group.id)} empty="No documents from this group yet." /></div>
+      </aside>
+    )}
+    </>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, type Usage } from "../api.ts";
+import { api, type Agent, type Usage, type WorkRoom } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { href, type Route } from "../router.ts";
 import { Avatar, Icon, StatusGlyph } from "./ui.tsx";
@@ -61,7 +61,7 @@ function VmChip() {
   );
 }
 
-function RailLink({ to, current, icon, children, replica }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode; replica?: boolean }) {
+function RailLink({ to, current, icon, children, className }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode; className?: string }) {
   const skillsArea = ["skills", "skill", "new-skill", "draft"];
   const active = to.name === "routines"
     ? ["routines", "routine", "new-routine"].includes(current.name)
@@ -69,18 +69,116 @@ function RailLink({ to, current, icon, children, replica }: { to: Route; current
     ? (current.name === "group" || current.name === "group-settings") && current.id === to.id
     : to.name === "skills"
     ? skillsArea.includes(current.name)
+    : to.name === "room"
+    ? current.name === "room" && current.id === to.id
     : to.name === current.name && (to.name !== "agent" || (current.name === "agent" && current.id === to.id));
   return (
-    <a className={replica ? "item replica" : "item"} href={href(to)} aria-current={active ? "page" : undefined}>
+    <a className={`item${className ? ` ${className}` : ""}`} href={href(to)} aria-current={active ? "page" : undefined}>
       {icon}
       {children}
     </a>
   );
 }
 
+/** A collapsible sidebar section whose open/closed state is remembered. */
+function Section({ id, label, action, children, defaultOpen = true }: {
+  id: string; label: string; action?: ReactNode; children: ReactNode; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useRemembered(`rail.${id}`, defaultOpen);
+  return (
+    <>
+      <div className="rail-section">
+        <button className="rail-label rail-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span className="chev"><Icon name="chevron" size={10} /></span>{label}
+        </button>
+        {action}
+      </div>
+      {open && children}
+    </>
+  );
+}
+
+function useRemembered(key: string, initial: boolean): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState<boolean>(() => {
+    try { const s = localStorage.getItem(`agentbox.${key}`); return s === null ? initial : s === "1"; } catch { return initial; }
+  });
+  const set = (next: boolean) => {
+    setV(next);
+    try { localStorage.setItem(`agentbox.${key}`, next ? "1" : "0"); } catch { /* storage unavailable */ }
+  };
+  return [v, set];
+}
+
+function Glyph({ status }: { status: string }) {
+  if (status === "done") return <span className="status" title="Done"><span className="glyph done" /></span>;
+  return <StatusGlyph status={status as any} />;
+}
+
+/** One top-level task in Work: a single task, or a task room with its tasks folded under it. */
+function WorkItem({ room, route }: { room: WorkRoom; route: Route }) {
+  const isRoom = room.members.length > 1;
+  const busy = room.members.some((m) => m.status === "working");
+  const [open, setOpen] = useRemembered(`work.${room.root.id}`, true);
+  const to: Route = isRoom ? { name: "room", id: room.root.id } : { name: "agent", id: room.root.id };
+  const children = room.members.filter((m) => m.id !== room.root.id);
+  return (
+    <>
+      <div className="work-row">
+        {isRoom ? (
+          <button className="icon-btn tiny" aria-expanded={open} aria-label={open ? "Collapse" : "Expand"} onClick={() => setOpen(!open)}>
+            <span className={`chev${open ? " open" : ""}`}><Icon name="chevron" size={10} /></span>
+          </button>
+        ) : <span className="tiny-spacer" />}
+        <RailLink to={to} current={route} className="work-link"
+          icon={isRoom ? <span className={`room-dot${busy ? " busy" : ""}`}><Icon name="room" size={12} /></span> : <Glyph status={room.root.status} />}>
+          <span className="grow" title={`${room.root.label} · ${room.root.name}`}>{room.root.label ?? room.root.name}</span>
+          {isRoom && <span className="count subtle">{children.length + 1}</span>}
+        </RailLink>
+      </div>
+      {isRoom && open && children.map((m) => (
+        <RailLink key={m.id} to={{ name: "agent", id: m.id }} current={route} className="work-child" icon={<Glyph status={m.status} />}>
+          <span className="grow" title={`${m.label} · ${m.name}`}>{m.label ?? m.name}</span>
+          <span className="rail-sub">{m.name}</span>
+        </RailLink>
+      ))}
+    </>
+  );
+}
+
+/** An agent (role) in Team: live-task count, expandable to its live tasks. */
+function TeamItem({ role, route }: { role: Agent; route: Route }) {
+  const { agents } = useStore();
+  const live = agents.filter((a) => a.base_agent_id === role.id);
+  const working = live.filter((a) => a.status === "working").length;
+  const [open, setOpen] = useRemembered(`team.${role.id}`, false);
+  return (
+    <>
+      <div className="work-row">
+        {live.length ? (
+          <button className="icon-btn tiny" aria-expanded={open} aria-label={open ? "Hide tasks" : "Show tasks"} onClick={() => setOpen(!open)}>
+            <span className={`chev${open ? " open" : ""}`}><Icon name="chevron" size={10} /></span>
+          </button>
+        ) : <span className="tiny-spacer" />}
+        <RailLink to={{ name: "agent", id: role.id }} current={route} className="work-link" icon={<Avatar name={role.name} color={role.color} size={18} />}>
+          <span className="grow">{role.name}</span>
+          <span className="rail-sub">{working ? `${working} working` : live.length ? `${live.length} idle` : ""}</span>
+        </RailLink>
+      </div>
+      {open && live.map((a) => (
+        <RailLink key={a.id} to={{ name: "agent", id: a.id }} current={route} className="work-child" icon={<StatusGlyph status={a.status} />}>
+          <span className="grow" title={`${a.label} · ${a.name}`}>{a.label ?? a.name}</span>
+          <span className="rail-sub">{a.name}</span>
+        </RailLink>
+      ))}
+    </>
+  );
+}
+
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const { agents, usage, drafts, board, groups } = useStore();
+  const { agents, usage, drafts, board, groups, work } = useStore();
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
+  const roles = agents.filter((a) => !a.base_agent_id);
+  const [showDone, setShowDone] = useRemembered("work.done", false);
   return (
     <div className="shell">
       <header className="topbar">
@@ -95,52 +193,58 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       <div className="bar-slot"><PausedBar /></div>
 
       <nav className="rail" aria-label="Main">
-        <RailLink to={{ name: "home" }} current={route} icon={<Icon name="team" />}>Team</RailLink>
-        <RailLink to={{ name: "activity" }} current={route} icon={<Icon name="activity" />}>Activity</RailLink>
-        <RailLink to={{ name: "tasks" }} current={route} icon={<Icon name="board" />}>
-          <span className="grow">Tasks</span>
-          {running > 0 && <span className="count" title={`${running} running or queued`}>{running}</span>}
-        </RailLink>
+        <a className="btn primary new-task-btn" href="#/new"><Icon name="plus" />New task</a>
 
-        <RailLink to={{ name: "routines" }} current={route} icon={<Icon name="routine" />}>Routines</RailLink>
-
-        <div className="rail-section">
-          <span className="rail-label">Agents</span>
-          <a className="icon-btn" href="#/agents/new" aria-label="New agent" title="New agent"><Icon name="plus" /></a>
-        </div>
-        {agents.map((a) => (
-          <RailLink key={a.id} to={{ name: "agent", id: a.id }} current={route} replica={!!a.base_agent_id}
-            icon={a.base_agent_id
-              ? <span className="replica-mark" style={{ borderColor: a.color }}>{a.replica_no}</span>
-              : <Avatar name={a.name} color={a.color} size={20} />}>
-            <span className="grow">{a.name}</span>
-            <StatusGlyph status={a.status} />
+        <div className="rail-nav">
+          <RailLink to={{ name: "home" }} current={route} icon={<Icon name="team" />}>Overview</RailLink>
+          <RailLink to={{ name: "activity" }} current={route} icon={<Icon name="activity" />}>Activity</RailLink>
+          <RailLink to={{ name: "tasks" }} current={route} icon={<Icon name="board" />}>
+            <span className="grow">Tasks</span>
+            {running > 0 && <span className="count" title={`${running} running or queued`}>{running}</span>}
           </RailLink>
-        ))}
-        {agents.length === 0 && <p className="empty">No agents yet.</p>}
-
-        <div className="rail-section">
-          <span className="rail-label">Groups</span>
-          <a className="icon-btn" href="#/groups/new" aria-label="New group" title="New group"><Icon name="plus" /></a>
-        </div>
-        {groups.map((g) => (
-          <RailLink key={g.id} to={{ name: "group", id: g.id }} current={route} icon={<span className="hash" aria-hidden="true">#</span>}>
-            <span className="grow">{g.name}</span>
-            {g.paused && <span className="badge" title="Paused, waiting for you">!</span>}
+          <RailLink to={{ name: "routines" }} current={route} icon={<Icon name="routine" />}>Routines</RailLink>
+          <RailLink to={{ name: "documents" }} current={route} icon={<Icon name="doc" />}>Documents</RailLink>
+          <RailLink to={{ name: "skills" }} current={route} icon={<Icon name="skill" />}>
+            <span className="grow">Skills</span>
+            {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
           </RailLink>
-        ))}
-        {groups.length === 0 && <p className="empty">No groups yet.</p>}
+        </div>
 
-        <div className="rail-section"><span className="rail-label">Library</span></div>
-        <RailLink to={{ name: "skills" }} current={route} icon={<Icon name="skill" />}>
-          <span className="grow">Skills</span>
-          {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
-        </RailLink>
+        <Section id="work" label="Work">
+          {work.live.map((w) => <WorkItem key={w.root.id} room={w} route={route} />)}
+          {work.live.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
+          {work.done.length > 0 && (
+            <>
+              <button className="rail-more" aria-expanded={showDone} onClick={() => setShowDone(!showDone)}>
+                <span className={`chev${showDone ? " open" : ""}`}><Icon name="chevron" size={10} /></span>Done ({work.done.length})
+              </button>
+              {showDone && work.done.map((w) => <WorkItem key={w.root.id} room={w} route={route} />)}
+            </>
+          )}
+        </Section>
 
-        <div className="rail-section"><span className="rail-label">Computer</span></div>
-        <RailLink to={{ name: "screen" }} current={route} icon={<Icon name="screen" />}>Screen</RailLink>
-        <RailLink to={{ name: "terminal" }} current={route} icon={<Icon name="terminal" />}>Terminal</RailLink>
-        <RailLink to={{ name: "system" }} current={route} icon={<Icon name="pulse" />}>System</RailLink>
+        <Section id="team" label="Team"
+          action={<a className="icon-btn" href="#/agents/new" aria-label="New agent" title="New agent"><Icon name="plus" /></a>}>
+          {roles.map((r) => <TeamItem key={r.id} role={r} route={route} />)}
+          {roles.length === 0 && <p className="empty">No agents yet.</p>}
+        </Section>
+
+        <Section id="groups" label="Groups" defaultOpen={groups.length > 0}
+          action={<a className="icon-btn" href="#/groups/new" aria-label="New group" title="New group"><Icon name="plus" /></a>}>
+          {groups.map((g) => (
+            <RailLink key={g.id} to={{ name: "group", id: g.id }} current={route} icon={<span className="hash" aria-hidden="true">#</span>}>
+              <span className="grow">{g.name}</span>
+              {g.paused && <span className="badge" title="Paused, waiting for you">!</span>}
+            </RailLink>
+          ))}
+          {groups.length === 0 && <p className="empty">No groups yet.</p>}
+        </Section>
+
+        <Section id="computer" label="Computer" defaultOpen={false}>
+          <RailLink to={{ name: "screen" }} current={route} icon={<Icon name="screen" />}>Screen</RailLink>
+          <RailLink to={{ name: "terminal" }} current={route} icon={<Icon name="terminal" />}>Terminal</RailLink>
+          <RailLink to={{ name: "system" }} current={route} icon={<Icon name="pulse" />}>System</RailLink>
+        </Section>
       </nav>
 
       <main className="main">{children}</main>

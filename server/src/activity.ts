@@ -105,8 +105,10 @@ export function activity({ limit, agent }: { limit: number; agent?: string }): A
 
 export function graph(since: string) {
   const edges = all<{ from: string; to: string; kind: string; n: number; last: string }>(
-    `SELECT CASE source WHEN 'agent' THEN from_agent_id WHEN 'message' THEN from_agent_id WHEN 'cron' THEN 'routine' ELSE 'user' END AS "from",
-            agent_id AS "to",
+    `SELECT CASE source WHEN 'agent' THEN COALESCE((SELECT base_agent_id FROM agents WHERE id = from_agent_id), from_agent_id)
+                        WHEN 'message' THEN COALESCE((SELECT base_agent_id FROM agents WHERE id = from_agent_id), from_agent_id)
+                        WHEN 'cron' THEN 'routine' ELSE 'user' END AS "from",
+            COALESCE((SELECT base_agent_id FROM agents WHERE id = tasks.agent_id), tasks.agent_id) AS "to",
             CASE source WHEN 'agent' THEN 'delegated' WHEN 'message' THEN 'message' WHEN 'cron' THEN 'routine' ELSE 'asked' END AS kind,
             COUNT(*) AS n, MAX(created_at) AS last
      FROM tasks

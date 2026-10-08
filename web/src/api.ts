@@ -12,9 +12,16 @@ export type Agent = {
   created_at: string;
   status: AgentStatus;
   taskId?: string;
-  dm_thread_id: string;
+  dm_thread_id: string | null;
   skills: string[];
   home?: string;
+  /** Instances only: */
+  created_by?: string | null;
+  parent_instance_id?: string | null;
+  label?: string | null;
+  kept?: number;
+  /** Agents (roles) only: how many live tasks they have. */
+  live_instances?: number;
   base_agent_id?: string | null;
   replica_no?: number | null;
   max_replicas?: number;
@@ -27,6 +34,16 @@ export type DocumentInfo = {
 };
 export const fileUrl = (path: string, download = false) =>
   `/api/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
+export type InstanceSummary = {
+  id: string; name: string; label: string | null; role_id: string; color: string; parent_instance_id: string | null;
+  created_by: string | null; created_at: string; retired_at: string | null; kept: boolean;
+  status: AgentStatus | "done"; current: string | null; queued: number;
+};
+export type WorkRoom = { root: InstanceSummary; members: InstanceSummary[]; last_activity: string | null; hides_at?: string | null };
+export type RoomView = {
+  root: InstanceSummary; members: InstanceSummary[]; threads: { id: string; agent_id: string; kind: string }[];
+  messages: Message[]; tasks: Task[]; steps: Step[];
+};
 export type RetiredAgent = { id: string; name: string; color: string; base_agent_id: string | null };
 
 export type Skill = { name: string; description: string; body: string; files: string[]; agents: string[]; updated_at: string };
@@ -92,6 +109,14 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 export const api = {
   state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
+  work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
+  newTask: (roleId: string, text: string, title?: string) => call<Agent>("POST", "/api/work", { role_id: roleId, text, title }),
+  room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
+  roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
+  groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
+  allDocuments: () => call<(DocumentInfo & { role: string })[]>("GET", "/api/documents"),
+  finishTask: (instanceId: string) => call<{ finished: number }>("POST", `/api/agents/${instanceId}/done`),
+  setTaskMeta: (instanceId: string, meta: { label?: string; kept?: boolean }) => call<Agent>("PATCH", `/api/agents/${instanceId}/meta`, meta),
   documents: (agentId: string) => call<DocumentInfo[]>("GET", `/api/agents/${agentId}/documents`),
   spawnReplica: (baseId: string) => call<Agent>("POST", `/api/agents/${baseId}/replicas`),
   retireReplica: (id: string) => call("POST", `/api/agents/${id}/retire`),

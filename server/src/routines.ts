@@ -1,7 +1,7 @@
 import { Cron } from "croner";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
-import { getAgent } from "./agents.ts";
+import { getAgent, retireReplica, spawnInstance } from "./agents.ts";
 import { currentUsage, enqueueTask, resetSession } from "./runner.ts";
 import { isPaused } from "./control.ts";
 
@@ -34,6 +34,9 @@ run(`CREATE TABLE IF NOT EXISTS routine_runs (
   task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL
 )`);
 run(`CREATE INDEX IF NOT EXISTS routine_runs_by ON routine_runs(routine_id, at)`);
+if (!all<{ name: string }>(`PRAGMA table_info(routines)`).some((c) => c.name === "instance_id")) {
+  run(`ALTER TABLE routines ADD COLUMN instance_id TEXT REFERENCES agents(id) ON DELETE SET NULL`);
+}
 
 export type Routine = {
   id: string; agent_id: string; thread_id: string; name: string; cron: string; timezone: string; prompt: string;
@@ -134,14 +137,18 @@ export function createRoutine(i: Input, createdBy: string) {
     run(`INSERT INTO meta (key, value) VALUES ('timezone', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, i.timezone);
   }
   const id = newId();
-  const threadId = newId();
-  run(`INSERT INTO threads (id, kind, agent_id, name, created_at) VALUES (?, 'routine', ?, ?, ?)`, threadId, i.agent_id, i.name.trim(), now());
+  // Routines belong to an agent (role); each runs on its own instance, made once and kept for
+  // the routine's whole life.
+  const roleId = getAgent(i.agent_id)!.base_agent_id ?? i.agent_id;
+  const instance = spawnInstance(roleId, { label: i.name.trim(), createdBy: `routine:${id}` });
+  const threadId = get<{ id: string }>(`SELECT id FROM threads WHERE agent_id = ? AND kind = 'dm'`, instance.id)!.id;
+  run(`UPDATE threads SET kind = 'routine', name = ? WHERE id = ?`, i.name.trim(), threadId);
   run(
-    `INSERT INTO routines (id, agent_id, thread_id, name, cron, timezone, prompt, enabled, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id, i.agent_id, threadId, i.name.trim(), i.cron.trim(), i.timezone, i.prompt.trim(), i.enabled ? 1 : 0, createdBy, now(),
+    `INSERT INTO routines (id, agent_id, thread_id, name, cron, timezone, prompt, enabled, created_by, created_at, instance_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, roleId, threadId, i.name.trim(), i.cron.trim(), i.timezone, i.prompt.trim(), i.enabled ? 1 : 0, createdBy, now(), instance.id,
   );
-  publish({ type: "thread.created", thread: { id: threadId, kind: "routine", agent_id: i.agent_id } });
+  publish({ type: "thread.created", thread: { id: threadId, kind: "routine", agent_id: instance.id } });
   schedule(id);
   const r = getRoutine(id)!;
   publish({ type: "routine.updated", routine: r });
@@ -151,13 +158,14 @@ export function createRoutine(i: Input, createdBy: string) {
 export function updateRoutine(id: string, i: Input) {
   const r = get(`SELECT * FROM routines WHERE id = ?`, id);
   if (!r) throw new Error("No such routine");
-  if (i.agent_id !== r.agent_id) throw new Error("A routine can't move to another agent; create a new one");
+  if ((getAgent(i.agent_id)?.base_agent_id ?? i.agent_id) !== r.agent_id) throw new Error("A routine can't move to another agent; create a new one");
   check(i);
   run(
     `UPDATE routines SET name = ?, cron = ?, timezone = ?, prompt = ?, enabled = ? WHERE id = ?`,
     i.name.trim(), i.cron.trim(), i.timezone, i.prompt.trim(), i.enabled ? 1 : 0, id,
   );
   run(`UPDATE threads SET name = ? WHERE id = ?`, i.name.trim(), r.thread_id);
+  if (r.instance_id) run(`UPDATE agents SET label = ? WHERE id = ?`, i.name.trim(), r.instance_id);
   schedule(id);
   const v = getRoutine(id)!;
   publish({ type: "routine.updated", routine: v });
@@ -170,7 +178,12 @@ export function deleteRoutine(id: string) {
   jobs.get(id)?.stop();
   jobs.delete(id);
   run(`DELETE FROM routines WHERE id = ?`, id);
-  // Keep the thread (and its history) unless nothing ever ran in it.
+  // The routine's instance goes with it (its history stays readable).
+  const inst = r.instance_id ? getAgent(r.instance_id) : undefined;
+  if (inst && !inst.retired_at) {
+    const busy = get(`SELECT 1 FROM tasks WHERE agent_id = ? AND status IN ('queued', 'running')`, inst.id);
+    if (!busy) retireReplica(inst.id);
+  }
   if (!get(`SELECT 1 FROM tasks WHERE thread_id = ?`, r.thread_id)) run(`DELETE FROM threads WHERE id = ?`, r.thread_id);
   publish({ type: "routine.deleted", id });
 }
@@ -189,8 +202,16 @@ function logRun(routineId: string, trigger: string, outcome: string, reason: str
 export function runRoutine(id: string, trigger: "schedule" | "manual") {
   const r = get(`SELECT * FROM routines WHERE id = ?`, id);
   if (!r) return;
-  const agent = getAgent(r.agent_id);
-  if (!agent) return;
+  let agent = r.instance_id ? getAgent(r.instance_id) : undefined;
+  if (!agent || agent.retired_at) {
+    // Its instance was retired by hand: give the routine a new one.
+    if (!getAgent(r.agent_id)) return;
+    agent = spawnInstance(r.agent_id, { label: r.name, createdBy: `routine:${r.id}` });
+    const dm = get<{ id: string }>(`SELECT id FROM threads WHERE agent_id = ? AND kind = 'dm'`, agent.id)!.id;
+    run(`DELETE FROM threads WHERE id = ?`, dm);
+    run(`UPDATE threads SET agent_id = ? WHERE id = ?`, agent.id, r.thread_id);
+    run(`UPDATE routines SET instance_id = ? WHERE id = ?`, agent.id, r.id);
+  }
 
   const previous = get(
     `SELECT tasks.status FROM routine_runs JOIN tasks ON tasks.id = routine_runs.task_id
