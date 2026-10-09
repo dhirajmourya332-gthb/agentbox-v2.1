@@ -19,6 +19,7 @@ import { PairScreen } from "./src/screens/PairScreen";
 import { PendingScreen } from "./src/screens/PendingScreen";
 import { RoomScreen } from "./src/screens/RoomScreen";
 import { RoutinesScreen } from "./src/screens/RoutinesScreen";
+import { RunScreen } from "./src/screens/RunScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { UnlockScreen } from "./src/screens/UnlockScreen";
 import { WorkScreen } from "./src/screens/WorkScreen";
@@ -101,6 +102,7 @@ function MainApp() {
           <Nav.Screen name="Doc" component={DocScreen} options={{ title: "Document" }} />
           <Nav.Screen name="NewTask" component={NewTaskScreen} options={{ title: "New task" }} />
           <Nav.Screen name="Routines" component={RoutinesScreen} options={{ title: "Routines", headerRight: () => <PauseControl /> }} />
+          <Nav.Screen name="Run" component={RunScreen} options={{ title: "Routine run" }} />
           <Nav.Screen name="Settings" component={SettingsScreen} options={{ title: "Settings" }} />
         </Nav.Navigator>
       </NavigationContainer>

@@ -3,7 +3,7 @@ import * as keyring from "./keyring";
 import { base64url, strictEncode } from "../crypto/encoding";
 import { isSafeId } from "../crypto/sign";
 import type {
-  Agent, Attention, DisplayHolder, DocumentInfo, Group, Progress, RetiredAgent, Routine, RoomView, Task, ThreadData, CleanedText, Usage, WorkRoom,
+  Agent, Attention, DisplayHolder, DocumentInfo, Group, Progress, RetiredAgent, Routine, RoutineRun, RoutineRunView, RoomView, Task, ThreadData, CleanedText, Usage, WorkRoom,
 } from "./types";
 
 /**
@@ -158,6 +158,18 @@ export async function setPushToken(token: string | null): Promise<boolean> {
   }
 }
 
+/** Contract G doesn't pin the list's envelope: accept a bare array or { runs } / { items }. */
+const isRun = (x: unknown): x is RoutineRun => {
+  const r = x as RoutineRun | null;
+  return !!r && typeof r === "object" && isSafeId(r.id) && typeof r.started_at === "string" && typeof r.status === "string";
+};
+function runList(r: unknown): RoutineRun[] {
+  const o = r as { runs?: unknown; items?: unknown } | null;
+  const list = Array.isArray(r) ? r : Array.isArray(o?.runs) ? o.runs : Array.isArray(o?.items) ? o.items : [];
+  return (list as unknown[]).filter(isRun).map((x) => ({ ...x, members: Array.isArray(x.members) ? x.members : [] }));
+}
+export { isRun as isRoutineRun };
+
 const q = (path: string) => `?path=${strictEncode(path)}`;
 
 export const api = {
@@ -188,6 +200,15 @@ export const api = {
   tasks: (limit = 60) => json<Task[]>("GET", `/m/v1/tasks?limit=${Math.max(1, Math.min(200, Math.floor(limit)))}`),
   roomDocuments: (rootId: string) => json<DocumentInfo[]>("GET", `/m/v1/work/${seg(rootId)}/documents`),
   groupDocuments: (groupId: string) => json<DocumentInfo[]>("GET", `/m/v1/groups/${seg(groupId)}/documents`),
+  // Contract G: routine runs. `active` returns them all; `archive` is newest first, paged with `before`.
+  routineRuns: (opts: { state: "active" | "archive"; routineId?: string; before?: string; limit?: number }) => {
+    const qs = [`state=${opts.state}`];
+    if (opts.routineId) qs.push(`routine_id=${seg(opts.routineId)}`);
+    if (opts.before) qs.push(`before=${strictEncode(opts.before)}`);
+    if (opts.limit) qs.push(`limit=${Math.max(1, Math.min(100, Math.floor(opts.limit)))}`);
+    return json<unknown>("GET", `/m/v1/routine-runs?${qs.join("&")}`).then(runList);
+  },
+  routineRun: (id: string) => json<RoutineRunView>("GET", `/m/v1/routine-runs/${seg(id)}`),
   // Voice v2. Only text goes to agentbox (the phone did the recognition); it never sends anything.
   cleanVoice: (body: { text: string; purpose: "task" | "message"; agent_id?: string; lang?: string }) =>
     json<CleanedText>("POST", "/m/v1/voice/clean", body, CLEAN_TIMEOUT_MS),

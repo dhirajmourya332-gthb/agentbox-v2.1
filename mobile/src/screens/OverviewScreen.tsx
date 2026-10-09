@@ -5,6 +5,7 @@ import type { Props } from "../nav";
 import { useStore } from "../lib/store";
 import type { Attention, Progress, Task, Usage, WorkRoom } from "../lib/types";
 import { Avatar, Button, Dot, ErrorBox, Screen, T } from "../ui/kit";
+import { RunCard, runProgress } from "../ui/Runs";
 import { duration, elapsed, relTime, statusColor, useNow, usePalette } from "../ui/theme";
 
 /**
@@ -124,6 +125,15 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
             </Row>
           ))}
         </Section>
+
+        {!!s.runs?.length && (
+          <Section title="Routines running" count={s.runs.length}>
+            {s.runs.map((r) => (
+              <RunCard key={r.id} run={r} progress={runProgress(s.progress, r.id)} now={now}
+                onPress={() => navigation.navigate("Run", { id: r.id, title: r.routine_name })} />
+            ))}
+          </Section>
+        )}
 
         <Section title="In progress" count={inProgress.length}>
           {inProgress.length === 0 ? (
