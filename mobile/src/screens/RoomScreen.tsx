@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { showDialog } from "../ui/dialog";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, KeyboardAvoidingView, StyleSheet, Text, View } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import type { Props } from "../nav";
 import { api } from "../lib/api";
 import { useStore } from "../lib/store";
 import type { InstanceSummary, Message, RoomView, Step, Task } from "../lib/types";
-import { AttachmentStrip, useAttachments } from "../ui/Attachments";
+import { useAttachments } from "../ui/Attachments";
+import { ChatList, type ChatListHandle } from "../ui/ChatList";
+import { Composer } from "../ui/Composer";
 import { Button, Dot, ErrorBox, Screen, Segmented, T } from "../ui/kit";
 import {
   DocumentsList, entryFromProgress, entryFromTask, FilterChip, LiveBars, MembersSheet, MemberStack, type LiveEntry, type MemberRow,
 } from "../ui/Live";
 import { Markdown } from "../ui/Markdown";
 import { relTime, statusColor, usePalette } from "../ui/theme";
-import { MicButton, useVoice, VoiceBar } from "../ui/Voice";
+import { useVoice } from "../ui/Voice";
 
 /**
  * A task room: the lead task and every task it started, as one timeline (like the portal's Room).
@@ -25,6 +26,9 @@ import { MicButton, useVoice, VoiceBar } from "../ui/Voice";
 type Row =
   | { kind: "msg"; id: string; m: Message }
   | { kind: "pending"; id: string; t: Task };
+
+const isMessage = (r: Row) => r.kind === "msg" && r.m.author !== "system";
+const isMine = (r: Row) => r.kind === "msg" && r.m.author === "user";
 
 export function memberBadge(m: InstanceSummary): MemberRow["badge"] {
   if (m.status === "done" || m.retired_at) return "done";
@@ -45,6 +49,7 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
   const [tab, setTab] = useState<"chat" | "docs">("chat");
   const [sheet, setSheet] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
+  const chat = useRef<ChatListHandle>(null);
 
   // Membership comes from the server; refetch when the work list changes for this room.
   const signature = JSON.stringify([...work.live, ...work.done].find((w) => w.root.id === id)?.members.map((m) => [m.id, m.status]) ?? []);
@@ -170,12 +175,13 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
       ) : (
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }} keyboardVerticalOffset={headerHeight}>
           {filtered && <FilterChip name={filtered.label ?? filtered.name} onClear={() => setFilter(null)} />}
-          <FlatList
-            inverted
+          <ChatList
+            ref={chat}
             data={rows}
-            keyExtractor={(r) => r.id}
-            contentContainerStyle={{ padding: 14, gap: 14 }}
-            ListFooterComponent={<RoomHeader root={root} members={members} />}
+            isMessage={isMessage}
+            isMine={isMine}
+            resetKey={filter}
+            footer={<RoomHeader root={root} members={members} />}
             renderItem={({ item }) => {
               if (item.kind === "pending") {
                 const t = item.t;
@@ -208,7 +214,7 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
             }}
           />
           <LiveBars entries={liveEntries} steps={merged.steps} />
-          {!done && rootThread && <Composer threadId={rootThread} lead={root} />}
+          {!done && rootThread && <RoomComposer threadId={rootThread} lead={root} onSent={() => chat.current?.scrollToBottom()} />}
           {done && <T muted size={13} style={{ textAlign: "center", padding: 16 }}>This task room is done; its history stays readable.</T>}
         </KeyboardAvoidingView>
       )}
@@ -248,9 +254,7 @@ function RoomHeader({ root, members }: { root: InstanceSummary; members: Instanc
   );
 }
 
-function Composer({ threadId, lead }: { threadId: string; lead: InstanceSummary }) {
-  const p = usePalette();
-  const insets = useSafeAreaInsets();
+function RoomComposer({ threadId, lead, onSent }: { threadId: string; lead: InstanceSummary; onSent: () => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -268,6 +272,7 @@ function Composer({ threadId, lead }: { threadId: string; lead: InstanceSummary 
       setText("");
       att.clear();
       voice.dismiss();
+      onSent();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't send");
     } finally {
@@ -276,41 +281,12 @@ function Composer({ threadId, lead }: { threadId: string; lead: InstanceSummary 
   };
 
   return (
-    <View style={[st.composer, { borderColor: p.border, backgroundColor: p.surface, paddingBottom: 8 + insets.bottom }]}>
-      <AttachmentStrip a={att} />
-      <VoiceBar v={voice} />
-      {error && <Text style={{ color: p.bad, fontSize: 13, marginBottom: 4 }}>{error}</Text>}
-      <View style={st.composerRow}>
-        <Pressable onPress={() => { att.pick().catch(() => setError("Couldn't open the photo picker")); }} accessibilityRole="button" accessibilityLabel="Attach images"
-          style={[st.attach, { borderColor: p.border }]} hitSlop={6}>
-          <Text style={{ color: p.text, fontSize: 20 }}>＋</Text>
-        </Pressable>
-        <MicButton v={voice} />
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          multiline
-          placeholder={`Message ${lead.name}…`}
-          placeholderTextColor={p.muted}
-          accessibilityLabel="Message the room's lead"
-          style={[st.input, { color: p.text, backgroundColor: p.surface2 }]}
-        />
-        <Button small variant="primary" label="Send" onPress={send} disabled={!can} busy={busy} />
-      </View>
-      <T muted size={12}>{att.uploading ? "Uploading image…" : `Goes to ${lead.name} (${lead.label ?? "lead"}), who coordinates the room.`}</T>
-    </View>
+    <Composer text={text} setText={setText} att={att} voice={voice} onSend={send} busy={busy} error={error}
+      placeholder={`Message ${lead.name}…`} inputLabel={`Message ${lead.name}, the room's lead`} sendLabel={`Send to ${lead.name}`} />
   );
 }
 
-export const composerStyles = StyleSheet.create({
-  composer: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingTop: 8, gap: 4 },
-  composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  attach: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  input: { flex: 1, minHeight: 40, maxHeight: 140, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 },
-});
-
 const st = StyleSheet.create({
-  ...composerStyles,
   tabs: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4 },
   msg: { gap: 4 },
   meta: { flexDirection: "row", alignItems: "center", gap: 6 },

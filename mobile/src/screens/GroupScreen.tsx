@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import type { Props } from "../nav";
 import { api } from "../lib/api";
 import { useStore } from "../lib/store";
 import type { Agent, Group, Message, Task } from "../lib/types";
-import { AttachmentStrip, useAttachments } from "../ui/Attachments";
+import { useAttachments } from "../ui/Attachments";
+import { ChatList, type ChatListHandle } from "../ui/ChatList";
+import { Composer } from "../ui/Composer";
 import { showDialog } from "../ui/dialog";
 import { Avatar, Button, ErrorBox, Screen, Segmented, T } from "../ui/kit";
 import {
@@ -14,8 +15,7 @@ import {
 } from "../ui/Live";
 import { Markdown } from "../ui/Markdown";
 import { relTime, usePalette } from "../ui/theme";
-import { MicButton, useVoice, VoiceBar } from "../ui/Voice";
-import { composerStyles } from "./RoomScreen";
+import { useVoice } from "../ui/Voice";
 
 /**
  * A group: one shared conversation with several agents (the portal's GroupChat). The group's id
@@ -23,6 +23,9 @@ import { composerStyles } from "./RoomScreen";
  */
 
 type Row = { kind: "msg"; id: string; m: Message } | { kind: "pending"; id: string; t: Task };
+
+const isMessage = (r: Row) => r.kind === "msg" && r.m.author !== "system";
+const isMine = (r: Row) => r.kind === "msg" && r.m.author === "user";
 
 export function GroupScreen({ route, navigation }: Props<"Group">) {
   const { id } = route.params;
@@ -35,6 +38,7 @@ export function GroupScreen({ route, navigation }: Props<"Group">) {
   const [tab, setTab] = useState<"chat" | "docs">("chat");
   const [sheet, setSheet] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
+  const chat = useRef<ChatListHandle>(null);
 
   useEffect(() => {
     loadThread(id).then(() => setError(null), (e: unknown) => setError(e instanceof Error ? e.message : "Couldn't load the group"));
@@ -120,12 +124,13 @@ export function GroupScreen({ route, navigation }: Props<"Group">) {
           {filtered && <FilterChip name={filtered.name} onClear={() => setFilter(null)} />}
           {error && !data && <View style={{ padding: 16 }}><ErrorBox text={error} /></View>}
           {!data && !error ? <ActivityIndicator style={{ flex: 1 }} color={p.muted} /> : (
-            <FlatList
-              inverted
+            <ChatList
+              ref={chat}
               data={rows}
-              keyExtractor={(r) => r.id}
-              contentContainerStyle={{ padding: 14, gap: 14 }}
-              ListFooterComponent={<Intro group={group} lead={lead} />}
+              isMessage={isMessage}
+              isMine={isMine}
+              resetKey={filter}
+              footer={<Intro group={group} lead={lead} />}
               renderItem={({ item }) => {
                 if (item.kind === "pending") {
                   const t = item.t;
@@ -162,7 +167,7 @@ export function GroupScreen({ route, navigation }: Props<"Group">) {
             </View>
           )}
           <LiveBars entries={liveEntries} steps={data?.steps ?? []} />
-          <GroupComposer group={group} members={members} lead={lead} />
+          <GroupComposer group={group} members={members} lead={lead} onSent={() => chat.current?.scrollToBottom()} />
         </KeyboardAvoidingView>
       )}
       <MembersSheet visible={sheet} members={memberRows} filter={filter}
@@ -196,9 +201,8 @@ function Meta({ name, color, note, time }: { name: string; color?: string; note?
   );
 }
 
-function GroupComposer({ group, members, lead }: { group: Group; members: Agent[]; lead?: Agent }) {
+function GroupComposer({ group, members, lead, onSent }: { group: Group; members: Agent[]; lead?: Agent; onSent: () => void }) {
   const p = usePalette();
-  const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,6 +225,7 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
       setText("");
       att.clear();
       voice.dismiss();
+      onSent();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't send");
     } finally {
@@ -228,50 +233,31 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
     }
   };
 
-  return (
-    <View style={[st.composer, { borderColor: p.border, backgroundColor: p.surface, paddingBottom: 8 + insets.bottom }]}>
-      {suggestions.length > 0 && (
-        <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={{ gap: 6, paddingVertical: 4 }}>
-          {suggestions.map((a) => (
-            <Pressable key={a.id} onPress={() => pick(a)} accessibilityRole="button" accessibilityLabel={`Mention ${a.name}`}
-              style={[st.suggest, { backgroundColor: p.surface2, borderColor: p.border }]}>
-              <Avatar name={a.name} color={a.color} size={16} />
-              <T size={13}>@{a.slug}</T>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-      <AttachmentStrip a={att} />
-      <VoiceBar v={voice} />
-      {error && <Text style={{ color: p.bad, fontSize: 13, marginBottom: 4 }}>{error}</Text>}
-      <View style={st.composerRow}>
-        <Pressable onPress={() => { att.pick().catch(() => setError("Couldn't open the photo picker")); }} accessibilityRole="button" accessibilityLabel="Attach images"
-          style={[st.attach, { borderColor: p.border }]} hitSlop={6}>
-          <Text style={{ color: p.text, fontSize: 20 }}>＋</Text>
+  const mentions = suggestions.length > 0 && !voice.busy ? (
+    <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 6, paddingVertical: 4, paddingHorizontal: 4 }}>
+      {suggestions.map((a) => (
+        <Pressable key={a.id} onPress={() => pick(a)} accessibilityRole="button" accessibilityLabel={`Mention ${a.name}`}
+          style={[st.suggest, { backgroundColor: p.surface, borderColor: p.border }]}>
+          <Avatar name={a.name} color={a.color} size={18} />
+          <T size={14}>@{a.slug}</T>
         </Pressable>
-        <MicButton v={voice} />
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          multiline
-          placeholder={`Message #${group.name} — @ to mention`}
-          placeholderTextColor={p.muted}
-          accessibilityLabel={`Message #${group.name}`}
-          style={[st.input, { color: p.text, backgroundColor: p.surface2 }]}
-        />
-        <Button small variant="primary" label="Send" onPress={send} disabled={!can} busy={busy} />
-      </View>
-      {att.uploading && <T muted size={12}>Uploading image…</T>}
-    </View>
+      ))}
+    </ScrollView>
+  ) : null;
+
+  return (
+    <Composer text={text} setText={setText} att={att} voice={voice} onSend={send} busy={busy} error={error} above={mentions}
+      placeholder={`Message #${group.name} — @ to mention`} inputLabel={`Message #${group.name}. Type @ to mention a member`}
+      sendLabel={`Send to #${group.name}`} />
   );
 }
 
 const st = StyleSheet.create({
-  ...composerStyles,
   tabs: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4 },
   msg: { gap: 4 },
   meta: { flexDirection: "row", alignItems: "center", gap: 6 },
   intro: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 10, marginBottom: 4, gap: 4 },
   paused: { marginHorizontal: 10, marginBottom: 6, padding: 10, borderRadius: 10 },
-  suggest: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
+  suggest: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, minHeight: 36, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth },
 });

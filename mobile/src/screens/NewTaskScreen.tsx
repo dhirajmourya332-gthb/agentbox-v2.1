@@ -4,12 +4,13 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import type { Props } from "../nav";
 import { api } from "../lib/api";
 import { useStore } from "../lib/store";
-import { AttachmentStrip, useAttachments } from "../ui/Attachments";
-import { Button, ErrorBox, Screen, T } from "../ui/kit";
+import { useAttachments } from "../ui/Attachments";
+import { Composer } from "../ui/Composer";
+import { Screen, T } from "../ui/kit";
 import { usePalette } from "../ui/theme";
-import { MicButton, useVoice, VoiceBar } from "../ui/Voice";
+import { useVoice } from "../ui/Voice";
 
-/** Start a task: pick the role, say what's needed. Each task gets its own room. */
+/** Start a task: pick the role (and an optional title), then say what's needed in the composer. Each task gets its own room. */
 export function NewTaskScreen({ navigation }: Props<"NewTask">) {
   const p = usePalette();
   const headerHeight = useHeaderHeight();
@@ -50,7 +51,6 @@ export function NewTaskScreen({ navigation }: Props<"NewTask">) {
     <Screen>
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }} keyboardVerticalOffset={headerHeight}>
         <ScrollView contentContainerStyle={st.body} keyboardShouldPersistTaps="handled">
-          {error && <ErrorBox text={error} />}
           <T weight="600">Who should do it?</T>
           {loaded && !roles.length && <T muted>No agents yet. Create one in the portal.</T>}
           <View style={{ gap: 8 }} accessibilityRole="radiogroup">
@@ -69,30 +69,21 @@ export function NewTaskScreen({ navigation }: Props<"NewTask">) {
             })}
           </View>
 
-          <T weight="600">What needs doing?</T>
-          <TextInput value={text} onChangeText={setText} multiline textAlignVertical="top" accessibilityLabel="What needs doing"
-            placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the portal." : "e.g. Fix the failing CI job."}
-            placeholderTextColor={p.muted} style={[...input, { minHeight: 140 }]} />
-          <VoiceBar v={voice} />
-          <AttachmentStrip a={att} />
-          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-            <Button small label={att.uploading ? "Uploading…" : "Attach images"} onPress={() => { att.pick().catch(() => setError("Couldn't open the photo picker")); }} />
-            <MicButton v={voice} size={36} />
-          </View>
-
           <T weight="600">Title <T muted size={13}>(optional)</T></T>
           <TextInput value={title} onChangeText={setTitle} maxLength={120} placeholder="Defaults to the first line" accessibilityLabel="Title"
             placeholderTextColor={p.muted} style={input} />
-
-          <Button variant="primary" label={busy ? "Starting…" : `Start${role ? ` with ${role.name}` : ""}`} onPress={start} disabled={!can} busy={busy} />
+          <T muted size={13}>Say what needs doing below{role ? `; ${role.name} starts on it in a new room` : ""}.</T>
         </ScrollView>
+        <Composer text={text} setText={setText} att={att} voice={voice} onSend={start} busy={busy} error={error} disabled={!role} maxLines={8}
+          placeholder="What needs doing?"
+          inputLabel="What needs doing" sendLabel={`Start${role ? ` with ${role.name}` : ""}`} />
       </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const st = StyleSheet.create({
-  body: { padding: 16, gap: 12, paddingBottom: 48 },
+  body: { padding: 16, gap: 12, paddingBottom: 24 },
   role: { flexDirection: "row", gap: 12, padding: 12, borderRadius: 10, borderWidth: 1.5 },
   swatch: { width: 4, borderRadius: 2 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },

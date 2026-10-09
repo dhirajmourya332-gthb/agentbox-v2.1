@@ -1,9 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
 import { useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "../lib/api";
 import { base64ToBase64url, fromBase64url } from "../crypto/encoding";
-import { usePalette } from "./theme";
 
 /**
  * Images attached to a message or new task. Each is uploaded right away (POST uploads, base64
@@ -73,29 +71,3 @@ export function useAttachments() {
 }
 
 export type Attachments = ReturnType<typeof useAttachments>;
-
-export function AttachmentStrip({ a }: { a: Attachments }) {
-  const p = usePalette();
-  if (!a.items.length) return null;
-  return (
-    <ScrollView horizontal contentContainerStyle={{ gap: 8, paddingVertical: 6 }} accessibilityLabel="Attached images">
-      {a.items.map((i) => (
-        <View key={i.id} style={[st.thumb, { borderColor: i.error ? p.bad : p.border, backgroundColor: p.surface2 }]}>
-          <Image source={{ uri: i.preview }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-          {!i.path && !i.error && <View style={st.overlay}><ActivityIndicator color="#fff" /></View>}
-          {i.error && <View style={st.overlay}><Text style={st.errText} numberOfLines={3}>{i.error}</Text></View>}
-          <Pressable onPress={() => a.remove(i.id)} accessibilityRole="button" accessibilityLabel="Remove image" hitSlop={8} style={st.x}>
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>✕</Text>
-          </Pressable>
-        </View>
-      ))}
-    </ScrollView>
-  );
-}
-
-const st = StyleSheet.create({
-  thumb: { width: 64, height: 64, borderRadius: 8, overflow: "hidden", borderWidth: 1 },
-  overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 2 },
-  errText: { color: "#fff", fontSize: 10, textAlign: "center" },
-  x: { position: "absolute", top: 2, right: 2, width: 20, height: 20, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" },
-});

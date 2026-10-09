@@ -2,7 +2,7 @@
   "expo": {
     "name": "agentbox",
     "slug": "agentbox",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "platforms": [
       "android"
     ],
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "local.agentbox.mobile",
-      "versionCode": 4,
+      "versionCode": 5,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
