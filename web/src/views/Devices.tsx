@@ -214,11 +214,19 @@ function PairedList({ devices, onChange }: { devices: Device[]; onChange: () => 
 
 function Notifications() {
   const [details, setDetails] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { api.pushSettings().then((s) => setDetails(s.details)).catch((e) => setError(e.message)); }, []);
+  // Flip at once and lock while saving: a slow server used to leave the box unchanged, and a second
+  // click then saved the opposite of what was meant.
   const toggle = async (on: boolean) => {
-    setError(null);
-    try { setDetails((await api.setPushDetails(on)).details); } catch (e: any) { setError(e.message); }
+    if (saving) return;
+    const before = details;
+    setError(null); setSaved(false); setDetails(on); setSaving(true);
+    try { setDetails((await api.setPushDetails(on)).details); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    catch (e: any) { setDetails(before); setError(e.message); }
+    finally { setSaving(false); }
   };
   return (
     <>
@@ -228,8 +236,10 @@ function Notifications() {
         only says <em>Something needs you</em>; open the app to see what.
       </p>
       <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-        <input type="checkbox" checked={!!details} disabled={details === null} onChange={(e) => toggle(e.target.checked)} />
+        <input type="checkbox" checked={!!details} disabled={details === null || saving} onChange={(e) => toggle(e.target.checked)} />
         Show details in notifications
+        {saving && <span className="hint">Saving…</span>}
+        {saved && <span className="hint">Saved</span>}
       </label>
       <p className="hint" style={{ marginTop: 4 }}>
         Off by default. When on, notifications include a short title such as "tech-lead replied: MSP API keys". That text
