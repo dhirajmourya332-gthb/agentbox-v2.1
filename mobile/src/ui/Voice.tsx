@@ -1,7 +1,7 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { ExpoSpeechRecognitionModule, type ExpoSpeechRecognitionErrorEvent, type ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Linking, View } from "react-native";
 import { api, HttpError } from "../lib/api";
 import * as keyring from "../lib/keyring";
 import {
@@ -9,8 +9,6 @@ import {
 } from "../lib/speech";
 import { useStore } from "../lib/store";
 import { showDialog } from "./dialog";
-import { T } from "./kit";
-import { usePalette } from "./theme";
 
 /**
  * Voice input, v2. Android recognises the speech itself (on-device when its offline model is
@@ -430,22 +428,10 @@ function offerModel(lang: string, status: OnDeviceStatus) {
     ]);
 }
 
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
-/** The mic button, next to the image attach button. */
-export function MicButton({ v, size = 40 }: { v: Voice; size?: number }) {
-  const p = usePalette();
-  return (
-    <Pressable onPress={() => { v.start().catch(() => {}); }} disabled={v.busy} accessibilityRole="button" accessibilityLabel="Speak instead of typing"
-      accessibilityState={{ disabled: v.busy }} hitSlop={6}
-      style={({ pressed }) => [st.mic, { width: size, height: size, borderRadius: size / 2, borderColor: p.border, opacity: v.busy ? 0.4 : pressed ? 0.7 : 1 }]}>
-      <MicGlyph color={p.text} />
-    </Pressable>
-  );
-}
+export const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 /** A small microphone drawn with views (no icon font). */
-function MicGlyph({ color }: { color: string }) {
+export function MicGlyph({ color }: { color: string }) {
   return (
     <View style={{ alignItems: "center" }}>
       <View style={{ width: 8, height: 13, borderRadius: 4, backgroundColor: color }} />
@@ -454,81 +440,3 @@ function MicGlyph({ color }: { color: string }) {
     </View>
   );
 }
-
-/** Listening / Cleaning up / result line, shown above the box while in use. */
-export function VoiceBar({ v }: { v: Voice }) {
-  const p = usePalette();
-  if (v.phase === "starting" || v.phase === "listening") {
-    const where = v.engine === "on-device" ? "on-device" : v.engine === "online" ? "Google" : null;
-    return (
-      <View style={{ marginBottom: 4 }}>
-        <View style={[st.bar, { backgroundColor: p.surface2 }]} accessibilityLiveRegion="polite">
-          <Text style={{ color: p.bad, fontSize: 14 }}>●</Text>
-          <T size={14} weight="600">{v.phase === "starting" ? "Starting…" : `Listening ${clock(v.seconds)}`}</T>
-          {where && (
-            <View style={[st.tag, { borderColor: p.border }]}
-              accessibilityLabel={where === "Google" ? "Speech goes to Google's online service" : "Speech stays on this phone"}>
-              <T muted size={11}>{where}</T>
-            </View>
-          )}
-          <View style={{ flex: 1 }} />
-          <Pressable onPress={v.cancel} accessibilityRole="button" accessibilityLabel="Cancel and discard" hitSlop={8} style={st.act}>
-            <T size={14} weight="600" muted>Cancel</T>
-          </Pressable>
-          <Pressable onPress={v.finish} disabled={v.phase !== "listening"} accessibilityRole="button" hitSlop={8}
-            style={[st.act, st.done, { backgroundColor: p.accent, opacity: v.phase === "listening" ? 1 : 0.5 }]}>
-            <Text style={{ color: p.accentText, fontWeight: "600", fontSize: 14 }}>Done</Text>
-          </Pressable>
-        </View>
-        {!!v.live && (
-          <Text style={[st.live, { color: p.muted }]} numberOfLines={3} ellipsizeMode="head">{v.live}</Text>
-        )}
-      </View>
-    );
-  }
-  if (v.phase === "cleaning") {
-    return (
-      <View style={[st.bar, { backgroundColor: p.surface2, marginBottom: 4 }]} accessibilityLiveRegion="polite">
-        <ActivityIndicator color={p.muted} size="small" />
-        <T size={14} style={{ flex: 1 }}>Cleaning up…</T>
-        <Pressable onPress={v.cancel} accessibilityRole="button" accessibilityLabel="Cancel and discard" hitSlop={8} style={st.act}>
-          <T size={14} weight="600" muted>Cancel</T>
-        </Pressable>
-      </View>
-    );
-  }
-  if (v.error) {
-    return (
-      <Pressable onPress={v.dismiss} accessibilityRole="button" accessibilityLabel={`${v.error} Dismiss`} style={st.note}>
-        <Text style={{ color: p.bad, fontSize: 13, flex: 1 }}>{v.error}</Text>
-        <T muted size={13}>✕</T>
-      </Pressable>
-    );
-  }
-  if (v.result) {
-    return (
-      <View style={st.note}>
-        <Text style={{ color: v.result.warn ? p.bad : p.muted, fontSize: 13, flex: 1 }}>{v.result.note}</Text>
-        {v.result.swap && (
-          <Pressable onPress={v.applyRaw} accessibilityRole="button" hitSlop={8}>
-            <T size={13} weight="600" style={{ color: p.accent }}>Use raw</T>
-          </Pressable>
-        )}
-        <Pressable onPress={v.dismiss} accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={8}>
-          <T muted size={13}>✕</T>
-        </Pressable>
-      </View>
-    );
-  }
-  return null;
-}
-
-const st = StyleSheet.create({
-  mic: { borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  bar: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 },
-  tag: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 },
-  live: { fontSize: 13, paddingHorizontal: 12, paddingTop: 4 },
-  act: { paddingVertical: 6, paddingHorizontal: 6 },
-  done: { borderRadius: 8, paddingHorizontal: 12 },
-  note: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 },
-});
