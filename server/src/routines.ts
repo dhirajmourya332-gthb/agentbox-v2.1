@@ -5,6 +5,7 @@ import { normalizeRules, parseRules, summarizePerms, type RoutineRules } from ".
 import { ensureWorkspace, getAgent, instanceTree, retireReplica, spawnInstance, type Agent } from "./agents.ts";
 import { currentUsage, enqueueTask, openTasksOf, resetSession } from "./runner.ts";
 import { isPaused } from "./control.ts";
+import { runLogged } from "./routineRuns.ts";
 
 /**
  * Routines: an agent's recurring jobs ("review open PRs every 2 hours"). Each run is a normal
@@ -35,6 +36,19 @@ run(`CREATE TABLE IF NOT EXISTS routine_runs (
   task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL
 )`);
 run(`CREATE INDEX IF NOT EXISTS routine_runs_by ON routine_runs(routine_id, at)`);
+// Run tracking (docs/CONTRACTS-v2.md § G, routineRuns.ts): when a run finished, how it ended, and
+// a one-line summary. Additive; existing rows are backfilled by backfillRuns() at startup.
+for (const [col, type] of [
+  ["finished_at", "TEXT"],
+  ["status", "TEXT"],  // running | done | failed | stopped | skipped (NULL: not backfilled yet)
+  ["summary", "TEXT"],
+] as const) {
+  if (!all<{ name: string }>(`PRAGMA table_info(routine_runs)`).some((c) => c.name === col)) {
+    run(`ALTER TABLE routine_runs ADD COLUMN ${col} ${type}`);
+  }
+}
+run(`CREATE INDEX IF NOT EXISTS routine_runs_at ON routine_runs(at)`);
+run(`CREATE INDEX IF NOT EXISTS routine_runs_open ON routine_runs(status) WHERE status = 'running' OR status IS NULL`);
 for (const [col, type] of [
   ["instance_id", "TEXT REFERENCES agents(id) ON DELETE SET NULL"],
   ["context_mode", "TEXT NOT NULL DEFAULT 'continue'"], // continue | fresh
@@ -275,13 +289,16 @@ export function deleteRoutine(id: string) {
 
 // --- running ----------------------------------------------------------------------
 
-function logRun(routineId: string, trigger: string, outcome: string, reason: string | null, taskId: string | null) {
+function logRun(routineId: string, trigger: string, outcome: string, reason: string | null, taskId: string | null, at = now()) {
+  const id = newId();
+  const skipped = outcome === "skipped";
   run(
-    `INSERT INTO routine_runs (id, routine_id, at, trigger, outcome, reason, task_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    newId(), routineId, now(), trigger, outcome, reason, taskId,
+    `INSERT INTO routine_runs (id, routine_id, at, trigger, outcome, reason, task_id, status, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, routineId, at, trigger, outcome, reason, taskId, skipped ? "skipped" : "running", skipped ? at : null,
   );
   const r = getRoutine(routineId);
   if (r) publish({ type: "routine.updated", routine: r });
+  runLogged(id);
 }
 
 export function runRoutine(id: string, trigger: "schedule" | "manual") {
@@ -312,6 +329,8 @@ export function runRoutine(id: string, trigger: "schedule" | "manual") {
   }
 
   ensureWorkspace(agent);
+  // The run starts now: its window includes the compaction queued just below and the run's own task.
+  const startedAt = now();
   const fresh = r.context_mode === "fresh";
   if (fresh) {
     for (const a of carriers(group)) run(`DELETE FROM agent_sessions WHERE agent_id = ?`, a.id);
@@ -340,7 +359,7 @@ testing or deployment, hand it to tech-lead (it joins this routine as its lead).
 state.md. End with a short summary of this run; if there was nothing to do, say so in one line.`,
     input: { author: "routine", content: `**${r.name}** · ${trigger === "manual" ? "run now" : "scheduled"} · ${when}` },
   });
-  logRun(id, trigger, "started", null, task.id);
+  logRun(id, trigger, "started", null, task.id, startedAt);
   return task;
 }
 

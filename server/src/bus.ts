@@ -26,7 +26,8 @@ export type BusEvent =
   | { type: "devices.changed" } // paired phones or their audit changed (portal Devices page / Activity)
   | { type: "progress.updated"; progress: any } // progress.ts: a running task's live status changed
   | { type: "progress.cleared"; agent_id: string; task_id: string } // its turn ended
-  | { type: "attention.updated"; item: any }; // attention.ts: a "needs you" item was created, refreshed or seen
+  | { type: "attention.updated"; item: any } // attention.ts: a "needs you" item was created, refreshed or seen
+  | { type: "routine-run.updated"; run: any }; // routineRuns.ts: a routine run started, changed or finished
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
@@ -34,7 +35,8 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(100);
 
 // Streaming deltas and live progress are too chatty to keep; everything else is the activity log.
-const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared"]);
+// Run updates are derived state (the run rows and routine.updated already record runs).
+const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared", "routine-run.updated"]);
 
 export function publish(event: BusEvent) {
   if (!EPHEMERAL.has(event.type)) {

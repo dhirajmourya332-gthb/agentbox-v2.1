@@ -32,6 +32,7 @@ import { VoiceError, cleanVoice, transcribeVoice } from "./voice.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
 import { startPush, wirePush } from "./push.ts";
 import { listProgress, startProgress } from "./progress.ts";
+import { listRuns, runDetail, startRoutineRuns } from "./routineRuns.ts";
 import { listAttention, markAllSeen, markRoomSeen, markSeen, onAttention, startAttention } from "./attention.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -430,6 +431,28 @@ app.post("/api/routines/:id/run", async (req) => {
   return { started: !!task, routine: getRoutine(r.id) };
 });
 
+// --- routine runs, active and archive (docs/CONTRACTS-v2.md § G) ---------------------------
+app.get("/api/routine-runs", async (req) => {
+  const q = req.query as any;
+  const state = q.state === undefined || q.state === "" ? undefined : String(q.state);
+  if (state !== undefined && state !== "active" && state !== "archive") throw new HttpError(400, "state is active or archive");
+  const limit = q.limit === undefined || q.limit === "" ? 30 : Number(q.limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new HttpError(400, "limit is 1 to 100");
+  const before = q.before ? String(q.before) : undefined;
+  if (before !== undefined && Number.isNaN(Date.parse(before))) throw new HttpError(400, "before is an ISO timestamp");
+  return {
+    runs: listRuns({
+      state: state as "active" | "archive" | undefined, routine_id: q.routine_id ? String(q.routine_id) : undefined,
+      before: before === undefined ? undefined : new Date(before).toISOString(), limit,
+    }),
+  };
+});
+app.get("/api/routine-runs/:id", async (req) => {
+  const d = runDetail((req.params as any).id);
+  if (!d) throw new HttpError(404, "No such run");
+  return d;
+});
+
 // --- live progress and "needs you" (docs/CONTRACTS-v2.md § A, B) ---------------------------
 app.get("/api/progress", async () => listProgress());
 app.get("/api/attention", async () => ({ items: listAttention() }));
@@ -460,6 +483,7 @@ if (fs.existsSync(webDist)) {
 migrateToInstances((m) => app.log.info(m));
 seedSkills();
 startRoutines();
+startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish
 // Push notifications to paired phones (push.ts); wired to "needs you" items below.
 startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });
 startProgress();

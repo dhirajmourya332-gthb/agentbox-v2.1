@@ -19,6 +19,8 @@ export type Progress = {
   state: "working" | "stalled";
   stalled_for_s: number | null;
   summary: string | null;
+  /** Routine work only (contract G): the routine run this task belongs to. */
+  run_id?: string | null;
 };
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
@@ -246,7 +248,16 @@ function placeOf(task: { thread_id: string | null; thread_kind: string | null; a
   const root = rootOf(agent);
   const by = root.created_by ?? "";
   if (by.startsWith("group:")) return { root_id: by.slice(6), group_id: by.slice(6) };
-  if (by.startsWith("routine:")) return { root_id: null, group_id: null };
+  if (by.startsWith("routine:")) {
+    let run_id: string | null = null;
+    // The routine's latest started run (routineRuns.ts); a working task keeps that run active.
+    try {
+      run_id = get<{ id: string }>(
+        `SELECT id FROM routine_runs WHERE routine_id = ? AND outcome = 'started' ORDER BY at DESC LIMIT 1`, by.slice(8),
+      )?.id ?? null;
+    } catch { /* no routine tables (tests that load progress alone) */ }
+    return { root_id: null, group_id: null, run_id };
+  }
   return { root_id: root.id, group_id: null };
 }
 
@@ -309,6 +320,7 @@ function compute(taskId: string, at: number): { p: Progress; summaryAt: number }
     state: stalled ? "stalled" : "working",
     stalled_for_s: stalled ? Math.round(Math.max(idleFor, shellFor) / 1000) : null,
     summary,
+    ...("run_id" in place ? { run_id: place.run_id } : {}),
   };
   return { p, summaryAt };
 }
@@ -316,7 +328,7 @@ function compute(taskId: string, at: number): { p: Progress; summaryAt: number }
 /** A running task's progress, computed from the database (null when it isn't running). */
 export const computeProgress = (taskId: string, at = Date.now()) => compute(taskId, at)?.p ?? null;
 
-const keyOf = (p: Progress) => JSON.stringify([p.activity, p.state, p.summary, p.step?.started_at ?? null, p.root_id, p.group_id]);
+const keyOf = (p: Progress) => JSON.stringify([p.activity, p.state, p.summary, p.step?.started_at ?? null, p.root_id, p.group_id, p.run_id ?? null]);
 
 function emit(agentId: string) {
   trailing.delete(agentId);

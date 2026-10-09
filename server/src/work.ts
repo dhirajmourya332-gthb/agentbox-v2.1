@@ -55,7 +55,7 @@ export function workList() {
   return { live, done };
 }
 
-const RECENT_TASKS = 30;
+export const RECENT_TASKS = 30;
 const STEP_FIELD_MAX = 4000;
 /** A step with its input and output cut to a readable size (the end of output is what matters). */
 export function capStep(s: any) {

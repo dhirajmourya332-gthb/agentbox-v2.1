@@ -60,6 +60,8 @@ const PHONE_EVENTS = new Set([
   "group.updated", "group.deleted", "routine.updated", "routine.deleted", "display.updated", "paused",
   // Live progress and "needs you" (CONTRACTS-v2 § A, B): the same records GET progress / attention return.
   "progress.updated", "progress.cleared", "attention.updated",
+  // Routine runs (contract G): the same records GET routine-runs returns.
+  "routine-run.updated",
 ]);
 
 // --- the allowlist ------------------------------------------------------------------------
@@ -68,9 +70,9 @@ const ID = "[A-Za-z0-9_-]{1,128}";
 const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
   // Groups (contract E): the list and a group's documents. A group's thread and posting to it are
   // threads/:id and threads/:id/messages. Creating, editing, deleting and continuing groups stay off.
-  // Live progress and "needs you" (contract A, B).
+  // Live progress and "needs you" (contract A, B). Routine runs, active and archive (contract G).
   ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control",
-    "groups", `groups/${ID}/documents`, "progress", "attention"]
+    "groups", `groups/${ID}/documents`, "progress", "attention", "routine-runs", `routine-runs/${ID}`]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
   ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe", "voice/clean",
     `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`]
