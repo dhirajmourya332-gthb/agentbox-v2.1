@@ -55,6 +55,17 @@ export function workList() {
   return { live, done };
 }
 
+const RECENT_TASKS = 30;
+const STEP_FIELD_MAX = 4000;
+/** A step with its input and output cut to a readable size (the end of output is what matters). */
+export function capStep(s: any) {
+  const cut = (v: unknown, tail: boolean) => {
+    if (typeof v !== "string" || v.length <= STEP_FIELD_MAX) return v;
+    return tail ? `… (${v.length - STEP_FIELD_MAX} chars cut)\n` + v.slice(-STEP_FIELD_MAX) : v.slice(0, STEP_FIELD_MAX) + `\n… (${v.length - STEP_FIELD_MAX} chars cut)`;
+  };
+  return { ...s, input: cut(s.input, false), output: cut(s.output, true) };
+}
+
 /** Everything that happened in a task room: all its instances' conversations, merged by time. */
 export function roomView(rootId: string) {
   const root = getAgent(rootId);
@@ -69,8 +80,13 @@ export function roomView(rootId: string) {
   const tMarks = tIds.map(() => "?").join(",") || "''";
   const messages = tIds.length ? all(`SELECT * FROM messages WHERE thread_id IN (${tMarks}) ORDER BY created_at, rowid`, ...tIds) : [];
   const tasks = tIds.length ? all(`SELECT * FROM tasks WHERE thread_id IN (${tMarks}) ORDER BY created_at`, ...tIds) : [];
-  const steps = tIds.length
-    ? all(`SELECT steps.* FROM steps JOIN tasks ON tasks.id = steps.task_id WHERE tasks.thread_id IN (${tMarks}) ORDER BY steps.seq`, ...tIds)
+  // Step logs only for running tasks and the most recent ones, each field capped: a long-lived
+  // room has thousands of steps (MBs of tool output) and building that froze the whole server.
+  const recent = new Set((tasks as any[]).slice(-RECENT_TASKS).map((t) => t.id));
+  for (const t of tasks as any[]) if (t.status === "running" || t.status === "queued") recent.add(t.id);
+  const stepIds = [...recent];
+  const steps = stepIds.length
+    ? all(`SELECT * FROM steps WHERE task_id IN (${stepIds.map(() => "?").join(",")}) ORDER BY seq`, ...stepIds).map(capStep)
     : [];
   return {
     root: instanceSummary(root),

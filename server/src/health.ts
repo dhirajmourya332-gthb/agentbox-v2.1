@@ -40,17 +40,32 @@ async function cliVersion(cmd: string, args: string[] = ["--version"]): Promise<
   }
 }
 
-export async function health() {
-  const [services, browser, claude, gh, aws] = await Promise.all([
+// The portal polls this often. Tool versions barely change, so they're cached for 10 minutes; the
+// whole answer is cached for 15 s and concurrent callers share one in-flight check.
+const TOOLS_TTL_MS = 10 * 60_000;
+const HEALTH_TTL_MS = 15_000;
+let tools: { at: number; value: Promise<{ claude: string | null; gh: string | null; aws: string | null }> } | null = null;
+let last: { at: number; value: Promise<any> } | null = null;
+
+function toolVersions() {
+  if (!tools || Date.now() - tools.at > TOOLS_TTL_MS) {
+    tools = { at: Date.now(), value: Promise.all([cliVersion("claude"), cliVersion("gh"), cliVersion("aws")]).then(([claude, gh, aws]) => ({ claude, gh, aws })) };
+  }
+  return tools.value;
+}
+
+async function check() {
+  const [services, browser, toolsNow] = await Promise.all([
     Promise.all(SERVICES.map(async (s) => [s, await serviceState(s)] as const)),
     browserState(),
-    cliVersion("claude"),
-    cliVersion("gh"),
-    cliVersion("aws"),
+    toolVersions(),
   ]);
-  return {
-    services: Object.fromEntries(services),
-    browser,
-    tools: { claude, gh, aws },
-  };
+  return { services: Object.fromEntries(services), browser, tools: toolsNow };
+}
+
+export function health() {
+  if (!last || Date.now() - last.at > HEALTH_TTL_MS) {
+    last = { at: Date.now(), value: check().catch((e) => { last = null; throw e; }) };
+  }
+  return last.value;
 }

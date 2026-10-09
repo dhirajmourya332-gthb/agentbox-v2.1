@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id, created_at);
 CREATE INDEX IF NOT EXISTS steps_task ON steps(task_id, seq);
 CREATE INDEX IF NOT EXISTS tasks_agent ON tasks(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS tasks_thread ON tasks(thread_id, created_at);
 `);
 
 export const now = () => new Date().toISOString();

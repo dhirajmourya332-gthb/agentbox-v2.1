@@ -4,6 +4,7 @@ import path from "node:path";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish, type AgentStatus } from "./bus.ts";
 import { rulesGuard, rulesNote } from "./rules.ts";
+import { capStep } from "./work.ts";
 import { displayWithImages, imagesForAgent } from "./uploads.ts";
 import { baseOf, DEFAULT_PER_CREATOR, ensureWorkspace, getAgent, homeOf, rootOf, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillsOf } from "./skills.ts";
@@ -562,10 +563,11 @@ function postAgentMessage(agent: Agent, task: any, content: string) {
 export function threadView(threadId: string) {
   const messages = all(`SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at, rowid`, threadId);
   const tasks = all(`SELECT * FROM tasks WHERE thread_id = ? ORDER BY created_at`, threadId);
-  const steps = all(
-    `SELECT steps.* FROM steps JOIN tasks ON tasks.id = steps.task_id WHERE tasks.thread_id = ? ORDER BY steps.seq`,
-    threadId,
-  );
+  // Same caps as task rooms: step logs for running and the most recent tasks only.
+  const recent = new Set((tasks as any[]).slice(-30).map((t) => t.id));
+  for (const t of tasks as any[]) if (t.status === "running" || t.status === "queued") recent.add(t.id);
+  const ids = [...recent];
+  const steps = ids.length ? all(`SELECT * FROM steps WHERE task_id IN (${ids.map(() => "?").join(",")}) ORDER BY seq`, ...ids).map(capStep) : [];
   return { messages, tasks, steps };
 }
 
