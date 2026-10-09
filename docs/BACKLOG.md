@@ -495,6 +495,72 @@ models already used in the company's infra.
 - From the app's home you can tell in a few seconds what every agent is doing and what needs you.
 - In any room or group you can see its members with live status, and open its documents.
 
+### 15. Microsoft Teams integration: agents in your team's channels
+**Requirement:** let the owner's Microsoft Teams colleagues discuss, plan, create epics and issues,
+and start work with the agents from one place. Teams itself is fine as that place: no need to bring
+colleagues into agentbox's UI.
+
+**Options considered**
+- **A. Agents join Teams as a bot** (recommended). Agents get their own identity; colleagues need
+  nothing new.
+- **B. Colleagues join agentbox's portal.** Rejected for now: the portal would have to be exposed
+  beyond the Mac, with logins and roles.
+- **C. Agents use Teams through the shared browser** (as today). Avoid: agents act *as the owner*
+  (security audit H4).
+
+**Design (option A)**
+- **A Teams app "agentbox"** (one bot), installed in chosen channels or group chats.
+  - Messages like "@agentbox tech-lead, plan X as an epic" are routed to that role. Replies come back
+    in the thread, labelled with the agent's name.
+  - With resource-specific consent (RSC) the bot can read the whole thread, not only @mentions.
+- **Linking:** each linked Teams channel or chat is one agentbox group. Messages show in the
+  portal and app with each person's name, so groups, rooms, live progress and documents are reused.
+- **Approval cards for every side-effecting action:**
+  - creating an epic or issues on GitHub, starting coders, merging to `main`, deploying, `kubectl`
+    changes, AWS writes;
+  - the bot posts an Adaptive Card with **Approve / Reject**, and only the owner can approve (checked
+    by Entra object id);
+  - colleagues can discuss and request; they can't approve.
+- **Planning flow:** discuss in the channel; tech-lead drafts the epic and sub-issues as a message;
+  people comment and it's revised; the owner approves; tech-lead files them (board, sprint, owner
+  rules) and delegates. Progress posts back into the thread.
+- **Network: nothing inbound to the Mac or VM.** Bot messages go to an **Azure relay**:
+  - an Azure Function verifies the Bot Framework JWT, then puts the activity on a queue (Storage or
+    Service Bus);
+  - agentbox **polls** the queue (outbound) and replies through the Bot Connector REST API (outbound);
+  - a compromised relay can only add messages to the queue. It holds no agentbox, code or AWS access.
+- **Identity mapping:** Teams users map to names in agentbox. Optionally an allowlist of who can talk
+  to agents, and per-person rules (e.g. read-only requests to devops allowed directly; everything else
+  through tech-lead).
+- **Security:**
+  - every Teams message is treated as untrusted content (audit H8); the approval cards are the real
+    control;
+  - do the audit's Phase 1 first (least-privilege AWS and GitHub credentials for agents) before
+    opening agents to a team;
+  - audit every Teams-originated request in Activity with the person's name.
+
+**Needs from the owner**
+1. Microsoft 365: permission to upload a custom Teams app (tenant admin, or a one-time admin
+   approval).
+2. An Azure subscription: Bot registration (Azure Bot Service, free standard channels), a Function
+   (consumption plan) and a queue. Estimated **a few cents a month** at this volume.
+3. An Entra ID app registration for the bot (step-by-step guide to be written).
+4. Decisions: which channels or chats first; who may direct agents; whether direct read-only requests
+   to devops are allowed.
+
+**Effort (rough):** relay 1 day; agentbox Teams connector (queue polling, group mapping, replies,
+cards, approvals, identity) 2–3 days; owner/admin setup about 1 hour.
+
+### 16. Quick win: one-way agentbox updates into a Teams channel
+A Teams **Workflow** (incoming webhook) that posts agentbox updates into a chosen channel:
+- routine run summaries (e.g. "Dependabot: 34 merged, 16 need review");
+- "needs you" items;
+- merged PRs and deploys.
+
+It needs no Azure, no bot and no admin approval: the owner creates the Workflow in Teams and gives
+agentbox its URL, stored in /secrets. Agentbox only sends; it never receives. Content-light by default,
+with a setting for detail. Effort: about half a day.
+
 ## In progress
 
 _Nothing yet._
