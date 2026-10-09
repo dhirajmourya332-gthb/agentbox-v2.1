@@ -585,6 +585,18 @@ _Nothing yet._
 - **9. Room workspace** — `/work/rooms/<title>-<id>/` with `state.md`, `scripts/`, `notes/`, created on first use;
   every agent in the work is told to read/update it; listed in the room's Documents.
 
+- **10. Android app** (Expo, security first). Tailscale-only gateway with signed requests, QR pairing
+  plus owner approval, biometric unlock, FLAG_SECURE, no OTA. Two independent security reviews, and a
+  live verification of the network exposure.
+- **11. Live progress and stall alerts.** Status line per working agent, "Possibly stuck" with Stop
+  or Send a note, a Needs you list, and sidebar dots.
+- **12. Voice commands.** Free speech-to-text (Chrome on the Mac; Android's own recognizer, on-device
+  when possible), cleaned up by GLM on the Coding Plan.
+- **13. App visibility.** Overview home, Members and Documents in rooms and groups, Groups screens.
+  Push notifications (content-free by default, optional details).
+- **14. Routine runs: active vs. archive.** Routines running in the sidebar and on Routines, Run
+  history with outcome, duration and summary, a page per run. App: Active | History | Schedules.
+
 ---
 
 ## Parked from earlier discussions (not yet requested)
