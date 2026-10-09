@@ -25,6 +25,10 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* The app is a fixed-height frame with its own scrolling panes; the page itself never scrolls.
+   (Absolutely positioned bits such as .sr-only labels inside the scrolling sidebar/panel used to
+   escape to <body> and stretch the page, leaving a blank band below the app.) */
+html, body { overflow: hidden; }
 body { background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 code, pre, kbd, .mono { font-family: var(--mono); font-size: 13px; }
@@ -34,6 +38,7 @@ h1, h2, h3, p { margin: 0; }
 
 /* ---- Shell ---------------------------------------------------------------- */
 .shell {
+  position: relative; overflow: hidden;
   height: 100%; display: grid;
   grid-template-rows: 48px auto 1fr; grid-template-columns: 240px minmax(0, 1fr);
   grid-template-areas: "top top" "bar bar" "rail main";
