@@ -128,3 +128,35 @@ Builds to A–E:
 - Push registration with `expo-notifications`: ask for permission once, register on unlock,
   unregister on forget. Tapping a notification opens the app (unlock first), then the room or
   attention item from `data`.
+
+## G. Routine runs: active vs. archive (backlog 14)
+**What a run is.** A run starts at a `routine_runs` row with `outcome = 'started'`. It is **active** while
+the run's own task, or any task in the routine's instance tree created at or after the run's start
+(e.g. the routine's lead merging), is queued or running. When nothing is open any more, the run is
+**finished**:
+- `finished_at` is the last of those tasks' `finished_at`;
+- `status` is `failed` if the run's own task failed, `stopped` if it was stopped, otherwise `done`;
+- `summary` is the first ~300 characters of the routine agent's last reply in the run.
+
+Skipped runs (`outcome = 'skipped'`) count as finished, with status `skipped` and their `reason`.
+Columns are added to `routine_runs` with an additive migration, and existing rows are backfilled.
+
+```ts
+type RoutineRun = {
+  id: string; routine_id: string; routine_name: string; role_id: string; instance_id: string | null;
+  trigger: "schedule" | "manual"; started_at: string; finished_at: string | null;
+  status: "running" | "done" | "failed" | "stopped" | "skipped"; reason: string | null;
+  summary: string | null; duration_s: number | null; tasks: number;
+  members: { id: string; name: string; label: string | null; status: string }[];  // instances active in this run
+};
+```
+- `GET /api/routine-runs?state=active|archive&routine_id=&before=&limit=` (**phone**). `limit` is 1–100,
+  default 30. `archive` is newest first, paged with `before` (an ISO timestamp). `active` returns all.
+- `GET /api/routine-runs/:id` (**phone**) → `{ run: RoutineRun, messages, tasks, steps, threads, members }`.
+  Same shape as the room view, but only items inside the run's window `[started_at, finished_at ?? now]`
+  across the routine's instance tree. Steps are capped like room views (`capStep`, running and recent
+  tasks only).
+- Bus event `{ type: "routine-run.updated", run: RoutineRun }` on start, on any activity change of
+  members, and on finish. Forwarded to phones.
+- Live progress (contract A) for routine work: a `Progress` whose agent is in a routine tree carries
+  `run_id`.
