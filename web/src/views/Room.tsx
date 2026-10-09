@@ -100,8 +100,41 @@ export function Room({ id }: { id: string }) {
         </nav>
 
         <RoomTimeline>
-          {merged.msgs.length === 0 && <p className="hint" style={{ textAlign: "center" }}>Nothing here yet.</p>}
-          {merged.msgs.map((m) => {
+          <TimelineEntries msgs={merged.msgs} pending={pending} steps={merged.steps} members={members} byThread={byThread}
+            taskById={taskById} visible={visible} />
+        </RoomTimeline>
+
+        <LiveBar
+          items={Object.values(progress).filter((p) => p.root_id === id && visible(p.agent_id))}
+          taskOf={(tid) => taskById.get(tid)}
+          stepsOf={(tid) => merged.steps.filter((s) => s.task_id === tid)}
+          labelOf={members.length > 1 ? (aid) => member(aid)?.label : undefined}
+        />
+
+        {!done && rootThread && <RoomComposer threadId={rootThread} lead={root} />}
+        {done && <p className="composer-hint" style={{ padding: "12px 24px 20px", margin: 0, maxWidth: "none", textAlign: "center" }}>This task room is done; its history stays readable.</p>}
+      </section>
+      {panel && <RoomPanel id={id} members={members} workspace={view.workspace} onClose={() => setPanel(false)} />}
+    </>
+  );
+}
+
+/**
+ * The entries of a room-style timeline (task rooms, routine runs): messages from several
+ * instances' conversations merged by time, then what's still pending (queued, or running without
+ * live progress).
+ */
+export function TimelineEntries({ msgs, pending, steps, members, byThread, taskById, visible = () => true, empty = "Nothing here yet." }: {
+  msgs: Message[]; pending: Task[]; steps: Step[]; members: InstanceSummary[];
+  byThread: Map<string, string>; taskById: Map<string, Task>;
+  visible?: (...ids: (string | undefined)[]) => boolean; empty?: string;
+}) {
+  const { live, everyone, progress } = useStore();
+  const member = (instanceId: string | undefined) => members.find((m) => m.id === instanceId);
+  return (
+    <>
+          {msgs.length === 0 && pending.length === 0 && <p className="hint" style={{ textAlign: "center" }}>{empty}</p>}
+          {msgs.map((m) => {
             const inst = member(byThread.get(m.thread_id));
             const from = m.author !== inst?.id ? member(m.author) : undefined;
             if (!visible(inst?.id, from?.id)) return null;
@@ -123,7 +156,7 @@ export function Room({ id }: { id: string }) {
                     {!isReply && task?.source === "result" && <span className="hint">reported back</span>}
                     <time dateTime={m.created_at}>{relTime(m.created_at)}</time>
                   </div>
-                  {isReply && task && <WorkLog task={task} steps={merged.steps.filter((s) => s.task_id === task.id)} />}
+                  {isReply && task && <WorkLog task={task} steps={steps.filter((s) => s.task_id === task.id)} />}
                   <div className={!isReply && task && task.source !== "user" ? "handoff" : undefined}>
                     <Markdown text={m.content} home={author?.home} />
                   </div>
@@ -147,30 +180,17 @@ export function Room({ id }: { id: string }) {
                     <span className="room-tag">{inst.label ?? inst.name}</span>
                     <span className="hint">{t.status === "queued" ? "up next" : tracked ? "writing…" : "working…"}</span>
                   </div>
-                  {t.status === "running" && !tracked && <WorkLog task={t} steps={merged.steps.filter((s) => s.task_id === t.id)} />}
+                  {t.status === "running" && !tracked && <WorkLog task={t} steps={steps.filter((s) => s.task_id === t.id)} />}
                   {t.status === "running" && (live[t.id] ? <Markdown text={live[t.id]} streaming home={a?.home} /> : <p className="msg-note"><Spinner />Thinking…</p>)}
                 </div>
               </div>
             );
           })}
-        </RoomTimeline>
-
-        <LiveBar
-          items={Object.values(progress).filter((p) => p.root_id === id && visible(p.agent_id))}
-          taskOf={(tid) => taskById.get(tid)}
-          stepsOf={(tid) => merged.steps.filter((s) => s.task_id === tid)}
-          labelOf={members.length > 1 ? (aid) => member(aid)?.label : undefined}
-        />
-
-        {!done && rootThread && <RoomComposer threadId={rootThread} lead={root} />}
-        {done && <p className="composer-hint" style={{ padding: "12px 24px 20px", margin: 0, maxWidth: "none", textAlign: "center" }}>This task room is done; its history stays readable.</p>}
-      </section>
-      {panel && <RoomPanel id={id} members={members} workspace={view.workspace} onClose={() => setPanel(false)} />}
     </>
   );
 }
 
-function RoomTimeline({ children }: { children: React.ReactNode }) {
+export function RoomTimeline({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   useLayoutEffect(() => {

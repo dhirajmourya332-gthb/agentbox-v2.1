@@ -454,3 +454,39 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
     (an `attention.updated` with `seen_at`) when the task resumes or its turn ends. Routine tasks
     can stall too (`room_id` null).
   - Table `attention` (additive, `server/src/db.ts`).
+
+**Routine runs, active vs. archive (v2, docs/CONTRACTS-v2.md › G)** (server: `server/src/routineRuns.ts`)
+- Allowlisted reads, signed like the rest: `GET routine-runs?state=active|archive&routine_id=&before=&limit=`
+  and `GET routine-runs/:id`. Nothing else under `routine-runs` is reachable (no writes; stopping a
+  run is `POST tasks/:id/stop` for each of its open tasks, as the portal does). The query string
+  passes through unchanged (gateway limit 4096 bytes).
+- `GET routine-runs` returns `{ runs: RoutineRun[] }`. `state=active`: every running run, newest
+  first, unpaged. `state=archive`: finished runs (done, failed, stopped, skipped), newest first by
+  `started_at`, `limit` 1–100 (default 30), paged with `before` = the last item's `started_at`
+  (returns runs with `started_at < before`). No `state`: both, paged like the archive. A bad
+  `state`, `limit` or `before` is a 400.
+- `GET routine-runs/:id` → `{ run, messages, tasks, steps, threads, members }`: `members` are
+  room-view instance summaries (`id, name, label, role_id, color, parent_instance_id, created_by,
+  created_at, retired_at, kept, status, current, queued`) of the instances with a task in the run;
+  `threads` is `{id, agent_id, kind}[]` (dm, handoff and routine threads of the routine's tree);
+  `messages` are those in `[started_at, finished_at ?? now]`; `tasks` are the tree's tasks created
+  in the run's window; `steps` only for open tasks and the 30 most recent, each field capped at
+  4000 characters (`capStep`). Unknown id: the API's 404, so 410 through the gateway.
+- `RoutineRun` details: a run's window runs from its start to the next started run of the same
+  routine (a run can't start while the previous cycle is busy), so the lead's merge after the
+  routine agent finished belongs to the run, and nothing from another run leaks in. `tasks` counts
+  the tasks in the window; `members[].status` is the member's state within the run (`working`,
+  `queued`, else its last task's status: `done`, `failed`, `stopped`). `duration_s` is null while
+  running and for skipped runs (use `started_at` for elapsed). `summary` is the routine agent's last
+  reply in the run, whitespace collapsed, cut to 300 characters; null while running, for skipped
+  runs, and when the agent never replied. `instance_id` is the root of the run's tree.
+- Settling: a run is re-checked 250 ms after any `task.updated` in its tree (so a finished
+  helper's report-back is queued first), and every 60 s as a safety net; a task in the latest run's
+  window that becomes open again reopens that run.
+- Event `routine-run.updated` `{run}` (forwarded to phones): on start (also for skipped runs),
+  whenever the run's record changes (task count, a member's state, status, summary), and on finish.
+  Only changes are sent. Not kept in the events log.
+- Progress (contract A): records for tasks in a routine's tree carry `run_id` (the routine's
+  latest started run); other records have no `run_id` field. `root_id` stays `null` for routine work.
+- Storage: `routine_runs` gained `finished_at`, `status`, `summary` (additive; rows from before are
+  backfilled at startup), plus indexes `routine_runs_at(at)` and a partial index on open runs.

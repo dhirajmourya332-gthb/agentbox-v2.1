@@ -69,10 +69,28 @@ export type Group = {
   id: string; name: string; purpose: string; lead_agent_id: string | null; members: string[]; paused: boolean; created_at: string;
 };
 export type Thread = { id: string; kind: "dm" | "handoff" | "group" | "routine"; agent_id: string; peer_agent_id: string | null; name: string | null; last_at: string | null };
-export type RoutineRun = { id: string; at: string; trigger: "schedule" | "manual"; outcome: "started" | "skipped"; reason: string | null; task_id: string | null; task_status: string | null; task_error?: string | null };
+/** A row of a routine's own run log (GET /api/routines/:id). */
+export type RoutineRunRow = {
+  id: string; at: string; trigger: "schedule" | "manual"; outcome: "started" | "skipped"; reason: string | null; task_id: string | null;
+  task_status: string | null; task_error?: string | null;
+  status?: RunStatus | null; finished_at?: string | null; summary?: string | null;
+};
+export type RunStatus = "running" | "done" | "failed" | "stopped" | "skipped";
+/** A routine run, active or finished (server routineRuns.ts, CONTRACTS-v2 § G). */
+export type RoutineRun = {
+  id: string; routine_id: string; routine_name: string; role_id: string; instance_id: string | null;
+  trigger: "schedule" | "manual"; started_at: string; finished_at: string | null;
+  status: RunStatus; reason: string | null;
+  summary: string | null; duration_s: number | null; tasks: number;
+  members: { id: string; name: string; label: string | null; status: string }[];
+};
+export type RunDetail = {
+  run: RoutineRun; members: InstanceSummary[]; threads: { id: string; agent_id: string; kind: string }[];
+  messages: Message[]; tasks: Task[]; steps: Step[];
+};
 export type Routine = {
   id: string; agent_id: string; thread_id: string; name: string; cron: string; timezone: string; prompt: string;
-  enabled: boolean; created_by: string; created_at: string; next_runs: string[]; describe: string; last_run: RoutineRun | null;
+  enabled: boolean; created_by: string; created_at: string; next_runs: string[]; describe: string; last_run: RoutineRunRow | null;
   instance_id: string | null; context_mode: "continue" | "fresh"; workspace: string | null;
   group: { id: string; name: string; label: string | null; role_id: string; context_tokens: number | null }[];
   compaction: { runs_since: number; last_at: string | null; context_tokens: number; due: string[] };
@@ -104,6 +122,8 @@ export type Progress = {
   started_at: string; last_step_at: string;
   state: "working" | "stalled"; stalled_for_s: number | null;
   summary: string | null;
+  /** Routine work only: the run this task belongs to. */
+  run_id?: string | null;
 };
 /** A "needs you" item (server attention.ts, CONTRACTS-v2 § B). room_id: task-room root or group id. */
 export type Attention = {
@@ -208,7 +228,13 @@ export const api = {
   deleteGroup: (id: string) => call("DELETE", `/api/groups/${id}`),
   continueGroup: (id: string) => call("POST", `/api/groups/${id}/continue`),
   routines: () => call<Routine[]>("GET", "/api/routines"),
-  routine: (id: string) => call<{ routine: Routine; runs: RoutineRun[] }>("GET", `/api/routines/${id}`),
+  routine: (id: string) => call<{ routine: Routine; runs: RoutineRunRow[] }>("GET", `/api/routines/${id}`),
+  routineRuns: (q: { state?: "active" | "archive"; routine_id?: string; before?: string; limit?: number }) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") p.set(k, String(v));
+    return call<{ runs: RoutineRun[] }>("GET", `/api/routine-runs?${p}`);
+  },
+  routineRun: (id: string) => call<RunDetail>("GET", `/api/routine-runs/${id}`),
   createRoutine: (b: RoutineInput) => call<Routine>("POST", "/api/routines", b),
   updateRoutine: (id: string, b: RoutineInput) => call<Routine>("PUT", `/api/routines/${id}`, b),
   deleteRoutine: (id: string) => call("DELETE", `/api/routines/${id}`),
