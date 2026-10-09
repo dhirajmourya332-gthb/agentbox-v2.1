@@ -13,8 +13,8 @@ import { Button, Dot, ErrorBox, Screen, Segmented, T } from "../ui/kit";
 import {
   DocumentsList, entryFromProgress, entryFromTask, FilterChip, LiveBars, MembersSheet, MemberStack, type LiveEntry, type MemberRow,
 } from "../ui/Live";
-import { Markdown } from "../ui/Markdown";
-import { relTime, statusColor, usePalette } from "../ui/theme";
+import { buildRows, isMessageRow, isMineRow, TimelineItem, type TimelineRow } from "../ui/Timeline";
+import { statusColor, usePalette } from "../ui/theme";
 import { useVoice } from "../ui/Voice";
 
 /**
@@ -22,13 +22,6 @@ import { useVoice } from "../ui/Voice";
  * The composer talks to the room's lead task thread. Header: members (with live status and a
  * per-member filter). Tabs: conversation and documents.
  */
-
-type Row =
-  | { kind: "msg"; id: string; m: Message }
-  | { kind: "pending"; id: string; t: Task };
-
-const isMessage = (r: Row) => r.kind === "msg" && r.m.author !== "system";
-const isMine = (r: Row) => r.kind === "msg" && r.m.author === "user";
 
 export function memberBadge(m: InstanceSummary): MemberRow["badge"] {
   if (m.status === "done" || m.retired_at) return "done";
@@ -91,16 +84,12 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
     [progress],
   );
 
-  const rows: Row[] = useMemo(() => {
-    const replied = new Set(merged.msgs.map((m) => m.task_id).filter(Boolean));
-    const pending = merged.tasks.filter((t) => (t.status === "running" || t.status === "queued") && !replied.has(t.id));
-    const keep = (m: Message) => !filter || m.author === filter || byThread.get(m.thread_id) === filter;
-    const list: Row[] = [
-      ...merged.msgs.filter(keep).map((m) => ({ kind: "msg" as const, id: m.id, m })),
-      ...pending.filter((t) => !filter || t.agent_id === filter).map((t) => ({ kind: "pending" as const, id: `p-${t.id}`, t })),
-    ];
-    return list.reverse(); // inverted list: newest first
-  }, [merged, filter, byThread]);
+  const threadAgent = useCallback((tid: string) => byThread.get(tid), [byThread]);
+  const taskOf = useCallback((tid: string) => taskById.get(tid), [taskById]);
+  const rows: TimelineRow[] = useMemo(
+    () => buildRows(merged.msgs, merged.tasks, filter, threadAgent),
+    [merged, filter, threadAgent],
+  );
 
   const memberRows: MemberRow[] = useMemo(() => members.map((m) => {
     const role = agents.find((a) => a.id === m.role_id);
@@ -157,11 +146,6 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
 
   const rootThread = view.threads.find((t) => t.agent_id === root.id && t.kind === "dm")?.id;
 
-  const authorName = (m: Message) => {
-    if (m.author === "user") return "You";
-    if (m.author === "routine") return "Routine";
-    return member(m.author)?.name ?? "agent";
-  };
   const filtered = filter ? member(filter) : undefined;
 
   return (
@@ -178,40 +162,13 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
           <ChatList
             ref={chat}
             data={rows}
-            isMessage={isMessage}
-            isMine={isMine}
+            isMessage={isMessageRow}
+            isMine={isMineRow}
             resetKey={filter}
             footer={<RoomHeader root={root} members={members} />}
-            renderItem={({ item }) => {
-              if (item.kind === "pending") {
-                const t = item.t;
-                const inst = member(t.agent_id);
-                const steps = merged.steps.filter((s) => s.task_id === t.id);
-                const last = steps[steps.length - 1];
-                return (
-                  <View style={st.msg}>
-                    <Meta name={inst?.name ?? "agent"} tag={inst?.label ?? undefined} color={inst?.color} note={t.status === "queued" ? "up next" : "working…"} />
-                    {t.status === "running" && last && <T muted size={13} numberOfLines={2}>{last.summary || last.name}</T>}
-                    {t.status === "running" && (live[t.id] ? <Markdown text={live[t.id]} /> : <ActivityIndicator color={p.muted} style={{ alignSelf: "flex-start" }} />)}
-                  </View>
-                );
-              }
-              const m = item.m;
-              const inst = member(byThread.get(m.thread_id));
-              if (m.author === "system") {
-                return <T muted size={13} style={{ textAlign: "center" }}>{inst ? `${inst.label ?? inst.name}: ` : ""}{m.content}</T>;
-              }
-              const task = m.task_id ? taskById.get(m.task_id) : undefined;
-              const isReply = !!task && task.agent_id === m.author;
-              const note = !isReply && task?.source === "agent" ? "handed off" : !isReply && task?.source === "result" ? "reported back" : undefined;
-              const mine = m.author === "user";
-              return (
-                <View style={[st.msg, mine && { backgroundColor: p.surface2, borderRadius: 12, padding: 10 }]}>
-                  <Meta name={authorName(m)} tag={inst?.label ?? undefined} color={mine ? undefined : member(m.author)?.color} note={note} time={m.created_at} />
-                  <Markdown text={m.content} />
-                </View>
-              );
-            }}
+            renderItem={({ item }) => (
+              <TimelineItem item={item} member={member} threadAgent={threadAgent} task={taskOf} steps={merged.steps} live={live} />
+            )}
           />
           <LiveBars entries={liveEntries} steps={merged.steps} />
           {!done && rootThread && <RoomComposer threadId={rootThread} lead={root} onSent={() => chat.current?.scrollToBottom()} />}
@@ -221,19 +178,6 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
       <MembersSheet visible={sheet} members={memberRows} filter={filter}
         onFilter={(f) => { setFilter(f); setTab("chat"); }} onClose={() => setSheet(false)} />
     </Screen>
-  );
-}
-
-function Meta({ name, tag, color, note, time }: { name: string; tag?: string; color?: string; note?: string; time?: string }) {
-  const p = usePalette();
-  return (
-    <View style={st.meta}>
-      {color && <Dot color={color} size={8} />}
-      <T weight="600" size={14}>{name}</T>
-      {tag && tag !== name && <T muted size={12} numberOfLines={1} style={{ flexShrink: 1 }}>{tag}</T>}
-      {note && <T muted size={12}>· {note}</T>}
-      {time && <Text style={{ color: p.muted, fontSize: 12, marginLeft: "auto" }}>{relTime(time)}</Text>}
-    </View>
   );
 }
 
@@ -288,8 +232,6 @@ function RoomComposer({ threadId, lead, onSent }: { threadId: string; lead: Inst
 
 const st = StyleSheet.create({
   tabs: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4 },
-  msg: { gap: 4 },
-  meta: { flexDirection: "row", alignItems: "center", gap: 6 },
   head: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 10, marginBottom: 4, gap: 4 },
   memberRow: { flexDirection: "row", alignItems: "center", gap: 8 },
 });

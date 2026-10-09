@@ -9,6 +9,7 @@ export type Stack = {
   Doc: { path: string; name: string };
   NewTask: undefined;
   Routines: undefined;
+  Run: { id: string; title?: string };
   Settings: undefined;
 };
 

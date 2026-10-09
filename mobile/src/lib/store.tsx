@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, connectEvents } from "./api";
-import type { Agent, Attention, Group, Message, Progress, RetiredAgent, Routine, Step, Task, ThreadData, Usage, WorkRoom } from "./types";
+import { api, connectEvents, HttpError, isRoutineRun } from "./api";
+import type { Agent, Attention, Group, Message, Progress, RetiredAgent, Routine, RoutineRun, Step, Task, ThreadData, Usage, WorkRoom } from "./types";
 
 /**
  * Live data while unlocked, kept in memory only (the provider unmounts on lock, dropping it).
@@ -27,16 +27,22 @@ type State = {
   attention: Attention[] | null;
   /** Recent tasks from the board, newest first. */
   recent: Task[];
+  /** Contract G: running routine runs, oldest first. Null until the server answers. */
+  runs: RoutineRun[] | null;
+  /** False when the server has no routine-run routes (404/410): the app hides those sections. */
+  runsSupported: boolean | null;
   error: string | null;
 };
 
-type Ev = { type: string; [k: string]: any };
+export type Ev = { type: string; [k: string]: any };
 type Action =
   | { type: "loaded"; agents: Agent[]; retired: RetiredAgent[]; groups: Group[]; usage: Usage | null; paused: boolean; routines: Routine[] }
   | { type: "work"; work: State["work"] }
   | { type: "progress"; list: Progress[] }
   | { type: "attention"; items: Attention[] }
   | { type: "recent"; tasks: Task[] }
+  | { type: "runs"; runs: RoutineRun[] }
+  | { type: "runsUnsupported" }
   | { type: "seen"; ids: string[] | "all" }
   | { type: "connected"; value: boolean }
   | { type: "thread"; id: string; data: ThreadData }
@@ -55,6 +61,11 @@ const sortAttention = (items: Attention[]) =>
     .sort((a, b) => (a.seen_at ? 1 : 0) - (b.seen_at ? 1 : 0) || b.created_at.localeCompare(a.created_at))
     .slice(0, 100);
 
+const sortRuns = (runs: RoutineRun[]) => [...runs].sort((a, b) => a.started_at.localeCompare(b.started_at));
+
+/** Older servers answer the routine-run routes with 404 (or 410): treat that as "not supported". */
+export const isMissingRoute = (e: unknown) => e instanceof HttpError && (e.status === 404 || e.status === 410);
+
 const isProgress = (x: any): x is Progress =>
   x && typeof x === "object" && typeof x.task_id === "string" && typeof x.agent_id === "string" && typeof x.activity === "string";
 const isAttention = (x: any): x is Attention =>
@@ -72,6 +83,10 @@ function reducer(s: State, a: Action): State {
       return { ...s, attention: sortAttention(a.items.filter(isAttention)) };
     case "recent":
       return { ...s, recent: a.tasks };
+    case "runs":
+      return { ...s, runs: sortRuns(a.runs.filter((r) => r.status === "running")), runsSupported: true };
+    case "runsUnsupported":
+      return { ...s, runs: null, runsSupported: false };
     case "seen": {
       if (!s.attention) return s;
       const at = new Date().toISOString();
@@ -121,6 +136,12 @@ function reducer(s: State, a: Action): State {
           delete next[e.task_id];
           return { ...s, progress: next };
         }
+        case "routine-run.updated": {
+          if (!isRoutineRun(e.run) || s.runsSupported === false) return s;
+          const run: RoutineRun = { ...e.run, members: Array.isArray(e.run.members) ? e.run.members : [] };
+          const rest = (s.runs ?? []).filter((r) => r.id !== run.id);
+          return { ...s, runsSupported: true, runs: sortRuns(run.status === "running" ? [...rest, run] : rest) };
+        }
         case "attention.updated":
           if (!isAttention(e.item)) return s;
           return { ...s, attention: sortAttention(upsert(s.attention ?? [], e.item)) };
@@ -165,6 +186,8 @@ type Store = State & {
   colorOf: (id: string) => string | undefined;
   /** Mark "needs you" items seen (optimistic; the server confirms with attention.updated). */
   markSeen: (ids: string[] | "all") => void;
+  /** Every live event, for screens that keep their own data (e.g. a routine run). Returns unsubscribe. */
+  subscribe: (f: (e: Ev) => void) => () => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -172,13 +195,18 @@ const Ctx = createContext<Store | null>(null);
 const INITIAL: State = {
   connected: false, loaded: false, agents: [], retired: [], groups: [], usage: null, paused: false,
   work: { live: [], done: [] }, workLoaded: false, routines: [], threads: {}, live: {},
-  progress: null, attention: null, recent: [], error: null,
+  progress: null, attention: null, recent: [], runs: null, runsSupported: null, error: null,
 };
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const openThreads = useRef(new Set<string>());
   const workTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const listeners = useRef(new Set<(e: Ev) => void>());
+  const subscribe = useCallback((f: (e: Ev) => void) => {
+    listeners.current.add(f);
+    return () => { listeners.current.delete(f); };
+  }, []);
 
   const refreshWork = useCallback(() => {
     clearTimeout(workTimer.current);
@@ -194,6 +222,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       api.progress().then((list) => dispatch({ type: "progress", list: Array.isArray(list) ? list : [] })).catch(() => {}),
       api.attention().then((r) => dispatch({ type: "attention", items: Array.isArray(r?.items) ? r.items : [] })).catch(() => {}),
       api.tasks().then((t) => dispatch({ type: "recent", tasks: Array.isArray(t) ? t : [] })).catch(() => {}),
+      api.routineRuns({ state: "active" }).then(
+        (runs) => dispatch({ type: "runs", runs }),
+        (e: unknown) => { if (isMissingRoute(e)) dispatch({ type: "runsUnsupported" }); },
+      ),
     ]);
   }, []);
 
@@ -231,6 +263,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       onClose: () => dispatch({ type: "connected", value: false }),
       onEvent: (e) => {
         dispatch({ type: "event", e });
+        listeners.current.forEach((f) => { try { f(e); } catch { /* a screen's bug mustn't stop the feed */ } });
         if (["agent.created", "agent.retired", "agent.updated", "agent.status", "task.updated", "agent.deleted"].includes(e.type)) refreshWork();
       },
     });
@@ -249,7 +282,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state.agents, state.retired],
   );
 
-  return <Ctx.Provider value={{ ...state, refresh, refreshWork, loadThread, nameOf, colorOf, markSeen }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ ...state, refresh, refreshWork, loadThread, nameOf, colorOf, markSeen, subscribe }}>{children}</Ctx.Provider>;
 }
 
 export function useStore() {
