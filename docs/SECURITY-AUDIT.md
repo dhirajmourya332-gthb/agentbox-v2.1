@@ -81,3 +81,13 @@ Nothing was changed. No secret values were printed.
 13. An egress allowlist proxy (C3).
 14. An approval gate for merges, pushes to `main`, workflow dispatches, AWS writes and DB writes (M5).
 15. Separate agent identities for the browser, an isolated Chromium (H4); a read-only Mongo user (H7); staging `.env` files (C3); off-box audit (M7).
+
+## Decisions and changes since the audit
+- **2026-10-09, Kubernetes:** tech-lead and devops use `kubectl` (context `brandsek-prod`) on the
+  production EKS cluster `brandsek-queues-cluster` with **cluster-admin**, through the owner's IAM
+  user. The owner chose this over a read-only role (`AmazonEKSViewPolicy`). **Risk accepted.**
+  - **Mitigation is instructions only:** `/team/kubernetes.md` (read-only freely; every change
+    needs the owner's explicit approval; deploy through the GitHub workflows; never print Secrets;
+    platform namespaces off limits).
+  - **Related finding:** the cluster API endpoint is public to `0.0.0.0/0` (AWS auth still
+    required). Consider restricting `publicAccessCidrs`.
