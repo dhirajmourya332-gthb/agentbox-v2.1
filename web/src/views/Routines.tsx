@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Routine, type RoutineInput, type RoutineRun } from "../api.ts";
+import { api, type Routine, type RoutineInput, type RoutineRunRow } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
 import { Avatar, Icon, relTime } from "../components/ui.tsx";
 import { EMPTY_RULES, RoutineRulesEditor } from "./RoutineRules.tsx";
+import { RunBadge, RunHistory, RunningNow, secs } from "../components/Runs.tsx";
 
 const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -29,10 +30,11 @@ function untilText(iso?: string) {
   return h < 24 ? `in ${h} h ${m % 60} min` : `in ${Math.floor(h / 24)} d ${h % 24} h`;
 }
 
-function RunState({ run }: { run: RoutineRun | null }) {
+function RunState({ run }: { run: RoutineRunRow | null }) {
   if (!run) return <span className="hint">Never run</span>;
   if (run.outcome === "skipped") return <span className="status"><span className="dot warn" />Skipped · {relTime(run.at)}</span>;
-  const s = run.task_status;
+  // The run's own status (it stays running while the routine's lead works); older rows: the task's.
+  const s = run.status ?? run.task_status;
   const tone = s === "done" ? "ok" : s === "running" || s === "queued" ? "" : "bad";
   const word = s === "done" ? "Done" : s === "running" ? "Running" : s === "queued" ? "Queued" : s === "stopped" ? "Stopped" : "Failed";
   return <span className="status"><span className={`dot ${tone}`} />{word} · {relTime(run.at)}</span>;
@@ -60,6 +62,8 @@ export function RoutinesList() {
           </div>
           <a className="btn primary" href="#/routines/new"><Icon name="plus" />New routine</a>
         </div>
+        <RunningNow />
+        {routines.length > 0 && <h2>Schedules</h2>}
         {routines.length === 0 ? (
           <div className="group-intro">
             <p>No routines yet.</p>
@@ -93,6 +97,7 @@ export function RoutinesList() {
             })}
           </div>
         )}
+        {routines.length > 0 && <RunHistory />}
       </div>
     </div>
   );
@@ -101,7 +106,7 @@ export function RoutinesList() {
 // ---------------------------------------------------------------------------
 
 export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }) {
-  const { agents, routines } = useStore();
+  const { agents, routines, activeRuns } = useStore();
   const existing = id ? routines.find((r) => r.id === id) : undefined;
   const [form, setForm] = useState<RoutineInput>(() => ({
     agent_id: existing?.agent_id ?? agentId ?? agents.find((a) => !a.base_agent_id)?.id ?? "",
@@ -115,7 +120,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
   }));
   const [preview, setPreview] = useState<{ next_runs: string[]; describe: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [runs, setRuns] = useState<RoutineRun[]>([]);
+  const [runs, setRuns] = useState<RoutineRunRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -126,7 +131,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
   useEffect(() => {
     if (!id) return;
     api.routine(id).then((r) => setRuns(r.runs)).catch(() => {});
-  }, [id, existing?.last_run?.id, existing?.last_run?.task_status]);
+  }, [id, existing?.last_run?.id, existing?.last_run?.task_status, activeRuns.some((r) => r.routine_id === id)]);
   useEffect(() => {
     const t = setTimeout(() => {
       api.previewCron(form.cron, form.timezone)
@@ -277,14 +282,22 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
             <span style={{ fontWeight: 500 }}>Recent runs</span>
             {runs.length === 0 ? <span className="hint">No runs yet.</span> : (
               <div className="rows">
-                {runs.map((r) => (
-                  <div key={r.id} className="row" style={{ fontSize: 13 }}>
-                    <RunState run={r} />
-                    <span className="hint">{r.trigger === "manual" ? "Run now" : "Scheduled"}</span>
-                    <span className="hint" style={{ flex: 1, minWidth: 0 }}>{r.reason ?? r.task_error ?? ""}</span>
-                    {r.task_id && <a href={`#/tasks/${r.task_id}`}>details</a>}
-                  </div>
-                ))}
+                {runs.map((r) => {
+                  const line = r.reason ?? r.summary ?? r.task_error ?? "";
+                  const inner = (
+                    <>
+                      {r.status ? <RunBadge status={r.status} /> : <RunState run={r} />}
+                      <span className="hint" style={{ whiteSpace: "nowrap" }} title={new Date(r.at).toLocaleString()}>
+                        {relTime(r.at)} · {r.trigger === "manual" ? "run now" : "scheduled"}
+                        {r.finished_at && r.status !== "skipped" && r.status !== "running" && <> · {secs(Math.round((new Date(r.finished_at).getTime() - new Date(r.at).getTime()) / 1000))}</>}
+                      </span>
+                      <span className="hint run-row-summary" style={{ flex: 1, minWidth: 0 }} title={line}>{line}</span>
+                    </>
+                  );
+                  return r.outcome === "started"
+                    ? <a key={r.id} className="row run-link" style={{ fontSize: 13 }} href={`#/routines/${existing.id}/runs/${r.id}`}>{inner}<Icon name="chevron" size={10} /></a>
+                    : <div key={r.id} className="row run-row skipped" style={{ fontSize: 13 }}>{inner}</div>;
+                })}
               </div>
             )}
             {existing.instance_id && <a href={`#/work/${existing.instance_id}`} style={{ fontSize: 13 }}>Open the routine's room</a>}

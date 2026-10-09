@@ -5,6 +5,7 @@ import { href, type Route } from "../router.ts";
 import { Avatar, Icon, StatusGlyph } from "./ui.tsx";
 import { PauseControl, PausedBar, ScreenPip, ThemeSwitch } from "./Controls.tsx";
 import { MarkDot, useRoomMarks, type Mark } from "./Live.tsx";
+import { RailRuns } from "./Runs.tsx";
 
 function UsageChip({ usage }: { usage: Usage | null }) {
   if (!usage) return null;
@@ -65,7 +66,7 @@ function VmChip() {
 function RailLink({ to, current, icon, children, className }: { to: Route; current: Route; icon?: ReactNode; children: ReactNode; className?: string }) {
   const skillsArea = ["skills", "skill", "new-skill", "draft"];
   const active = to.name === "routines"
-    ? ["routines", "routine", "new-routine"].includes(current.name)
+    ? ["routines", "routine", "new-routine", "routine-run"].includes(current.name)
     : to.name === "group"
     ? (current.name === "group" || current.name === "group-settings") && current.id === to.id
     : to.name === "skills"
@@ -177,7 +178,7 @@ function TeamItem({ role, route }: { role: Agent; route: Route }) {
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const { agents, usage, drafts, board, groups, work, attention } = useStore();
+  const { agents, usage, drafts, board, groups, work, attention, activeRuns } = useStore();
   const marks = useRoomMarks();
   const needsYou = attention.filter((i) => !i.seen_at).length;
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
@@ -219,7 +220,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 
         <Section id="work" label="Work">
           {work.live.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
-          {work.live.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
+          {work.live.length === 0 && activeRuns.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
+          <RailRuns currentRunId={route.name === "routine-run" ? route.runId : undefined} />
           {work.done.length > 0 && (
             <>
               <button className="rail-more" aria-expanded={showDone} onClick={() => setShowDone(!showDone)}>

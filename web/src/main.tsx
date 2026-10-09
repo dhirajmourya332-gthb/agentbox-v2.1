@@ -15,6 +15,7 @@ import { Screen, System, Terminal } from "./views/Computer.tsx";
 import { TaskBoard } from "./views/Tasks.tsx";
 import { GroupChat, GroupEditor } from "./views/Groups.tsx";
 import { RoutineEditor, RoutinesList } from "./views/Routines.tsx";
+import { RoutineRunPage } from "./views/RoutineRun.tsx";
 import { Activity } from "./views/Activity.tsx";
 import { NewTask } from "./views/NewTask.tsx";
 import { Room } from "./views/Room.tsx";
@@ -57,6 +58,7 @@ function App() {
       {route.name === "documents" && <DocumentsPage />}
       {route.name === "routines" && <RoutinesList />}
       {route.name === "routine" && <RoutineEditor key={route.id} id={route.id} />}
+      {route.name === "routine-run" && <RoutineRunPage key={route.runId} routineId={route.routineId} runId={route.runId} />}
       {route.name === "new-routine" && <RoutineEditor agentId={route.agent} />}
       {route.name === "skills" && <SkillsList />}
       {route.name === "new-skill" && <SkillEditor />}

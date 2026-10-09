@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type DisplayHolder, type RetiredAgent, type WorkRoom, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage, type Progress, type Attention } from "./api.ts";
+import { api, type Agent, type DisplayHolder, type RetiredAgent, type WorkRoom, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage, type Progress, type Attention, type RoutineRun } from "./api.ts";
 
 type State = {
   connected: boolean;
@@ -29,6 +29,8 @@ type State = {
   progress: Record<string, Progress>;
   /** "Needs you" items, unseen first. */
   attention: Attention[];
+  /** Routine runs in progress, newest first (CONTRACTS-v2 § G). */
+  activeRuns: RoutineRun[];
 };
 
 type Action =
@@ -39,6 +41,7 @@ type Action =
   | { type: "routines"; routines: Routine[] }
   | { type: "work"; work: { live: WorkRoom[]; done: WorkRoom[] } }
   | { type: "live"; progress: Progress[]; attention: Attention[] }
+  | { type: "runs"; runs: RoutineRun[] }
   | { type: "event"; e: any };
 
 /** Unseen first, newest first; the server sends at most 100. */
@@ -65,6 +68,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, progress: Object.fromEntries(a.progress.map((p) => [p.task_id, p])), attention: sortAttention(a.attention) };
     case "work":
       return { ...s, work: a.work };
+    case "runs":
+      return { ...s, activeRuns: a.runs };
     case "board":
       return { ...s, board: Object.fromEntries(a.tasks.map((t) => [t.id, t])) };
     case "event": {
@@ -146,6 +151,20 @@ function reducer(s: State, a: Action): State {
           delete progress[e.task_id];
           return { ...s, progress };
         }
+        case "routine-run.updated": {
+          const others = s.activeRuns.filter((r) => r.id !== e.run.id);
+          // Keep the routines list's "last run" in step (routine.updated only comes when a run is logged).
+          const routines = s.routines.map((r): Routine => (r.last_run && r.last_run.id === e.run.id
+            ? { ...r, last_run: { ...r.last_run, status: e.run.status, finished_at: e.run.finished_at, summary: e.run.summary } }
+            : r));
+          return {
+            ...s,
+            routines,
+            activeRuns: e.run.status === "running"
+              ? [...others, e.run].sort((x, y) => y.started_at.localeCompare(x.started_at))
+              : others,
+          };
+        }
         case "attention.updated":
           return { ...s, attention: sortAttention([e.item, ...s.attention.filter((x) => x.id !== e.item.id)]).slice(0, 100) };
         case "turn.delta":
@@ -180,6 +199,8 @@ function reducer(s: State, a: Action): State {
 
 type Store = State & {
   everyone: Agent[];
+  /** Every live event, for views that keep their own data (e.g. a routine run's page). Returns an unsubscribe. */
+  onEvent: (fn: (e: any) => void) => () => void;
   loadThread: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -188,8 +209,13 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0, devicesVersion: 0, progress: {}, attention: [],
+    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0, devicesVersion: 0, progress: {}, attention: [], activeRuns: [],
   });
+  const listeners = useRef(new Set<(e: any) => void>());
+  const onEvent = useCallback((fn: (e: any) => void) => {
+    listeners.current.add(fn);
+    return () => { listeners.current.delete(fn); };
+  }, []);
   const openThreads = useRef(new Set<string>());
   // The Work list is derived on the server; refetch it (debounced) when tasks or agents change.
   const workTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -206,6 +232,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     Promise.all([api.progress(), api.attention()])
       .then(([p, a]) => dispatch({ type: "live", progress: p, attention: a.items }))
       .catch(() => {});
+    api.routineRuns({ state: "active" }).then((r) => dispatch({ type: "runs", runs: r.runs })).catch(() => {});
     refreshWork();
   }, []);
 
@@ -230,6 +257,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ws.onmessage = (m) => {
         const e = JSON.parse(m.data);
         dispatch({ type: "event", e });
+        listeners.current.forEach((fn) => { try { fn(e); } catch { /* a view's handler failing mustn't stop the stream */ } });
         if (["agent.created", "agent.retired", "agent.updated", "agent.status", "task.updated", "agent.deleted"].includes(e.type)) refreshWork();
       };
       ws.onclose = () => {
@@ -247,7 +275,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // Active and retired agents, for naming things in history.
   const everyone = [...state.agents, ...(state.retired as unknown as Agent[])];
-  return <Ctx.Provider value={{ ...state, everyone, loadThread, refresh }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ ...state, everyone, loadThread, refresh, onEvent }}>{children}</Ctx.Provider>;
 }
 
 export function useStore() {
