@@ -289,7 +289,7 @@ many instances run.
 - **Agent**: a role you hire through the interview. Shown under **Team**.
 - **Task** (instance): one piece of work by one agent. Shown by its title ("Backend API keys"),
   with `coder#2` as a small subtitle.
-- **Task room**: a task that started other tasks (tech-lead's "MSP API keys" plus its coder,
+- **Task room**: a task that started other tasks (tech-lead's "Partner API keys" plus its coder,
   devops… tasks). Opens as one combined timeline.
 
 ### Sidebar
@@ -297,7 +297,7 @@ many instances run.
 [ + New task ]
 Overview · Activity · Tasks · Routines · Documents · Skills
 WORK
- ▾ ◆ MSP API keys            ⟳     ← task room (has sub-tasks): accent diamond
+ ▾ ◆ Partner API keys         ⟳     ← task room (has sub-tasks): accent diamond
       Backend API keys       ⟳       coder#1
       Portal token page      ○       coder#2
  ▸ ○ Alert #3232 tinypool           ← single task

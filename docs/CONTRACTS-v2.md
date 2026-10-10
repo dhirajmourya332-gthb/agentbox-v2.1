@@ -1,4 +1,4 @@
-# Contracts for backlog 11, 12 and 13 plus push notifications
+# API contracts: live progress, voice, the app, push notifications and routine runs
 
 These are the shared contracts between the parallel workstreams. Each workstream builds to them
 exactly. If something is wrong or missing, note it in your final report; don't silently change
@@ -6,13 +6,13 @@ it. All `/api/*` routes are portal routes, protected by `guardApi`. Routes marke
 also be added to the gateway allowlist in `server/src/mobile.ts`, at `/m/v1/<same path>`, signed.
 Phone payloads are the same JSON.
 
-## A. Live progress (backlog 11): workstream "live"
+## A. Live progress: workstream "live"
 **Progress record**, one per working instance (a task in `running` status):
 ```ts
 type Progress = {
   agent_id: string; task_id: string; root_id: string | null;  // root_id = task-room root, or a group thread id for group turns
   group_id: string | null;
-  activity: string;          // plain words: "Waiting on CI for PR #4984", "Running tests in digital_risk-4950", "Writing reply"
+  activity: string;          // plain words: "Waiting on CI for PR #4984", "Running tests in web-app-4950", "Writing reply"
   step: { name: string; summary: string; started_at: string } | null;  // current step, if any
   started_at: string;        // task start
   last_step_at: string;      // last step start or finish
@@ -36,7 +36,7 @@ type Progress = {
 type Attention = {
   id: string; kind: "reply" | "failed" | "stalled" | "question";
   agent_id: string; task_id: string | null; room_id: string | null;  // room_id = task-room root id or group id
-  title: string;      // short, e.g. "tech-lead#1 replied: MSP API keys"
+  title: string;      // short, e.g. "tech-lead#1 replied: Partner API keys"
   created_at: string; seen_at: string | null;
 };
 ```
@@ -53,7 +53,7 @@ type Attention = {
   `onAttention(cb: (item: Attention) => void)`. Workstream "push" registers it to send
   notifications.
 
-## C. Voice (backlog 12): workstream "voice"
+## C. Voice: workstream "voice"
 **Voice v2 (what the clients use):** speech is recognised on the client by a free engine (the
 portal: Chrome's Web Speech API, `en-IN` by default, `en-US` and `hi-IN` selectable; the app:
 Android's own `SpeechRecognizer`). The server only tidies the text up:
@@ -90,7 +90,7 @@ pay-per-use ASR balance.
 Config is in `/secrets/zai.env`, read on each request: `ZAI_API_KEY`; `ZAI_ASR_URL` (default
 `https://api.z.ai/api/paas/v4/audio/transcriptions`); `ZAI_ASR_MODEL` (default `glm-asr-2512`);
 `ZAI_CHAT_URL` (default `https://api.z.ai/api/paas/v4/chat/completions`); `ZAI_CLEAN_MODEL`
-(default `glm-5.3-flash`); `ZAI_CHAT_KEY` (optional). Full spec: docs/BACKLOG.md item 12.
+(default `glm-5.3-flash`); `ZAI_CHAT_KEY` (optional).
 
 ## D. Push notifications: workstream "push"
 - `POST /m/v1/device/push-token` with `{ token: "ExponentPushToken[...]" }`, signed, gateway
@@ -119,7 +119,7 @@ Allowlist the existing read and post routes the app needs for groups:
 Use the actual route paths in `server/src/index.ts`, and list them in the
 MOBILE-PROTOCOL Implementation notes.
 
-## F. App (backlog 13 + voice UI + push client): workstream "mobile"
+## F. App (voice UI + push client): workstream "mobile"
 Builds to A–E:
 - Overview home: In progress from A, Needs you from B, Recently finished from `/m/v1/tasks`.
 - Members sheet and Documents tab in rooms and groups.
@@ -129,7 +129,7 @@ Builds to A–E:
   unregister on forget. Tapping a notification opens the app (unlock first), then the room or
   attention item from `data`.
 
-## G. Routine runs: active vs. archive (backlog 14)
+## G. Routine runs: active vs. archive
 **What a run is.** A run starts at a `routine_runs` row with `outcome = 'started'`. It is **active** while
 the run's own task, or any task in the routine's instance tree created at or after the run's start
 (e.g. the routine's lead merging), is queued or running. When nothing is open any more, the run is
