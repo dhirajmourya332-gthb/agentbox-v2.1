@@ -1,15 +1,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { enabled } from "./config.ts";
 
 const run = promisify(execFile);
 
+// Only the units of enabled modules (setup/modules/<id>/units/).
 const SERVICES = [
-  "agentbox-xvfb",
-  "agentbox-wm",
-  "agentbox-vnc",
-  "agentbox-novnc",
-  "agentbox-ttyd",
-  "agentbox-chromium",
+  ...(enabled("display") ? ["agentbox-xvfb", "agentbox-wm", "agentbox-vnc", "agentbox-novnc", "agentbox-chromium"] : []),
+  ...(enabled("terminal") ? ["agentbox-ttyd"] : []),
 ];
 
 async function serviceState(name: string): Promise<string> {
@@ -21,7 +19,9 @@ async function serviceState(name: string): Promise<string> {
   }
 }
 
-async function browserState(): Promise<{ ok: boolean; version?: string }> {
+async function browserState(): Promise<{ ok: boolean; version?: string; disabled?: true }> {
+  // No display module: no shared browser, and nothing is wrong.
+  if (!enabled("display")) return { ok: true, disabled: true };
   try {
     const res = await fetch("http://127.0.0.1:9222/json/version", { signal: AbortSignal.timeout(1500) });
     const body = (await res.json()) as { Browser?: string };

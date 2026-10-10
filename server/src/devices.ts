@@ -5,6 +5,9 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { all, db, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 import { b64urlBytes } from "./signing.ts";
+import { config } from "./config.ts";
+
+const servePort = config.mobile.serve_port;
 
 /**
  * Paired phones: pairing codes, the device registry and what the portal's Devices page shows.
@@ -334,7 +337,8 @@ export async function gatewayStatus(port: number, fresh = false): Promise<Gatewa
     ts.backend_state = typeof s.BackendState === "string" ? s.BackendState : null;
     const dns = typeof s.Self?.DNSName === "string" ? s.Self.DNSName.replace(/\.$/, "") : "";
     if (dns && /^[a-z0-9.-]+$/i.test(dns)) ts.dns_name = dns;
-    if (ts.backend_state === "Running" && ts.dns_name) ts.url = `https://${ts.dns_name}`;
+    // The portal owns :443 (access module); the gateway is served on config.mobile.serve_port.
+    if (ts.backend_state === "Running" && ts.dns_name) ts.url = `https://${ts.dns_name}${servePort === 443 ? "" : `:${servePort}`}`;
     ts.funnel_capable = funnelCapable(s.Self);
   } catch (e: any) {
     if (e?.code !== "ENOENT") {
@@ -355,7 +359,7 @@ export async function gatewayStatus(port: number, fresh = false): Promise<Gatewa
       const cfg = stdout.trim() ? JSON.parse(stdout) : {};
       ts.funnel = Object.values(cfg.AllowFunnel ?? {}).some(Boolean);
       for (const [hostPort, web] of Object.entries<any>(cfg.Web ?? {})) {
-        if (!hostPort.endsWith(":443")) continue;
+        if (!hostPort.endsWith(`:${servePort}`)) continue;
         const proxy = web?.Handlers?.["/"]?.Proxy;
         if (typeof proxy === "string") ts.serve_target = proxy;
       }

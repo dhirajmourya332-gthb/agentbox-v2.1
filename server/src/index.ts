@@ -34,10 +34,17 @@ import { startPush, wirePush } from "./push.ts";
 import { listProgress, startProgress } from "./progress.ts";
 import { listRuns, runDetail, startRoutineRuns } from "./routineRuns.ts";
 import { listAttention, markAllSeen, markRoomSeen, markSeen, onAttention, startAttention } from "./attention.ts";
+import { config, enabled, ports, publicConfig } from "./config.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const port = Number(process.env.PORT ?? 7700);
-const mobilePort = Number(process.env.AGENTBOX_MOBILE_PORT ?? 7710);
+// Ports and feature flags come from /etc/agentbox/config.yaml (config.ts). A disabled module's
+// routes aren't registered (they 404), and its timers and listeners don't start.
+const port = ports.portal;
+const mobilePort = ports.gateway;
+const MOBILE = enabled("mobile");
+const VOICE = enabled("voice");
+const PUSH = enabled("push");
+const DISPLAY = enabled("display");
 const webDist = path.resolve(here, "../../web/dist");
 
 const app = Fastify({ logger: { level: "info" } });
@@ -73,8 +80,9 @@ const mustAgent = (id: string) => {
 
 // --- system -----------------------------------------------------------------
 app.get("/api/health", health);
+app.get("/api/config/public", async () => publicConfig());
 app.get("/api/state", async () => ({
-  agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups(), paused: isPaused(), display: screen(),
+  agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups(), paused: isPaused(), display: DISPLAY ? screen() : null,
   retired: listRetired().map((a) => ({ id: a.id, name: a.name, color: a.color, base_agent_id: a.base_agent_id })),
 }));
 
@@ -87,15 +95,18 @@ app.post("/api/resume", async () => {
   setPaused(false);
   return { paused: false };
 });
-app.get("/api/control", async () => ({ paused: isPaused(), display: screen(), running: runningCount() }));
-app.post("/api/display/take", async () => {
-  takeDisplay();
-  return screen();
-});
-app.post("/api/display/release", async () => {
-  releaseDisplay();
-  return { ok: true };
-});
+app.get("/api/control", async () => ({ paused: isPaused(), display: DISPLAY ? screen() : null, running: runningCount() }));
+// The shared screen lock exists only with the display module.
+if (DISPLAY) {
+  app.post("/api/display/take", async () => {
+    takeDisplay();
+    return screen();
+  });
+  app.post("/api/display/release", async () => {
+    releaseDisplay();
+    return { ok: true };
+  });
+}
 
 // --- activity ---------------------------------------------------------------------
 app.get("/api/activity", async (req) => {
@@ -301,19 +312,21 @@ app.post("/api/uploads", { bodyLimit: 16 * 1024 * 1024 }, async (req) => {
 });
 // Voice input: transcribe and clean up; the text goes back into the box for review, never sent.
 // base64 of 15 MB of audio plus the JSON around it.
-app.post("/api/voice/transcribe", { bodyLimit: 9 * 1024 * 1024 }, async (req) => {
-  try { return await transcribeVoice(req.body); } catch (e: any) {
-    if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
-    throw new HttpError(500, "Transcription failed");
-  }
-});
-// Voice v2: the client recognises speech itself; this only tidies the text up. Never logged.
-app.post("/api/voice/clean", async (req) => {
-  try { return await cleanVoice(req.body); } catch (e: any) {
-    if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
-    throw new HttpError(500, "Cleanup failed");
-  }
-});
+if (VOICE) {
+  app.post("/api/voice/transcribe", { bodyLimit: 9 * 1024 * 1024 }, async (req) => {
+    try { return await transcribeVoice(req.body); } catch (e: any) {
+      if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
+      throw new HttpError(500, "Transcription failed");
+    }
+  });
+  // Voice v2: the client recognises speech itself; this only tidies the text up. Never logged.
+  app.post("/api/voice/clean", async (req) => {
+    try { return await cleanVoice(req.body); } catch (e: any) {
+      if (e instanceof VoiceError) throw new HttpError(e.statusCode, e.message);
+      throw new HttpError(500, "Cleanup failed");
+    }
+  });
+}
 app.post("/api/threads/:id/messages", async (req) => {
   const threadId = (req.params as any).id;
   const text = String((req.body as any)?.text ?? "");
@@ -465,7 +478,8 @@ app.post("/api/attention/:id/seen", async (req) => {
 });
 
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
-registerDeviceAdmin(app, mobilePort);
+// Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.
+if (MOBILE) registerDeviceAdmin(app, mobilePort);
 
 // --- live events ------------------------------------------------------------
 app.get("/api/events", { websocket: true }, (socket) => {
@@ -477,7 +491,7 @@ app.get("/api/events", { websocket: true }, (socket) => {
 if (fs.existsSync(webDist)) {
   await app.register(fastifyStatic, { root: webDist });
 } else {
-  app.get("/", async () => "UI not built: run scripts/deploy.sh");
+  app.get("/", async () => "UI not built: run `agentbox update`");
 }
 
 migrateToInstances((m) => app.log.info(m));
@@ -485,11 +499,12 @@ seedSkills();
 startRoutines();
 startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish
 // Push notifications to paired phones (push.ts); wired to "needs you" items below.
-startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });
+if (PUSH) startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });
 startProgress();
 startAttention();
-wirePush(onAttention); // new "needs you" items notify paired phones
+if (PUSH) wirePush(onAttention); // new "needs you" items notify paired phones
 // Loopback only: Lima forwards 127.0.0.1-bound guest ports to the Mac, and nothing else in the VM
 // (e.g. a tailnet interface) should reach the portal.
 await app.listen({ host: "127.0.0.1", port });
-await startMobileGateway(app, mobilePort);
+if (MOBILE) await startMobileGateway(app, mobilePort);
+app.log.info(`config: ${config.source}; modules on: ${Object.entries(publicConfig().modules).filter(([, v]) => v).map(([k]) => k).join(", ")}`);

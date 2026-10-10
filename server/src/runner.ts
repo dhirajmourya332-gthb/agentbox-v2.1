@@ -12,6 +12,7 @@ import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
 import { afterAgentReply, groupPrompt, isNoReply } from "./groups.ts";
 import { displayState, releaseDisplay, setPaused, useDisplay, whenRunning } from "./control.ts";
 import { heartbeat } from "./progress.ts";
+import { enabled } from "./config.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -209,14 +210,14 @@ your final report; whoever started this task will close it.` : ""}${scaleNote(ag
   separate git worktree for each piece of work so you don't disturb other agents).
 - Full control: passwordless sudo, docker, and these CLIs already signed in as the owner:
   gh (GitHub), aws, claude. Do not log them out or change their accounts.
-- Shared screen: X display :99, watched live by the owner. A shared Chromium runs on it with
+${enabled("display") ? `- Shared screen: X display :99, watched live by the owner. A shared Chromium runs on it with
   the owner's web logins (e.g. Microsoft Teams). Drive it with the \`browser\` tools.
   Other agents use this browser too: open your own tab for your work and close it when done.
   One agent drives the screen at a time: agentbox gives it to you when you use the browser (or
   xdotool/scrot) and refuses while someone else, or the owner, has it. If refused, do headless
   work and try again later; never wait in a loop. It's released when your turn ends.
   To open a URL from the shell use \`agentbox-open <url>\`.
-- Other GUI apps: \`xdotool\` for input, \`scrot /tmp/s.png\` then Read the image to see the screen.
+- Other GUI apps: \`xdotool\` for input, \`scrot /tmp/s.png\` then Read the image to see the screen.` : "- No shared screen or browser on this computer (the display module is off): work headless."}
 
 ## Team documents
 The owner keeps team-wide rules in /team/. Before creating or editing GitHub issues, read
@@ -448,12 +449,13 @@ async function runTask(taskId: string) {
         strictMcpConfig: true,
         skills: skillsOf(agent.id),
         mcpServers: {
-          browser: { type: "stdio", command: process.execPath, args: [PLAYWRIGHT_MCP, "--cdp-endpoint", CDP_ENDPOINT] },
+          // The shared browser exists only with the display module.
+          ...(enabled("display") ? { browser: { type: "stdio" as const, command: process.execPath, args: [PLAYWRIGHT_MCP, "--cdp-endpoint", CDP_ENDPOINT] } } : {}),
           team: teamServer(agent, taskId),
         },
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(agent) },
         env: { ...process.env, DISPLAY: ":99", BROWSER: "/usr/local/bin/agentbox-open" },
-        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), screenGuard(agent, taskId)] }] },
+        hooks: { PreToolUse: [{ hooks: enabled("display") ? [rulesGuard(agent), screenGuard(agent, taskId)] : [rulesGuard(agent)] }] },
       },
     });
     let result: any;

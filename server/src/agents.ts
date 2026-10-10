@@ -2,9 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
+import { paths } from "./config.ts";
 
-export const AGENTS_ROOT = process.env.AGENTBOX_AGENTS ?? "/agents";
-export const WORK_ROOT = process.env.AGENTBOX_WORK ?? "/work";
+export const AGENTS_ROOT = paths.agents;
+export const WORK_ROOT = paths.work;
 
 // docs/UI-DESIGN.md › Agent colours: hues that also step in lightness.
 const COLORS = ["#8AB4FF", "#F2B45A", "#C59BFF", "#5BD69A", "#FF8FB1", "#6FD3E0", "#E0D06F", "#B0B8C6"];
