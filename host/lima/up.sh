@@ -39,6 +39,9 @@ cat <<EOF
 
 agentbox is up in $VM_NAME:
 $(urls)
-  Guide     http://localhost:$PORT_GUIDE   (when the guide is installed)
 Shell: host/lima/shell.sh --instance $VM_NAME
 EOF
+if vm test -f /etc/systemd/system/agentbox-guide.service; then
+  echo "Setup guide (a new link any time: host/lima/guide.sh --instance $VM_NAME):"
+  vm agentbox guide --port "$PORT_GUIDE"
+fi

@@ -1,0 +1,21 @@
+[Unit]
+Description=agentbox setup guide (127.0.0.1:@GUIDE_PORT@: terminal, roadmap, setup agent)
+After=network.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@APP@/guide
+Environment=HOME=@HOME@ AGENTBOX_CONFIG=@CONFIG@
+Environment=PATH=@HOME@/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+UMask=0077
+# While the guide runs, the agent user may sudo without a password: the setup agent installs modules
+# as root, and the profile step writes the config. The grant is removed whenever the guide stops
+# (Finish, `agentbox guide stop`, a crash), together with the guide's links and portal-proxy secret.
+# With agent_sudo: true the core module grants the same permanently (/etc/sudoers.d/agentbox-agent).
+ExecStartPre=+/bin/sh -c 'umask 0337; echo "@USER@ ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agentbox-guide.tmp && visudo -cf /etc/sudoers.d/agentbox-guide.tmp >/dev/null && mv -f /etc/sudoers.d/agentbox-guide.tmp /etc/sudoers.d/agentbox-guide'
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --import tsx server.ts
+ExecStopPost=+/bin/sh -c 'rm -f /etc/sudoers.d/agentbox-guide /etc/sudoers.d/agentbox-guide.tmp @DATA@/guide/proxy-token; rm -rf @DATA@/guide/tokens; install -d -m 0700 -o @USER@ -g @USER@ @DATA@/guide/tokens'
+Restart=on-failure
+RestartSec=2
+
+# Not enabled at boot: `agentbox guide` starts it when you need it.

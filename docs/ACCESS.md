@@ -170,7 +170,7 @@ The guide runs these steps for you; the commands are here for reference. Choose 
 
 ### tailscale
 1. `install.sh` installs Tailscale from `pkgs.tailscale.com` (signed apt repo).
-2. **Your turn:** `sudo bash /opt/agentbox/app/setup/modules/access/tailscale-up.sh`. It runs
+2. **Your turn:** `sudo bash "$(agentbox config get paths.src)/setup/modules/access/tailscale-up.sh"`. It runs
    `tailscale up --hostname n-xxxxxxxx --ssh=false --accept-routes=false --accept-dns=false` and
    prints a login URL. Log in with **the account that will use the portal**.
 3. In the Tailscale admin console → **DNS**: MagicDNS and **HTTPS Certificates** must be on.
@@ -195,7 +195,7 @@ http://127.0.0.1:7710`, with the pairing URL including `:8443`).
 2. **Your turn:** set the hostname, then log in:
    ```
    agentbox config set cloudflare.hostname agentbox.example.com
-   sudo bash /opt/agentbox/app/setup/modules/access/cloudflared-login.sh   # opens the browser login
+   sudo bash "$(agentbox config get paths.src)/setup/modules/access/cloudflared-login.sh"   # opens the browser login
    ```
 3. `configure.sh`:
    - creates a named tunnel (`agentbox-xxxxxxxx`) with credentials in `/etc/cloudflared/tunnel.json`
@@ -208,7 +208,7 @@ http://127.0.0.1:7710`, with the pairing URL including `:8443`).
    agentbox config set cloudflare.team_domain <team>.cloudflareaccess.com
    agentbox config set cloudflare.aud <AUD tag>
    agentbox config set owner.email you@example.com
-   sudo bash /opt/agentbox/app/setup/modules/access/configure.sh   # adds the Access check to cloudflared too
+   sudo bash "$(agentbox config get paths.src)/setup/modules/access/configure.sh"   # adds the Access check to cloudflared too
    ```
 5. `verify.sh` checks that an unauthenticated request to `https://<hostname>` gets Cloudflare's
    login (a redirect to `<team>.cloudflareaccess.com`), not the portal, and that the portal refuses a

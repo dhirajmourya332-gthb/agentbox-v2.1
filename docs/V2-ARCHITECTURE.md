@@ -222,3 +222,27 @@ Minimal additions made while implementing sections 1–4, 6 and 7. Everything el
   `access: ssh-tunnel`; anywhere else it fails.
 - The portal's unit has `UMask=0077` and an optional `EnvironmentFile=-<secrets>/agentbox-web.env`
   (e.g. `EXPO_ACCESS_TOKEN`).
+
+## Changes (guide workstream)
+Details in docs/GUIDE.md.
+- **`guide/`:** Fastify server (`server.ts`, `src/`) + React page (`web/`, built to `dist/`), installed
+  by `guide/install.sh` (bootstrap's hook) into `<paths.app>/guide` as `agentbox-guide.service`
+  (the agent user; not enabled at boot). `agentbox guide` is `guide/agentbox-guide.sh`:
+  start + a one-time link, `link`, `stop`, `status`, `--tunnel`, `--port`. Bootstrap ends by running
+  it; `host/lima/up.sh` prints the link with the Mac port; `host/lima/guide.sh` prints a new one.
+- **Auth:** direct access needs a session from a one-time token (`<data>/guide/tokens/`, SHA-256,
+  30 min); loopback Host, own Origin, no cross-site fetches, JSON writes. After access is set up the
+  **portal serves the guide at `/setup/`** behind `createAccess` (new path kind `setup` in
+  `server/src/access.ts`, proxied with `X-Agentbox-Guide-Proxy` from `<data>/guide/proxy-token`;
+  `AccessConfig.ports.guide`, `accessProjection()` includes it). No separate `tailscale serve` /
+  `cloudflared` route.
+- **Sudo during setup:** the unit grants the agent user `NOPASSWD:ALL` in
+  `/etc/sudoers.d/agentbox-guide` while it runs and removes it when it stops (so `agent_sudo: false`
+  only takes effect after Finish / `agentbox guide stop`).
+- **Terminal:** node-pty 1.1.0, compiled on install (`build-essential`; it ships no Linux prebuilds).
+- **The profile step** is a guide step (`guide.profile`, a marker file in `<data>/guide/`), shown
+  under "Start here" with the Claude login gate and the setup agent. The setup agent starts only when
+  both are green.
+- **Fix (access module):** its steps referred to `<paths.app>/setup/modules/access/*.sh`, which
+  `deploy-app.sh` never copies (only `server/`, `web/`, `guide/`), so the `verify` check could never
+  pass. They now use `<paths.src>/setup/...` (docs/ACCESS.md likewise).

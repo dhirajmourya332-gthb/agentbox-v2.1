@@ -64,6 +64,8 @@ const access = createAccess({
   localTokenFile: process.env.AGENTBOX_LOCAL_TOKEN_FILE ?? path.join(dataDir, "local-token"),
   ttydCredentialFile: process.env.AGENTBOX_TTYD_CREDENTIAL_FILE ?? "/etc/agentbox/ttyd.credential",
   vncPasswordFile: process.env.AGENTBOX_VNC_PASSWORD_FILE ?? "/etc/agentbox/vnc.password",
+  // The setup guide (guide/), served at /setup/ behind the same login while it runs.
+  guideProxyTokenFile: process.env.AGENTBOX_GUIDE_PROXY_TOKEN_FILE ?? path.join(dataDir, "guide", "proxy-token"),
 });
 if (access.problem) app.log.error(`access: ${access.problem}; the portal refuses requests until it's fixed`);
 app.log.info(`access mode: ${access.mode}${access.host ? ` (https://${access.host})` : " (localhost only)"}`);

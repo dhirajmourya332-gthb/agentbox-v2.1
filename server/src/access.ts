@@ -56,6 +56,11 @@ export type AccessOptions = {
   vncPasswordFile?: string;
   /** Upstream host for the proxies (127.0.0.1). */
   upstreamHost?: string;
+  /**
+   * The setup guide's proxy secret (<data>/guide/proxy-token, written by the guide while it runs).
+   * /setup/* is proxied to the guide with it as X-Agentbox-Guide-Proxy; absent: /setup/ is a 503.
+   */
+  guideProxyTokenFile?: string;
 };
 
 export const SESSION_TTL_MS = 8 * 60 * 60_000;
@@ -238,13 +243,14 @@ const sameIdentity = (a: Identity, b: Identity) =>
 
 // --- the access object ----------------------------------------------------------------------------
 
-export type PathKind = "api" | "term" | "screen" | "static";
+export type PathKind = "api" | "term" | "screen" | "setup" | "static";
 
 export function pathKind(p: string): PathKind {
   const l = p.toLowerCase();
   if (l === "/api" || l.startsWith("/api/")) return "api";
   if (l === "/term" || l.startsWith("/term/")) return "term";
   if (l === "/screen" || l.startsWith("/screen/")) return "screen";
+  if (l === "/setup" || l.startsWith("/setup/")) return "setup";
   return "static";
 }
 
@@ -400,6 +406,7 @@ export function createAccess(opts: AccessOptions = {}) {
     upstreamHost: opts.upstreamHost ?? "127.0.0.1",
     ttydCredential: () => readSecretLine(opts.ttydCredentialFile),
     vncPassword: () => readSecretLine(opts.vncPasswordFile),
+    guideProxyToken: () => readSecretLine(opts.guideProxyTokenFile),
   };
 }
 
@@ -413,12 +420,17 @@ declare module "fastify" {
 
 // --- routes: auth, screen credential, /term and /screen proxies ----------------------------------
 
+/** The setup guide (guide/src/auth.ts) trusts this header, with the secret it wrote, from a loopback peer. */
+export const GUIDE_PROXY_HEADER = "x-agentbox-guide-proxy";
+type Upstream = "term" | "screen" | "setup";
+const PREFIX: Record<Upstream, "/term" | "/screen" | "/setup"> = { term: "/term", screen: "/screen", setup: "/setup" };
+const NAME: Record<Upstream, string> = { term: "terminal", screen: "screen", setup: "setup guide" };
 const FORWARD_REQ = ["accept", "accept-encoding", "accept-language", "user-agent", "if-none-match", "if-modified-since", "range", "cache-control", "pragma"];
 const DROP_RES = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "set-cookie", "server", "x-powered-by"]);
 const SAFE_SUBPATH = /^\/[A-Za-z0-9._~\/-]*$/;
 
 /** /term/x → /x for ttyd; /screen/x → /x for websockify. null when the path isn't one we forward. */
-export function upstreamPath(url: string, prefix: "/term" | "/screen") {
+export function upstreamPath(url: string, prefix: "/term" | "/screen" | "/setup") {
   const q = url.indexOf("?");
   const p = q < 0 ? url : url.slice(0, q);
   const query = q < 0 ? "" : url.slice(q);
@@ -444,8 +456,8 @@ export function registerAccessRoutes(app: FastifyInstance, access: Access) {
     return { password: access.vncPassword() };
   });
 
-  const target = (which: "term" | "screen") => (which === "term" ? access.ports.terminal : access.ports.screen);
-  const upstreamHeaders = (req: FastifyRequest, which: "term" | "screen") => {
+  const target = (which: Upstream) => (which === "term" ? access.ports.terminal : which === "screen" ? access.ports.screen : access.ports.guide);
+  const upstreamHeaders = (req: FastifyRequest, which: Upstream) => {
     const out: Record<string, string> = {};
     for (const k of FORWARD_REQ) {
       const v = req.headers[k];
@@ -456,18 +468,29 @@ export function registerAccessRoutes(app: FastifyInstance, access: Access) {
       const cred = access.ttydCredential();
       if (cred) out.authorization = `Basic ${Buffer.from(cred).toString("base64")}`;
     }
+    if (which === "setup") {
+      const secret = access.guideProxyToken();
+      if (secret) out[GUIDE_PROXY_HEADER] = secret;
+    }
     return out;
   };
 
-  const proxyHttp = (which: "term" | "screen") => async (req: FastifyRequest, reply: FastifyReply) => {
+  const proxyHttp = (which: Upstream) => async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.portalAuth) return reply.code(403).send({ error: "Not allowed" }); // the guard always runs first
-    const up = upstreamPath(req.url, which === "term" ? "/term" : "/screen");
+    const up = upstreamPath(req.url, PREFIX[which]);
     if (up === null) return reply.code(404).send();
+    const headers = upstreamHeaders(req, which);
+    if (which === "setup" && !headers[GUIDE_PROXY_HEADER]) {
+      return reply.code(503).header("cache-control", "no-store").send({ error: "The setup guide isn't running (start it on the VM with: agentbox guide)" });
+    }
+    // The guide's API takes JSON writes (the guard already refused anything else); re-send the parsed body.
+    const body = which === "setup" && req.method !== "GET" && req.body !== undefined ? Buffer.from(JSON.stringify(req.body)) : null;
+    if (body) { headers["content-type"] = "application/json"; headers["content-length"] = String(body.length); }
     reply.hijack();
     const res = reply.raw;
     const upReq = http.request({
-      host: access.upstreamHost, port: target(which), method: req.method, path: up, headers: upstreamHeaders(req, which),
-      timeout: 15_000,
+      host: access.upstreamHost, port: target(which), method: req.method, path: up, headers,
+      timeout: which === "setup" ? 120_000 : 15_000,
     }, (upRes) => {
       const headers: Record<string, string | string[]> = {};
       for (const [k, v] of Object.entries(upRes.headers)) if (v !== undefined && !DROP_RES.has(k)) headers[k] = v;
@@ -481,14 +504,14 @@ export function registerAccessRoutes(app: FastifyInstance, access: Access) {
     upReq.on("timeout", () => upReq.destroy(new Error("upstream timeout")));
     upReq.on("error", () => {
       if (!res.headersSent) res.writeHead(502, { "content-type": "application/json", "cache-control": "no-store" });
-      res.end(res.headersSent ? undefined : JSON.stringify({ error: `The ${which === "term" ? "terminal" : "screen"} isn't running` }));
+      res.end(res.headersSent ? undefined : JSON.stringify({ error: `The ${NAME[which]} isn't running` }));
     });
     req.raw.on("aborted", () => upReq.destroy());
-    upReq.end();
+    upReq.end(body ?? undefined);
   };
 
-  const proxyWs = (which: "term" | "screen") => (client: WebSocket, req: FastifyRequest) => {
-    const up = upstreamPath(req.url, which === "term" ? "/term" : "/screen");
+  const proxyWs = (which: Upstream) => (client: WebSocket, req: FastifyRequest) => {
+    const up = upstreamPath(req.url, PREFIX[which]);
     if (!req.portalAuth || up === null) return client.close(1008, "not allowed");
     const protocols = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const headers = upstreamHeaders(req, which);
@@ -517,8 +540,10 @@ export function registerAccessRoutes(app: FastifyInstance, access: Access) {
     client.on("error", () => upstream.terminate());
   };
 
-  for (const which of ["term", "screen"] as const) {
+  for (const which of ["term", "screen", "setup"] as const) {
     app.get(`/${which}`, async (_req, reply) => reply.redirect(`/${which}/`, 302));
     app.route({ method: "GET", url: `/${which}/*`, handler: proxyHttp(which), wsHandler: proxyWs(which) } as any);
   }
+  // The setup guide's API writes (JSON only; the guard has already checked Origin and the type).
+  app.route({ method: "POST", url: "/setup/*", handler: proxyHttp("setup") });
 }
