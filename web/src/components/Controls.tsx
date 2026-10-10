@@ -3,7 +3,29 @@ import { api } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Avatar, Icon, relTime } from "./ui.tsx";
 
-export const SCREEN_URL = `http://${location.hostname}:7701/vnc.html?autoconnect=1&resize=scale&reconnect=1&show_dot=1`;
+// The screen (noVNC) and terminal (ttyd) are served through the portal's /screen and /term proxies,
+// behind the same login and Origin checks as /api (docs/ACCESS.md). noVNC builds its WebSocket URL
+// from `path`, relative to the site root.
+export const SCREEN_URL = "/screen/vnc.html?autoconnect=1&resize=scale&reconnect=1&show_dot=1&path=screen/websockify";
+export const SCREEN_PREVIEW_URL = "/screen/vnc_lite.html?scale=true&view_only=true&path=screen/websockify";
+export const TERMINAL_URL = "/term/";
+
+/**
+ * A noVNC URL with the VNC password (x11vnc -passwdfile) in the fragment, which browsers never send
+ * to a server; noVNC reads `&password=` from the whole URL. null while the password is loading.
+ */
+export function useScreenUrl(base: string): string | null {
+  const [password, setPassword] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    api.screenCredential()
+      .then((r) => alive && setPassword(r.password))
+      .catch(() => alive && setPassword(null));
+    return () => { alive = false; };
+  }, []);
+  if (password === undefined) return null;
+  return password ? `${base}#&password=${encodeURIComponent(password)}` : base;
+}
 
 /** "coder · since 14:01 · Fix token refresh" — or that the screen is free. */
 export function ScreenHolder({ compact = false }: { compact?: boolean }) {
@@ -158,6 +180,7 @@ export function ScreenPip() {
   const agentOnScreen = !!display && display.holder !== "owner";
   const open = mode === "open" || (mode === "auto" && agentOnScreen);
   const setOpen = (v: boolean) => choose(v ? "open" : "closed");
+  const previewUrl = useScreenUrl(SCREEN_PREVIEW_URL);
 
   if (!open) {
     return (
@@ -174,7 +197,7 @@ export function ScreenPip() {
         <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Hide preview" title="Hide preview"><Icon name="close" size={14} /></button>
       </div>
       <div className="pip-screen">
-        <iframe src={`http://${location.hostname}:7701/vnc_lite.html?scale=true&view_only=true`} title="Shared screen preview (view only)" tabIndex={-1} />
+        {previewUrl && <iframe src={previewUrl} title="Shared screen preview (view only)" tabIndex={-1} />}
       </div>
     </aside>
   );

@@ -196,6 +196,9 @@ export const api = {
   activity: (agent?: string) => call<ActivityItem[]>("GET", `/api/activity${agent ? `?agent=${agent}` : ""}`),
   graph: (since: string) => call<{ edges: GraphEdge[] }>("GET", `/api/graph?since=${encodeURIComponent(since)}`),
   health: () => call<any>("GET", "/api/health"),
+  screenCredential: () => call<{ password: string | null }>("GET", "/api/screen/credential"),
+  authMe: () => call<{ mode: string; host: string | null; identity: unknown }>("GET", "/api/auth/me"),
+  logout: () => call<{ ok: true; logout_url: string | null }>("POST", "/api/auth/logout"),
   interview: () => call<{ questions: CoreQuestion[]; templates: Template[] }>("GET", "/api/interview"),
   followUps: (answers: Record<string, unknown>) =>
     call<{ questions: FollowUp[] }>("POST", "/api/interview/follow-ups", { answers }),

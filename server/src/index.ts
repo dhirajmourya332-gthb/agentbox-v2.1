@@ -4,7 +4,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { all, get } from "./db.ts";
+import { all, dataDir, get } from "./db.ts";
 import { subscribe } from "./bus.ts";
 import {
   createAgent, deleteAgent, dmThreadOf, getAgent, homeOf, listAgents, listMemory, listRetired, readInstructions, retireReplica, setInstanceMeta,
@@ -30,6 +30,7 @@ import {
 import { health } from "./health.ts";
 import { VoiceError, cleanVoice, transcribeVoice } from "./voice.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
+import { createAccess, registerAccessRoutes } from "./access.ts";
 import { startPush, wirePush } from "./push.ts";
 import { listProgress, startProgress } from "./progress.ts";
 import { listRuns, runDetail, startRoutineRuns } from "./routineRuns.ts";
@@ -48,9 +49,19 @@ class HttpError extends Error {
     super(message);
   }
 }
-// Every /api route and /api/events: localhost only (Host, Origin, JSON writes); requests the mobile
-// gateway injects are re-checked against its allowlist instead (mobile.ts).
-guardApi(app);
+// Portal auth (access.ts, docs/ACCESS.md): every /api route and /api/events, the /term and /screen
+// proxies, and in the remote access modes the whole site. ssh-tunnel: localhost only (Host, Origin,
+// JSON writes); tailscale / cloudflare: the owner's identity or session. Requests the mobile gateway
+// injects are re-checked against its allowlist instead (mobile.ts).
+const access = createAccess({
+  localTokenFile: process.env.AGENTBOX_LOCAL_TOKEN_FILE ?? path.join(dataDir, "local-token"),
+  ttydCredentialFile: process.env.AGENTBOX_TTYD_CREDENTIAL_FILE ?? "/etc/agentbox/ttyd.credential",
+  vncPasswordFile: process.env.AGENTBOX_VNC_PASSWORD_FILE ?? "/etc/agentbox/vnc.password",
+});
+if (access.problem) app.log.error(`access: ${access.problem}; the portal refuses requests until it's fixed`);
+app.log.info(`access mode: ${access.mode}${access.host ? ` (https://${access.host})` : " (localhost only)"}`);
+guardApi(app, access);
+registerAccessRoutes(app, access);
 app.setErrorHandler((err: any, _req, reply) => {
   const status = err.statusCode ?? 400;
   if (status >= 500) app.log.error(err);

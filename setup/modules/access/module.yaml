@@ -1,0 +1,101 @@
+id: access
+title: Access
+description: >-
+  How you reach the portal without opening any inbound port, plus the portal login.
+  tailscale (default): https://<node>.ts.net, tailnet only, Tailscale identity.
+  cloudflare: https://<your hostname> through a Cloudflare Tunnel, behind Cloudflare Access.
+  ssh-tunnel: localhost only, through an SSH / SSM / IAP port forward.
+  See docs/ACCESS.md.
+optional: false
+depends: [core]
+# Steps with `when` only apply to that access mode (`<config key> == <value>`); the scripts also
+# check the mode themselves, so running one in the wrong mode is a no-op.
+steps:
+  - id: choose
+    title: Choose how you'll reach the portal
+    human: true
+    instructions: |
+      Pick one (docs/ACCESS.md compares them):
+      - **tailscale** (recommended): the portal on your tailnet only. Needs a free Tailscale account
+        and the Tailscale app on your devices. Also what the phone app uses.
+      - **cloudflare**: the portal at a hostname on your Cloudflare domain, behind Cloudflare Access
+        (SSO or email code; only your email allowed). No VPN client needed.
+      - **ssh-tunnel**: localhost only; you open it through an SSH, SSM or IAP port forward.
+      In the terminal run, for example: `agentbox config set access tailscale`
+    copy: "agentbox config set access tailscale"
+    check: "agentbox config get access | grep -Eqx 'tailscale|cloudflare|ssh-tunnel'"
+
+  # --- tailscale ---------------------------------------------------------------------------
+  - id: tailscale-install
+    title: Install Tailscale
+    when: "access == tailscale"
+    run: install.sh
+    check: "command -v tailscale"
+  - id: tailscale-login
+    title: Log this VM in to your tailnet
+    when: "access == tailscale"
+    human: true
+    instructions: |
+      In the terminal run the command below. It brings Tailscale up under a random node name and
+      prints a login URL: open it and log in **with the account that will use the portal**. That
+      login becomes the portal's owner.
+    copy: "sudo bash \"$(agentbox config get paths.app)/setup/modules/access/tailscale-up.sh\""
+    check: "tailscale status --json 2>/dev/null | python3 -c 'import sys,json; sys.exit(json.load(sys.stdin).get(\"BackendState\")!=\"Running\")'"
+  - id: tailscale-configure
+    title: Serve the portal on your tailnet (HTTPS, no Funnel)
+    when: "access == tailscale"
+    run: configure.sh
+    check: "test -n \"$(agentbox config get tailscale.hostname)\" && test -n \"$(agentbox config get owner.tailscale_login)\""
+
+  # --- cloudflare --------------------------------------------------------------------------
+  - id: cloudflare-install
+    title: Install cloudflared
+    when: "access == cloudflare"
+    run: install.sh
+    check: "command -v cloudflared"
+  - id: cloudflare-login
+    title: Log cloudflared in to your Cloudflare account and pick the hostname
+    when: "access == cloudflare"
+    human: true
+    instructions: |
+      1. Choose the portal's hostname on a domain you have on Cloudflare, for example
+         `agentbox.example.com` (it must not exist yet), and set it:
+         `agentbox config set cloudflare.hostname agentbox.example.com`
+      2. Run the command below, open the URL it prints, sign in to Cloudflare and authorise the
+         zone (domain) the hostname is on. It saves the certificate for creating tunnels to
+         `/etc/cloudflared/cert.pem` (root only, 0600); it never leaves the VM.
+    copy: "sudo bash \"$(agentbox config get paths.app)/setup/modules/access/cloudflared-login.sh\""
+    check: "test -n \"$(agentbox config get cloudflare.hostname)\" && test -e /etc/cloudflared/cert.pem"
+  - id: cloudflare-tunnel
+    title: Create the tunnel and its service
+    when: "access == cloudflare"
+    run: configure.sh
+    check: "test -s /etc/cloudflared/config.yml && systemctl is-active --quiet cloudflared"
+  - id: cloudflare-access-policy
+    title: Put Cloudflare Access in front (only your email)
+    when: "access == cloudflare"
+    human: true
+    instructions: |
+      The tunnel is up, but **the portal refuses every request until this is done**. Follow
+      docs/ACCESS.md › "Cloudflare: the Access application" (the configure step printed the same
+      steps): create a self-hosted Access application for the hostname with one Allow policy for
+      your email only, then copy its **AUD tag** and your **team domain** and run:
+      `agentbox config set cloudflare.team_domain <team>.cloudflareaccess.com`
+      `agentbox config set cloudflare.aud <AUD tag>`
+      `agentbox config set owner.email <your email>`
+      `agentbox restart`
+    copy: "agentbox config set cloudflare.aud "
+    check: "test -n \"$(agentbox config get cloudflare.team_domain)\" && test -n \"$(agentbox config get cloudflare.aud)\" && test -n \"$(agentbox config get owner.email)\""
+
+  # --- ssh-tunnel --------------------------------------------------------------------------
+  - id: ssh-tunnel-configure
+    title: Port-forward commands
+    when: "access == ssh-tunnel"
+    run: configure.sh
+    check: "agentbox config get access | grep -qx ssh-tunnel"
+
+  # --- all modes ---------------------------------------------------------------------------
+  - id: verify
+    title: Verify the login is enforced and nothing listens publicly
+    run: verify.sh
+    check: "bash \"$(agentbox config get paths.app)/setup/modules/access/verify.sh\" --quiet"

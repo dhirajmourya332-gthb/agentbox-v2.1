@@ -9,6 +9,7 @@ import {
 } from "./devices.ts";
 import { pushDetails, sendTestPush, setPushDetails } from "./push.ts";
 import { b64urlBytes, canonicalMessage, verifySignature } from "./signing.ts";
+import { pathKind, requestLike, type Access, type PathKind } from "./access.ts";
 
 /**
  * The mobile gateway (docs/MOBILE-PROTOCOL.md): a second Fastify instance on 127.0.0.1:7710 that
@@ -91,44 +92,16 @@ function splitUrl(url: string) {
   return q < 0 ? { path: url, query: "" } : { path: url.slice(0, q), query: url.slice(q) };
 }
 
-// --- main-app side: localhost only, and the gateway's allowlist again -------------------------
-
-const LOOPBACK_NAME = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+// --- main-app side: portal auth (access.ts), and the gateway's allowlist again -----------------
 
 /**
- * Why a request to the main app's /api isn't from the owner's own browser or a local tool, or null.
- * - Host must be a loopback name: blocks DNS rebinding (a page whose name resolves to 127.0.0.1).
- * - Origin, when sent, must be a loopback origin: blocks other sites (and their WebSockets).
- * - A write with a body must be JSON: a foreign page can't send that without a CORS preflight.
- *   Bodyless POSTs (curl, the portal's buttons) need no content type.
+ * The main app's guard for every request: /api (and the /api/events WebSocket), the /term and
+ * /screen proxies, and (in the remote access modes) the static UI. The decision is access.ts's
+ * authorize(): Host, Origin, Sec-Fetch-Site, JSON writes, and in the remote modes the owner's
+ * identity or session. Requests the gateway injected (carrying the in-process token) are checked
+ * against the phone allowlist instead, and /api/devices* refuses them outright, as defence in depth.
  */
-function notLocal(req: FastifyRequest): { code: number; error: string } | null {
-  if (!LOOPBACK_NAME.test(String(req.headers.host ?? ""))) return { code: 403, error: "Open agentbox on localhost" };
-  const origin = req.headers.origin;
-  if (origin !== undefined) {
-    let host = "";
-    try { const u = new URL(origin); host = u.protocol === "http:" || u.protocol === "https:" ? u.host : ""; } catch { /* malformed */ }
-    // Exactly the portal's own origin: another localhost port (a dev server) is another site.
-    if (!LOOPBACK_NAME.test(host) || host.toLowerCase() !== String(req.headers.host ?? "").toLowerCase()) {
-      return { code: 403, error: "Cross-origin request refused" };
-    }
-  }
-  if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
-    const len = Number(req.headers["content-length"] ?? 0);
-    const hasBody = len > 0 || req.headers["transfer-encoding"] !== undefined;
-    if (hasBody && !/^application\/json(\s*;|$)/i.test(String(req.headers["content-type"] ?? ""))) {
-      return { code: 415, error: "Send JSON" };
-    }
-  }
-  return null;
-}
-
-/**
- * The main app's guard for every /api route and the /api/events WebSocket. Requests the gateway
- * injected (carrying the in-process token) are checked against the phone allowlist instead, and
- * /api/devices* refuses them outright, as defence in depth.
- */
-export function guardApi(app: FastifyInstance) {
+export function guardApi(app: FastifyInstance, access: Access) {
   app.addHook("onRequest", async (req, reply) => {
     const { path } = splitUrl(req.url);
     // The router decodes the path before matching (/%61pi/pause is /api/pause), so judge both the
@@ -136,28 +109,30 @@ export function guardApi(app: FastifyInstance) {
     let decoded = path;
     try { decoded = decodeURIComponent(path); } catch { return reply.code(400).send(); }
     const route = String(req.routeOptions?.url ?? "");
-    const isApi = (p: string) => p === "/api" || p.toLowerCase().startsWith("/api/");
-    if (!isApi(path) && !isApi(decoded) && !isApi(route)) return; // the static UI
-    if (decoded !== path) return reply.code(404).send();
+    const kinds = [pathKind(path), pathKind(decoded), pathKind(route)];
+    const kind: PathKind = kinds.includes("api") ? "api" : kinds.find((k) => k !== "static") ?? "static";
+    if (kind !== "static" && decoded !== path) return reply.code(404).send();
     const marker = req.headers[GATEWAY_HEADER];
     if (marker !== undefined) {
       const rest = path.slice(5);
-      if (!isGatewayToken(marker) || rest.startsWith("devices") || !allowedRoute(req.method, rest)) return reply.code(404).send();
+      if (kind !== "api" || !isGatewayToken(marker) || rest.startsWith("devices") || !allowedRoute(req.method, rest)) return reply.code(404).send();
       return;
     }
-    const bad = notLocal(req);
-    if (bad) return reply.code(bad.code).send({ error: bad.error });
+    const d = await access.authorize(requestLike(req), kind);
+    if (!d.ok) return reply.code(d.code).send({ error: d.error });
+    if (d.setCookie) reply.header("set-cookie", d.setCookie);
+    req.portalAuth = d;
   });
 }
 
 /**
- * The portal's device admin: never via the gateway, and (on top of guardApi) every write must be
- * JSON even without a body, so it always needs a CORS preflight.
+ * The portal's device admin: never via the gateway, only after the portal guard said yes (it runs
+ * first, as a global hook), and every write must be JSON even without a body, so it always needs a
+ * CORS preflight.
  */
 function adminGuard(req: FastifyRequest, reply: FastifyReply, done: () => void) {
   if (req.headers[GATEWAY_HEADER] !== undefined) return void reply.code(404).send();
-  const bad = notLocal(req);
-  if (bad) return void reply.code(bad.code).send({ error: bad.error });
+  if (!req.portalAuth?.ok) return void reply.code(403).send({ error: "Not allowed" });
   if (req.method !== "GET" && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
     return void reply.code(415).send({ error: "Send JSON" });
   }

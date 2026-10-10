@@ -230,6 +230,9 @@ recorded in the audit as "unpaired the phone".
 - Expired pending devices are deleted on access, every 15 s, and when the device list is read.
 
 **The main app (port 7700) is localhost-only**
+(In `access: ssh-tunnel` mode. In the tailscale and cloudflare modes the same checks apply against
+the configured hostname, plus the owner's identity or session, and `Sec-Fetch-Site` cross-site /
+same-site is refused in every mode: see docs/ACCESS.md.)
 Every `/api/*` route and the `/api/events` WebSocket refuse a request unless:
 - its `Host` is a loopback name (`localhost`, `127.0.0.1`, `[::1]`, any port), which blocks DNS
   rebinding (403);
