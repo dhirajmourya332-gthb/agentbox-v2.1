@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Build the agentbox phone app (Android APK) with EAS. Run as the agent user after `eas login`.
+#   agentbox-mobile-build [--profile preview]
+# Copies <src>/mobile to <work>/agentbox-mobile (the source may be read-only), adds
+# google-services.json from the secrets when the push module provided it, and starts the build.
+# EXPO_OWNER / EAS_PROJECT_ID come from the config (mobile.expo_owner, mobile.eas_project_id).
+set -euo pipefail
+profile=preview
+[ "${1:-}" = --profile ] && profile="${2:?}"
+cfg() { agentbox config get "$1" 2>/dev/null || true; }
+SRC="$(cfg paths.src)"; WORK="$(cfg paths.work)"; SECRETS="$(cfg paths.secrets)"
+DEST="$WORK/agentbox-mobile"
+[ -d "$SRC/mobile" ] || { echo "error: no mobile/ under $SRC" >&2; exit 1; }
+eas whoami >/dev/null 2>&1 || { echo "error: not logged in to Expo; run 'eas login' (the owner does this)" >&2; exit 1; }
+mkdir -p "$DEST"
+rsync -a --delete --exclude node_modules --exclude google-services.json "$SRC/mobile/" "$DEST/"
+if [ -s "$SECRETS/google-services.json" ]; then install -m 0600 "$SECRETS/google-services.json" "$DEST/google-services.json"; fi
+export EXPO_OWNER="${EXPO_OWNER:-$(cfg mobile.expo_owner)}"
+export EAS_PROJECT_ID="${EAS_PROJECT_ID:-$(cfg mobile.eas_project_id)}"
+cd "$DEST"
+npm install --no-audit --no-fund --loglevel=error
+exec eas build --platform android --profile "$profile" --non-interactive

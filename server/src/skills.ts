@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
+import { paths } from "./config.ts";
 import { getAgent, homeOf, listAgents, type Agent } from "./agents.ts";
 
 /**
@@ -12,7 +13,7 @@ import { getAgent, homeOf, listAgents, type Agent } from "./agents.ts";
  * the owner approves them into the library.
  */
 
-export const SKILLS_ROOT = process.env.AGENTBOX_SKILLS ?? "/skills";
+export const SKILLS_ROOT = paths.skills;
 const SEED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../seed-skills");
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{1,39}$/;

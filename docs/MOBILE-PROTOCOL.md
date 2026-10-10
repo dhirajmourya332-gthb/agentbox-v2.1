@@ -288,7 +288,7 @@ the raw text and `cleaned: false`. Tests: `server/test/voice-clean.test.ts`.
   CDP on 9222. Lima forwards loopback-bound guest ports: its default `guestIP: 127.0.0.1` "also
   matches bind addresses 0.0.0.0, :: and ::1". `scripts/install-units.sh` refuses to finish unless
   `ss` shows 7700, 7701, 7702 and 7710 on loopback only.
-- **Tailnet firewall** (`vm/bin/agentbox-tailnet-guard`, an nftables table `inet agentbox_tailnet`):
+- **Tailnet firewall** (`setup/modules/mobile/bin/agentbox-tailnet-guard`, an nftables table `inet agentbox_tailnet`):
   drops **all** input from `tailscale0`, and output to it except replies. sshd (needed by Lima, so
   on 0.0.0.0) and any dev server an agent starts are unreachable from the tailnet, and the VM
   can't dial other tailnet devices. A 60 s timer (`agentbox-tailnet-guard-watch.timer`) reloads the

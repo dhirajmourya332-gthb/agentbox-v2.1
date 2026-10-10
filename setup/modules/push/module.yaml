@@ -1,0 +1,25 @@
+id: push
+title: Push notifications
+description: '"Needs you" notifications on paired phones through Expo push and Firebase Cloud Messaging'
+optional: true
+depends: [mobile-app]
+steps:
+  - id: firebase
+    title: Create the Firebase project and add google-services.json
+    human: true
+    instructions: |
+      1. https://console.firebase.google.com → Add project (Analytics off is fine).
+      2. Add an Android app with the package name from mobile/app.json (android.package).
+      3. Download google-services.json and save it in the terminal:
+           `agentbox secret set google-services.json < google-services.json`
+      4. Project settings → Service accounts → Generate new private key; upload it to Expo with
+           `cd /work/agentbox-mobile && eas credentials` (Android → FCM V1 service account key).
+      5. Rebuild the app (`agentbox-mobile-build`) so it includes google-services.json.
+    copy: "agentbox secret set google-services.json"
+    check: "test -s \"$(agentbox config get paths.secrets)/google-services.json\""
+  - id: verify
+    title: Send a test notification
+    run: verify.sh
+    instructions: |
+      In the portal: Computer → Devices → your phone → Send test notification. It should arrive within seconds.
+    check: "agentbox api /api/config/public | grep -q '\"push\":true'"

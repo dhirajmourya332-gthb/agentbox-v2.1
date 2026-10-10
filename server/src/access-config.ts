@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { parse } from "yaml";
+import { accessProjection } from "./config.ts";
 
 /**
  * The slice of /etc/agentbox/config.yaml (docs/V2-ARCHITECTURE.md § 2) that portal auth needs.
@@ -54,12 +54,9 @@ let cached: AccessConfig | null = null;
  * is an error: falling back to defaults could silently change who may log in.
  */
 export function getAccessConfig(): AccessConfig {
+  // One config file for everything: the platform loader (config.ts) reads /etc/agentbox/config.yaml;
+  // this only projects and validates the access part of it.
   if (cached) return cached;
-  const file = process.env.AGENTBOX_CONFIG ?? "/etc/agentbox/config.yaml";
-  let text: string | null = null;
-  try { text = fs.readFileSync(file, "utf8"); } catch (e: any) {
-    if (e?.code !== "ENOENT") throw new Error(`Can't read ${file}: ${e?.message ?? e}`);
-  }
-  cached = text === null ? DEFAULT_ACCESS_CONFIG : toAccessConfig(parse(text));
+  cached = toAccessConfig(accessProjection());
   return cached;
 }

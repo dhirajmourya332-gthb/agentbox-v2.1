@@ -1,5 +1,6 @@
 import { get, run } from "./db.ts";
 import { clearPushToken, pushTargets } from "./devices.ts";
+import { enabled } from "./config.ts";
 
 /**
  * Push notifications to paired phones through Expo's push service (docs/CONTRACTS-v2.md › D).
@@ -269,6 +270,7 @@ export async function sendAttentionPush(item: Attention) {
 /** The portal's "Send test notification". Not coalesced, but limited to one per device per 5 s. */
 const lastTest = new Map<string, number>();
 export async function sendTestPush(deviceId: string): Promise<{ ok: boolean; error?: string; status: number }> {
+  if (!enabled("push")) return { ok: false, status: 404, error: "Push notifications are off (enable the push module)." };
   const token = pushTargets().find((d) => d.id === deviceId)?.push_token;
   if (!token) return { ok: false, status: 409, error: "This phone hasn't turned on notifications." };
   if (Date.now() - (lastTest.get(deviceId) ?? 0) < TEST_EVERY_MS) return { ok: false, status: 429, error: "Wait a few seconds before sending another." };

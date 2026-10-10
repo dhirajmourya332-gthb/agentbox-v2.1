@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { all } from "./db.ts";
 import { WORK_ROOT } from "./agents.ts";
+import { paths } from "./config.ts";
 
 /**
  * Voice input (docs/CONTRACTS-v2.md C). The owner speaks; the client's own
@@ -66,7 +67,7 @@ export class VoiceError extends Error {
 
 type Config = { asrKey: string; chatKey: string; asrUrl: string; asrModel: string; chatUrl: string; cleanModel: string; hotwordsFormat: string };
 
-const envPath = () => process.env.AGENTBOX_ZAI_ENV ?? "/secrets/zai.env";
+const envPath = () => process.env.AGENTBOX_ZAI_ENV ?? path.join(paths.secrets, "zai.env");
 
 function parseEnv(text: string) {
   const out: Record<string, string> = {};

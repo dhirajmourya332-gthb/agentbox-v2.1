@@ -1,0 +1,23 @@
+id: aws
+title: AWS
+description: AWS CLI v2 and the Session Manager plugin; credentials from an instance role (recommended) or SSO
+optional: true
+depends: [core]
+steps:
+  - id: install
+    title: Install the AWS CLI and the Session Manager plugin
+    run: install.sh
+    check: "command -v aws && command -v session-manager-plugin"
+  - id: login
+    title: Give the VM AWS credentials
+    human: true
+    instructions: |
+      Recommended on EC2: attach an instance role with least privilege (nothing to do here).
+      Otherwise run in the terminal: `aws configure sso` (or `aws sso login` when it expires).
+      Never paste long-lived access keys into chat.
+    copy: "aws configure sso"
+    check: "aws sts get-caller-identity"
+  - id: verify
+    title: Verify
+    run: verify.sh
+    check: "aws sts get-caller-identity"

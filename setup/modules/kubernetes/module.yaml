@@ -1,0 +1,24 @@
+id: kubernetes
+title: Kubernetes
+description: kubectl and a kubeconfig for your cluster (EKS through the aws module); team rules in /team/kubernetes.md
+optional: true
+depends: [aws]
+steps:
+  - id: install
+    title: Install kubectl
+    run: install.sh
+    check: "command -v kubectl"
+  - id: cluster
+    title: Choose the cluster and access level
+    human: true
+    instructions: |
+      Point kubectl at your cluster, e.g. for EKS:
+        `aws eks update-kubeconfig --name <cluster> --region <region>`
+      Give the VM's identity the least access that works (read-only to start). Then edit
+      /team/kubernetes.md: which namespaces agents may touch and what needs your approval.
+    copy: "aws eks update-kubeconfig --name <cluster> --region <region>"
+    check: "kubectl config current-context"
+  - id: verify
+    title: Verify
+    run: verify.sh
+    check: "kubectl auth can-i get pods"

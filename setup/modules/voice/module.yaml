@@ -1,0 +1,19 @@
+id: voice
+title: Voice input cleanup
+description: Tidies up dictated text with a GLM model (Z.ai); the key lives in <secrets>/zai.env
+optional: true
+depends: [core]
+steps:
+  - id: key
+    title: Add your Z.ai API key
+    human: true
+    instructions: |
+      Create an API key at https://z.ai (API keys), then in the terminal run
+        `agentbox secret set zai.env`
+      and type `ZAI_API_KEY=<your key>`, Enter, then Ctrl-D. The key never goes through the guide page.
+    copy: "agentbox secret set zai.env"
+    check: "grep -q '^ZAI_API_KEY=.' \"$(agentbox config get paths.secrets)/zai.env\""
+  - id: verify
+    title: Cleanup works
+    run: verify.sh
+    check: "agentbox api -d '{\"text\":\"um so this is uh a test\"}' /api/voice/clean | grep -q '\"cleaned\":true'"

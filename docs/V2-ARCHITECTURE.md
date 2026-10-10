@@ -172,3 +172,53 @@ rules") because the VM can't see the provider's firewall.
   quickstart for cloud and lima), `docs/` (architecture, modules, access, mobile, security model),
   SECURITY.md, CONTRIBUTING.md, and a LICENSE placeholder (the owner picks the license).
 - **A fresh git history at publish time** (one initial commit).
+
+## Changes (platform workstream)
+Minimal additions made while implementing sections 1–4, 6 and 7. Everything else is as above.
+- **Config keys added** (`setup/config.default.yaml`):
+  - `paths.src`: where the repo lives (lima: `/mnt/agentbox-src`; cloud: the clone bootstrap ran from);
+  - `agent_sudo: true|false`: passwordless sudo for the agent user (selftest warns while true);
+  - `docker: false`: docker is opt-in (it makes the agent user root-equivalent);
+  - `modules.terminal` (default true) and `modules.env-files` (default false) are listed explicitly;
+  - `mobile: { serve_port: 8443, expo_owner, eas_project_id }`.
+- **The phone gateway moves to `https://<node>.ts.net:8443`** (`mobile.serve_port`), because in v2 the
+  portal owns `tailscale serve :443`. The tailnet policy must allow the owner → `tag:…:443,8443`.
+  The pairing QR carries the port; the app already accepts origins with a port.
+- **No config file** (development, the in-process tests): built-in defaults equal pre-v2 behaviour:
+  every module on, `access: ssh-tunnel`, data in `./data`, gateway served on 443. The old env overrides
+  (`AGENTBOX_DATA`, `_AGENTS`, `_WORK`, `_SKILLS`, `PORT`, `AGENTBOX_MOBILE_PORT`, plus new
+  `AGENTBOX_TEAM`, `AGENTBOX_SECRETS`) still win over the file.
+- **`module.yaml`** also has `units: [...]` (the units to enable and start; every file under `units/`,
+  drop-in directories included, is installed with `@USER@ @HOME@ @APP@ @DATA@ @SECRETS@ @SRC@
+  @PORTAL_PORT@ @SCREEN_PORT@ @TERMINAL_PORT@ @GATEWAY_PORT@ @GUIDE_PORT@ @CONFIG@` filled in), and an
+  optional `disable.sh`. `install.sh`/`configure.sh` run as root; `verify.sh` runs as the agent user.
+- **CLI extras:** `agentbox module list`, `agentbox module check <id>` (the checks only, read-only),
+  `agentbox module install --enabled` (all enabled modules in dependency order). `agentbox guide`
+  runs `guide/agentbox-guide.sh` when the guide workstream provides it, else prints a stub.
+- **Hooks for the guide workstream:** `setup/bootstrap.sh` runs `guide/install.sh` if it exists
+  (env: `AGENTBOX_CONFIG`, `AGENTBOX_SRC`, `AGENTBOX_USER`, `AGENTBOX_HOME`); `setup/lib/deploy-app.sh`
+  also syncs `guide/` into `paths.app` when it exists. Lima forwards the guide port (7699) to
+  `<--ports base> - 1` on the Mac.
+- **Agreed with the access workstream** (`docs/ACCESS.md` on its branch):
+  - no `setup/modules/access` here (the CLI tolerates its absence when ordering dependencies);
+  - ttyd: `-i lo -O -W -c "$(cat /etc/agentbox/ttyd.credential)"`; the terminal module writes
+    `/etc/agentbox/ttyd.credential` (`agentbox:<32 random>`, 0600, the agent user's) and disables
+    Ubuntu's `ttyd.service`;
+  - x11vnc: `-passwdfile /etc/agentbox/vnc.password -localhost`; the display module writes the
+    password (8 alphanumerics, 0600, the agent user's);
+  - Lima forwards only the portal and the guide; the terminal and screen go through the portal
+    (`/term/`, `/screen/`);
+  - local `/api` callers send `X-Agentbox-Local-Token: <data>/local-token`: `agentbox api [-X M] [-d JSON]
+    <path>` does this, and the module checks, the CLI's busy check and the Lima scripts use it;
+  - steps may carry `when: "<key> == <value>"` (or `!=`); the CLI skips steps whose condition is false;
+  - `config.ts` exports `accessProjection()` for `access-config.ts`.
+- **Bootstrap defaults:** on lima the agent user is the login user (as before) and `access` defaults to
+  `ssh-tunnel` (the Lima localhost forwards); on cloud the user is `agentbox` and `access` is
+  `tailscale`. `--host`, `--user`, `--access` override.
+- **db-tunnel:** tunnels are files `<secrets>/tunnels/<name>.conf` (modes `ssh-ssm`, `ssh`, `ssm`),
+  saved with `agentbox secret set`; the command is `agentbox-tunnel start|stop|status|list|check`.
+  The old `mongodb_tunnel_*` commands are gone (company-specific).
+- **Selftest:** `sshd` (and systemd's socket for it) is an allowed listener on `host: lima` and with
+  `access: ssh-tunnel`; anywhere else it fails.
+- The portal's unit has `UMask=0077` and an optional `EnvironmentFile=-<secrets>/agentbox-web.env`
+  (e.g. `EXPO_ACCESS_TOKEN`).

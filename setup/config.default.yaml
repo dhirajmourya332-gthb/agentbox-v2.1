@@ -1,0 +1,38 @@
+# agentbox config (docs/V2-ARCHITECTURE.md § 2). Root-owned, 0644, no secrets.
+# Written once by setup/bootstrap.sh; change it with `sudo agentbox config set <key> <value>`.
+host: @HOST@              # cloud | lima
+access: @ACCESS@          # tailscale | cloudflare | ssh-tunnel (localhost only)
+user: @USER@              # the unix user agents run as
+agent_sudo: true          # passwordless sudo for the agent user (selftest warns: audit H3)
+docker: false             # install docker and add the agent user to its group (root-equivalent)
+paths:
+  src: @SRC@              # this repo (lima: the read-only mount)
+  app: /opt/agentbox/app
+  data: /opt/agentbox/data
+  work: /work
+  agents: /agents
+  team: /team
+  skills: /skills
+  secrets: /secrets
+ports:                    # all bound to 127.0.0.1
+  portal: 7700
+  screen: 7701
+  terminal: 7702
+  gateway: 7710
+  guide: 7699
+modules:                  # core, claude and access are always on
+  display: true
+  terminal: true
+  github: true
+  aws: false
+  kubernetes: false
+  db-tunnel: false
+  env-files: false
+  voice: false
+  mobile: false           # needs access: tailscale
+  mobile-app: false
+  push: false
+tailscale: { hostname: "" }                         # set by the access module
+cloudflare: { hostname: "", team_domain: "", aud: "" }  # set by the access module
+owner: { tailscale_login: "", email: "" }           # who may use the portal (set during setup)
+mobile: { serve_port: 8443, expo_owner: "", eas_project_id: "" }   # gateway: https://<node>.ts.net:<serve_port>

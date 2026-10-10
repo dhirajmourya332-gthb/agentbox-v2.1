@@ -2,9 +2,11 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { paths } from "./config.ts";
 
-export const dataDir = process.env.AGENTBOX_DATA ?? path.resolve("data");
-fs.mkdirSync(dataDir, { recursive: true });
+export const dataDir = paths.data;
+// The DB holds conversations and tokens: not readable by anyone but the agent user.
+fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 
 export const db = new DatabaseSync(path.join(dataDir, "agentbox.db"));
 db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");

@@ -1,0 +1,22 @@
+id: claude
+title: Claude Code
+description: The Claude Code CLI for the agent user (agents run through the Agent SDK, which uses its login)
+optional: false
+depends: [core]
+steps:
+  - id: install
+    title: Install the Claude Code CLI
+    run: install.sh
+    check: "command -v claude"
+  - id: login
+    title: Log in to Claude
+    human: true
+    instructions: |
+      In the terminal run `claude`, then type `/login` and finish the sign-in in your browser
+      (a Claude subscription, or an Anthropic Console account). Then type `/exit`.
+    copy: "claude"
+    check: "test -s \"$HOME/.claude/.credentials.json\" || test -n \"${ANTHROPIC_API_KEY:-}\""
+  - id: verify
+    title: Claude answers
+    run: verify.sh
+    check: "test -s \"$HOME/.claude/.credentials.json\" || test -n \"${ANTHROPIC_API_KEY:-}\""

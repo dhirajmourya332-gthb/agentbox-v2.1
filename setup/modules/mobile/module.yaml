@@ -1,0 +1,36 @@
+id: mobile
+title: Phone gateway
+description: The signed-request gateway for the phone app (127.0.0.1:<ports.gateway>), served tailnet-only on https://<node>.ts.net:<mobile.serve_port>, plus the tailnet firewall
+optional: true
+depends: [core, access]
+units: [agentbox-tailnet-guard.service, agentbox-tailnet-guard-watch.timer]
+steps:
+  - id: install
+    title: Install the tailnet firewall
+    run: install.sh
+    check: "systemctl is-active --quiet agentbox-tailnet-guard && systemctl is-active --quiet agentbox-tailnet-guard-watch.timer"
+  - id: policy
+    when: "access == tailscale"
+    title: Allow your devices to reach the gateway (tailnet policy)
+    human: true
+    instructions: |
+      In the Tailscale admin console → Access controls, make sure that:
+        - only your own login may reach this machine, on the portal port (443) and the gateway
+          port (`agentbox config get mobile.serve_port`, default 8443): e.g.
+          { "action": "accept", "src": ["you@example.com"], "dst": ["tag:agentbox:443,8443"] }
+        - this machine never appears as a "src" (it must not reach your other devices);
+        - no "nodeAttrs" entry gives "funnel" to this machine's tag, "*" or autogroup:tagged.
+      The VM can't read your policy, so confirm it in the terminal when it's saved:
+        `mkdir -p ~/.agentbox && touch ~/.agentbox/tailnet-policy-ok`
+      (The check also fails while the policy grants this machine Funnel.)
+    copy: "mkdir -p ~/.agentbox && touch ~/.agentbox/tailnet-policy-ok"
+    check: "test -f \"$HOME/.agentbox/tailnet-policy-ok\" && ! tailscale status --json 2>/dev/null | jq -e '((.Self.CapMap // {}) | keys) + ((.Self.Capabilities // []) | map(tostring)) | map(ascii_downcase) | any(test(\"funnel\"))' >/dev/null"
+  - id: serve
+    when: "access == tailscale"
+    title: Serve the gateway on the tailnet (never Funnel)
+    run: configure.sh
+    check: "tailscale serve status --json 2>/dev/null | grep -q \"127.0.0.1:$(agentbox config get ports.gateway)\" && ! tailscale funnel status 2>/dev/null | grep -qi 'funnel on'"
+  - id: verify
+    title: Gateway loopback-only, firewall loaded, Funnel off
+    run: verify.sh
+    check: "agentbox-check-loopback $(agentbox config get ports.gateway) >/dev/null 2>&1 && systemctl is-active --quiet agentbox-tailnet-guard"

@@ -83,7 +83,8 @@ await test("first item: one request, content-free body, ids-only data, channel a
 
 await test("coalescing: more items within 30 s → no push now, then one push per device with the count", async () => {
   await push.sendAttentionPush(item());
-  await push.sendAttentionPush(item());
+  const third = item();
+  await push.sendAttentionPush(third);
   await push.sendAttentionPush({ ...item(), seen_at: now() }); // already seen: ignored
   assert(mock.state.sends.length === 1, `pushed inside the window (${mock.state.sends.length} requests)`);
   await sleep(COALESCE + 600);
@@ -94,9 +95,13 @@ await test("coalescing: more items within 30 s → no push now, then one push pe
     assert(m.data.attention_id === "att-3", `latest id ${m.data.attention_id}`);
   }
   const before = mock.state.sends.length;
-  await push.sendAttentionPush({ ...item(), id: "att-3" }); // the same item again: pushed once only
+  await push.sendAttentionPush({ ...third }); // exactly the same item again: pushed once only
   await sleep(COALESCE + 300);
-  assert(mock.state.sends.length === before, "a duplicate attention id was pushed again");
+  assert(mock.state.sends.length === before, "a duplicate attention item was pushed again");
+  // A refreshed reply keeps its id but has a newer time: that is news, so it pushes again.
+  await push.sendAttentionPush({ ...third, created_at: new Date(Date.now() + 1000).toISOString() });
+  await sleep(COALESCE + 300);
+  assert(mock.state.sends.length > before, "a refreshed reply (same id, newer time) was not pushed");
 });
 
 await test("details mode: the cleaned title is the body; a count keeps the latest title", async () => {

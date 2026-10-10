@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Named port-forward tunnels to private databases and services (the db-tunnel module).
+#
+#   agentbox-tunnel list                 the configured tunnels
+#   agentbox-tunnel start <name>|--all   open (no-op if it's already up)
+#   agentbox-tunnel status [<name>]      is it up? (all tunnels without a name)
+#   agentbox-tunnel stop <name>|--all    close
+#   agentbox-tunnel check                every config parses (no connection made)
+#
+# Each tunnel is a file <secrets>/tunnels/<name>.conf (0600; save it with
+# `agentbox secret set tunnels/<name>.conf < file`). Shell syntax, read by this script only:
+#
+#   MODE=ssh-ssm        # ssh-ssm: SSH through AWS Session Manager to an instance (no open port 22)
+#                       # ssh:     plain SSH to a bastion host
+#                       # ssm:     Session Manager port forwarding, no SSH (one process per forward)
+#   TARGET=i-0123456789abcdef0   # ssh-ssm/ssm: the instance id; ssh: the bastion's host name
+#   REGION=us-east-1             # ssh-ssm/ssm
+#   SSH_USER=ubuntu              # ssh-ssm/ssh
+#   SSH_PORT=22                  # ssh (optional)
+#   KEY=/secrets/tunnels/bastion.key   # ssh-ssm/ssh: the private key (agentbox secret set ...)
+#   # Forwards: LOCAL[:REMOTE_HOST[:REMOTE_PORT]], space-separated. Local ports bind 127.0.0.1 only.
+#   # REMOTE_HOST defaults to localhost (as seen from the target), REMOTE_PORT to LOCAL.
+#   FORWARDS="27017 6379:redis.internal:6379 15432:db.internal:5432"
+set -euo pipefail
+
+SECRETS="$(agentbox config get paths.secrets 2>/dev/null || echo /secrets)"
+DIR="${AGENTBOX_TUNNELS:-$SECRETS/tunnels}"
+STATE="$HOME/.agentbox/tunnels"
+mkdir -p "$STATE"
+
+die() { echo "error: $*" >&2; exit 1; }
+names() { local f; for f in "$DIR"/*.conf; do if [ -e "$f" ]; then basename "$f" .conf; fi; done; }
+
+load() {
+  local name="$1"
+  [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] || die "bad tunnel name: $name"
+  CONF="$DIR/$name.conf"
+  [ -r "$CONF" ] || die "$CONF is missing; ask the owner (agentbox secret set tunnels/$name.conf)."
+  MODE="" TARGET="" REGION="" SSH_USER="" SSH_PORT=22 KEY="" FORWARDS=""
+  # shellcheck source=/dev/null
+  source "$CONF"
+  case "$MODE" in
+    ssh-ssm) [ -n "$TARGET" ] && [ -n "$REGION" ] && [ -n "$SSH_USER" ] && [ -n "$KEY" ] || die "$name: ssh-ssm needs TARGET, REGION, SSH_USER, KEY" ;;
+    ssh) [ -n "$TARGET" ] && [ -n "$SSH_USER" ] && [ -n "$KEY" ] || die "$name: ssh needs TARGET, SSH_USER, KEY" ;;
+    ssm) [ -n "$TARGET" ] && [ -n "$REGION" ] || die "$name: ssm needs TARGET, REGION" ;;
+    *) die "$name: MODE must be ssh-ssm, ssh or ssm" ;;
+  esac
+  [ -n "$FORWARDS" ] || die "$name: FORWARDS is empty"
+  LPORTS=() RHOSTS=() RPORTS=()
+  local f l h p
+  for f in $FORWARDS; do
+    IFS=: read -r l h p <<<"$f"
+    [[ "$l" =~ ^[0-9]+$ ]] && [ "$l" -ge 1024 ] && [ "$l" -le 65535 ] || die "$name: bad local port in '$f' (1024-65535)"
+    h="${h:-localhost}"; p="${p:-$l}"
+    [[ "$h" =~ ^[A-Za-z0-9.-]+$ ]] && [[ "$p" =~ ^[0-9]+$ ]] || die "$name: bad forward '$f'"
+    LPORTS+=("$l") RHOSTS+=("$h") RPORTS+=("$p")
+  done
+  PIDFILE="$STATE/$name.pid"
+  LOG="$STATE/$name.log"
+}
+
+pids() { [ -f "$PIDFILE" ] && cat "$PIDFILE" || true; }
+running() { local p any=1; for p in $(pids); do kill -0 "$p" 2>/dev/null && any=0; done; return $any; }
+ports_up() { local p; for p in "${LPORTS[@]}"; do nc -z -w 2 127.0.0.1 "$p" 2>/dev/null || return 1; done; }
+
+status_one() {
+  load "$1"
+  if running && ports_up; then
+    echo "$1: up: 127.0.0.1 ports ${LPORTS[*]} (pids $(pids | tr '\n' ' '))"
+  elif running; then
+    echo "$1: starting or broken: running but not every port answers. Log: $LOG"; return 1
+  else
+    echo "$1: down"; return 1
+  fi
+}
+
+stop_one() {
+  load "$1"
+  local p; for p in $(pids); do kill "$p" 2>/dev/null || true; done
+  rm -f "$PIDFILE"
+  echo "$1: down"
+}
+
+start_one() {
+  local name="$1"
+  load "$name"
+  if running; then
+    if ports_up; then status_one "$name"; return 0; fi
+    stop_one "$name" >/dev/null; load "$name"
+  fi
+  local p i
+  for p in "${LPORTS[@]}"; do
+    if nc -z -w 1 127.0.0.1 "$p" 2>/dev/null; then die "$name: port $p is already in use by something else."; fi
+  done
+  : > "$LOG"; : > "$PIDFILE"
+  local ssh_opts=(-N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3
+    -o StrictHostKeyChecking=accept-new -o BatchMode=yes -i "$KEY")
+  case "$MODE" in
+    ssh-ssm|ssh)
+      local args=()
+      for i in "${!LPORTS[@]}"; do args+=(-L "127.0.0.1:${LPORTS[$i]}:${RHOSTS[$i]}:${RPORTS[$i]}"); done
+      if [ "$MODE" = ssh-ssm ]; then
+        nohup ssh "${ssh_opts[@]}" "${args[@]}" \
+          -o "ProxyCommand=aws ssm start-session --target $TARGET --document-name AWS-StartSSHSession --parameters portNumber=%p --region $REGION" \
+          "$SSH_USER@$TARGET" >>"$LOG" 2>&1 &
+      else
+        nohup ssh "${ssh_opts[@]}" -p "$SSH_PORT" "${args[@]}" "$SSH_USER@$TARGET" >>"$LOG" 2>&1 &
+      fi
+      echo $! >> "$PIDFILE" ;;
+    ssm)
+      for i in "${!LPORTS[@]}"; do
+        nohup aws ssm start-session --region "$REGION" --target "$TARGET" \
+          --document-name AWS-StartPortForwardingSessionToRemoteHost \
+          --parameters "host=${RHOSTS[$i]},portNumber=${RPORTS[$i]},localPortNumber=${LPORTS[$i]}" >>"$LOG" 2>&1 &
+        echo $! >> "$PIDFILE"
+      done ;;
+  esac
+  for _ in $(seq 40); do
+    if ports_up; then status_one "$name"; return 0; fi
+    if ! running; then
+      echo "error: $name failed to start. Last log lines:" >&2
+      tail -5 "$LOG" >&2
+      if grep -qiE "expired|credentials|token" "$LOG"; then
+        echo "AWS sign-in looks expired or missing. Don't re-authenticate yourself: ask the owner." >&2
+      fi
+      rm -f "$PIDFILE"
+      exit 1
+    fi
+    sleep 1
+  done
+  die "$name: timed out waiting for the ports. Log: $LOG"
+}
+
+each() { local fn="$1" n rc=0; for n in $(names); do "$fn" "$n" || rc=1; done; return $rc; }
+
+case "${1:-}" in
+  list) names ;;
+  check) [ -n "$(names)" ] || die "no tunnels in $DIR"; for n in $(names); do load "$n"; echo "$n: $MODE ${LPORTS[*]}"; done ;;
+  start) [ "${2:-}" = --all ] && { each start_one; exit; }; start_one "${2:?usage: agentbox-tunnel start <name>|--all}" ;;
+  stop) [ "${2:-}" = --all ] && { each stop_one; exit; }; stop_one "${2:?usage: agentbox-tunnel stop <name>|--all}" ;;
+  status) if [ -n "${2:-}" ]; then status_one "$2"; else each status_one; fi ;;
+  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac
