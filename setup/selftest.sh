@@ -111,9 +111,17 @@ fi
 if on terminal; then
   if systemctl cat agentbox-ttyd 2>/dev/null | grep -Eq -- ' -O( |$)'; then pass "ttyd checks Origin (-O)"
   else fail "ttyd runs without the Origin check (-O)"; fi
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$TERMINAL/")"
+  case "$code" in 401) pass "ttyd refuses without its credential" ;; 000) warn "ttyd isn't answering" ;; *) fail "ttyd answered without its credential ($code)" ;; esac
 fi
+# The credentials the portal's /term/ and /screen/ proxies use: 0600, the agent user's.
+for f in /etc/agentbox/ttyd.credential /etc/agentbox/vnc.password; do
+  [ -e "$f" ] || continue
+  if [ "$(stat -c '%a %U' "$f")" = "600 $USER_" ]; then pass "$f: 0600, owned by $USER_"
+  else fail "$f: $(stat -c '%a %U' "$f") (want 600 $USER_)"; fi
+done
 if on display; then
-  if systemctl cat agentbox-vnc 2>/dev/null | grep -q -- '-rfbauth'; then pass "VNC has a password"
+  if systemctl cat agentbox-vnc 2>/dev/null | grep -q -- '-passwdfile'; then pass "VNC has a password"
   else fail "x11vnc runs without a password"; fi
 fi
 

@@ -16,4 +16,4 @@ steps:
   - id: verify
     title: Cleanup works
     run: verify.sh
-    check: "curl -sf --max-time 30 -H 'content-type: application/json' -d '{\"text\":\"um so this is uh a test\"}' \"http://127.0.0.1:$(agentbox config get ports.portal)/api/voice/clean\" | grep -q '\"cleaned\":true'"
+    check: "agentbox api -d '{\"text\":\"um so this is uh a test\"}' /api/voice/clean | grep -q '\"cleaned\":true'"

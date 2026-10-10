@@ -13,15 +13,12 @@ disk: @DISK@
 # No host home mount: agents get full control of the VM, not of your Mac.
 mounts: []
 
-# Only the portal, screen, terminal and setup guide, on the Mac's 127.0.0.1. Everything else (VNC
+# Only the portal and the setup guide, on the Mac's 127.0.0.1. The terminal and screen are served
+# through the portal (/term/, /screen/) behind its auth; everything else (ttyd 7702, noVNC 7701, VNC
 # 5900, Chromium CDP 9222, the phone gateway 7710, …) stays inside the VM. First matching rule wins.
 portForwards:
   - guestPort: 7700
     hostPort: @PORT_PORTAL@
-  - guestPort: 7701
-    hostPort: @PORT_SCREEN@
-  - guestPort: 7702
-    hostPort: @PORT_TERMINAL@
   - guestPort: 7699
     hostPort: @PORT_GUIDE@
   - guestPortRange: [1, 65535]

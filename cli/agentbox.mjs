@@ -257,7 +257,7 @@ function installModule(conf, m) {
     systemctl("enable", ...m.units);
     systemctl("restart", ...m.units);
   }
-  const pending = m.steps.filter((s) => s.human && s.check && !runCheck(conf, s.check));
+  const pending = m.steps.filter((s) => s.human && s.check && when(conf, s.when) && !runCheck(conf, s.check));
   for (const s of pending) {
     console.log(yellow(`  YOUR TURN: ${s.title}`));
     for (const line of String(s.instructions ?? "").trim().split("\n")) console.log(`    ${line}`);
@@ -265,8 +265,19 @@ function installModule(conf, m) {
   return pending.length;
 }
 
+/** A step's `when:` condition, e.g. "access == tailscale" or "host != lima". No condition: true. */
+function when(conf, cond) {
+  if (cond === undefined || cond === null || cond === "") return true;
+  const m = /^\s*([A-Za-z0-9_.-]+)\s*(==|!=)\s*"?([^"]*?)"?\s*$/.exec(String(cond));
+  if (!m) fail(`bad when: ${cond}`);
+  const v = getIn(conf, m[1].split("."));
+  const eq = String(v ?? "") === m[3];
+  return m[2] === "==" ? eq : !eq;
+}
+
 function stepStates(conf, m) {
   return m.steps.map((s) => {
+    if (!when(conf, s.when)) return { ...s, state: "skip" };
     if (!s.check) return { ...s, state: "-" };
     const okNow = runCheck(conf, s.check);
     return { ...s, state: okNow ? "ok" : s.human ? "you" : "fail" };
@@ -275,10 +286,29 @@ function stepStates(conf, m) {
 
 // --- the portal ------------------------------------------------------------------------------------
 
-async function busyCount(conf) {
+/**
+ * Local callers prove they're on the box with X-Agentbox-Local-Token: the contents of
+ * <data>/local-token (0600, the agent user's; written by the portal at start). Readable by the agent
+ * user and root only, so `agentbox api` re-runs itself through sudo for anyone else.
+ */
+function localToken(conf) {
+  const file = process.env.AGENTBOX_LOCAL_TOKEN_FILE || path.join(conf.paths?.data ?? "/opt/agentbox/data", "local-token");
+  try { return fs.readFileSync(file, "utf8").trim(); } catch { return null; }
+}
+async function api(conf, apiPath, { method = "GET", body } = {}) {
+  if (!apiPath.startsWith("/")) apiPath = `/${apiPath}`;
+  if (!apiPath.startsWith("/api/")) apiPath = `/api${apiPath}`;
+  const headers = {};
+  const token = localToken(conf);
+  if (token) headers["x-agentbox-local-token"] = token;
+  if (body !== undefined) headers["content-type"] = "application/json";
   const port = conf.ports?.portal ?? 7700;
+  return fetch(`http://127.0.0.1:${port}${apiPath}`, { method, headers, body, signal: AbortSignal.timeout(30_000) });
+}
+
+async function busyCount(conf) {
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/api/tasks`, { signal: AbortSignal.timeout(5000) });
+    const r = await api(conf, "/api/tasks");
     if (!r.ok) return { n: 0, known: false };
     const tasks = await r.json();
     return { n: tasks.filter((t) => t.status === "running" || t.status === "queued").length, known: true };
@@ -313,6 +343,7 @@ const USAGE = `usage: agentbox <command>
   secret set <name>                    stdin → <secrets>/<name>, 0600, owned by the agent user
   update [--force]                     pull (cloud) or sync (lima), build, restart
   start | stop [--force] | restart [--force]
+  api [-X METHOD] [-d JSON] <path>     call the local portal with the local token (e.g. api /api/health)
   selftest                             the security self-test
   guide                                the setup guide`;
 
@@ -351,7 +382,7 @@ async function main(argv) {
         const m = loadModule(conf, rest[0] ?? fail("usage: agentbox module check <id>"));
         let bad = 0;
         for (const s of stepStates(conf, m)) {
-          if (s.state === "-") continue;
+          if (s.state === "-" || s.state === "skip") continue;
           if (s.state !== "ok") bad++;
           console.log(`${s.state === "ok" ? green("✔") : s.state === "you" ? yellow("⏸") : red("✖")} ${s.id.padEnd(12)} ${s.title}`);
         }
@@ -470,6 +501,24 @@ async function main(argv) {
     }
 
     case "status": return status(argv.includes("--json"));
+
+    case "api": {
+      const conf = cfg();
+      const args = argv.slice(1);
+      let method = "GET", body, p;
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === "-X") method = String(args[++i] ?? "").toUpperCase();
+        else if (args[i] === "-d") { body = args[++i] ?? ""; if (method === "GET") method = "POST"; }
+        else p = args[i];
+      }
+      if (!p) fail("usage: agentbox api [-X METHOD] [-d JSON] <path>");
+      if (!isRoot() && os.userInfo().username !== agentUser(conf) && localToken(conf) === null) asRoot(argv);
+      let r;
+      try { r = await api(conf, p, { method, body }); } catch (e) { fail(`the portal isn't answering on 127.0.0.1:${conf.ports?.portal ?? 7700} (${e.cause?.code ?? e.message})`); }
+      process.stdout.write(await r.text());
+      if (process.stdout.isTTY) process.stdout.write("\n");
+      return r.ok ? 0 : 22; // like curl -f
+    }
 
     case "selftest": {
       asRoot(argv);

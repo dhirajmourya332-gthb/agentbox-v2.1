@@ -1,6 +1,6 @@
 id: terminal
 title: Web terminal
-description: ttyd for the portal's terminal, on 127.0.0.1:<ports.terminal> with the Origin check (-O)
+description: ttyd for the portal's terminal (/term/), on 127.0.0.1:<ports.terminal> with the Origin check (-O) and a credential
 optional: false
 depends: [core]
 units: [agentbox-ttyd.service]
@@ -9,7 +9,11 @@ steps:
     title: Install ttyd
     run: install.sh
     check: "command -v ttyd"
+  - id: configure
+    title: ttyd credential
+    run: configure.sh
+    check: "test -O /etc/agentbox/ttyd.credential && test -s /etc/agentbox/ttyd.credential"
   - id: verify
-    title: ttyd running, loopback only, Origin check on
+    title: ttyd running, loopback only, Origin check on, credential required
     run: verify.sh
-    check: "systemctl is-active --quiet agentbox-ttyd && agentbox-check-loopback $(agentbox config get ports.terminal) >/dev/null 2>&1"
+    check: "systemctl is-active --quiet agentbox-ttyd && agentbox-check-loopback $(agentbox config get ports.terminal) >/dev/null 2>&1 && test \"$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:$(agentbox config get ports.terminal)/)\" = 401"

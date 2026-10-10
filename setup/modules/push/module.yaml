@@ -22,4 +22,4 @@ steps:
     run: verify.sh
     instructions: |
       In the portal: Computer → Devices → your phone → Send test notification. It should arrive within seconds.
-    check: "curl -sf --max-time 5 \"http://127.0.0.1:$(agentbox config get ports.portal)/api/config/public\" | grep -q '\"push\":true'"
+    check: "agentbox api /api/config/public | grep -q '\"push\":true'"

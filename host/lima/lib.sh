@@ -2,8 +2,8 @@
 # Sourced by host/lima/*.sh (run on the Mac). Options, from flags or env (defaults = pre-v2):
 #   --instance NAME   AGENTBOX_INSTANCE (or VM_NAME)   Lima instance          default: agentbox
 #   --lima-home DIR   LIMA_HOME                         where Lima keeps VMs   default: /Volumes/External/lima
-#   --ports BASE      AGENTBOX_PORT_BASE                Mac ports: portal BASE, screen BASE+1,
-#                                                       terminal BASE+2, guide BASE-1   default: 7700
+#   --ports BASE      AGENTBOX_PORT_BASE                Mac ports: portal BASE, guide BASE-1
+#                                                       (terminal and screen go through the portal)  default: 7700
 #   --cpus N --memory SIZE --disk SIZE (up.sh only)     default: 4, 6GiB, 60GiB
 # Run v2 beside an existing install:  host/lima/up.sh --instance agentbox-v2 --ports 8700
 # Other arguments are left in ARGS for the script.
@@ -27,7 +27,7 @@ while [ $# -gt 0 ]; do
 done
 [[ "$VM_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "error: bad instance name: $VM_NAME" >&2; exit 1; }
 [[ "$PORT_BASE" =~ ^[0-9]+$ ]] && [ "$PORT_BASE" -ge 1025 ] && [ "$PORT_BASE" -le 65000 ] || { echo "error: bad --ports $PORT_BASE" >&2; exit 1; }
-PORT_PORTAL=$PORT_BASE PORT_SCREEN=$((PORT_BASE + 1)) PORT_TERMINAL=$((PORT_BASE + 2)) PORT_GUIDE=$((PORT_BASE - 1))
+PORT_PORTAL=$PORT_BASE PORT_GUIDE=$((PORT_BASE - 1))
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC_MOUNT="/mnt/agentbox-src"
@@ -45,16 +45,14 @@ LIMACTL="$(command -v limactl || true)"
 vm_status() { "$LIMACTL" list --format '{{.Status}}' "$VM_NAME" 2>/dev/null || true; }
 vm() { "$LIMACTL" shell --workdir / "$VM_NAME" "$@"; }
 
-# Agents busy? (through the forwarded portal port). Prints the count; 0 if unknown.
+# Agents busy? Asked inside the VM with the local token. Prints the count; 0 if unknown.
 busy_count() {
-  curl -sf --max-time 5 "http://localhost:$PORT_PORTAL/api/tasks" 2>/dev/null \
+  vm agentbox api /api/tasks 2>/dev/null \
     | python3 -c 'import sys, json; print(sum(t["status"] in ("running", "queued") for t in json.load(sys.stdin)))' 2>/dev/null || echo 0
 }
 
 urls() {
   cat <<URLS
-  Portal    http://localhost:$PORT_PORTAL
-  Screen    http://localhost:$PORT_SCREEN/vnc.html
-  Terminal  http://localhost:$PORT_TERMINAL
+  Portal    http://localhost:$PORT_PORTAL   (terminal and screen: /term/ and /screen/ behind it)
 URLS
 }

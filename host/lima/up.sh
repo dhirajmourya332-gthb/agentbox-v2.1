@@ -5,15 +5,15 @@ source "$(dirname "$0")/lib.sh"
 
 case "$(vm_status)" in
   "")
-    for port in $PORT_GUIDE $PORT_PORTAL $PORT_SCREEN $PORT_TERMINAL; do
+    for port in $PORT_GUIDE $PORT_PORTAL; do
       if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
         echo "error: port $port is already in use on this Mac; pick another --ports base" >&2; exit 1
       fi
     done
-    echo "==> creating VM $VM_NAME in $LIMA_HOME (ports $PORT_GUIDE-$PORT_TERMINAL, $CPUS cpu, $MEMORY, $DISK)"
+    echo "==> creating VM $VM_NAME in $LIMA_HOME (Mac ports: portal $PORT_PORTAL, guide $PORT_GUIDE, $CPUS cpu, $MEMORY, $DISK)"
     tmpl="$(mktemp -t agentbox-lima).yaml"
-    sed -e "s|@PORT_PORTAL@|$PORT_PORTAL|g" -e "s|@PORT_SCREEN@|$PORT_SCREEN|g" \
-        -e "s|@PORT_TERMINAL@|$PORT_TERMINAL|g" -e "s|@PORT_GUIDE@|$PORT_GUIDE|g" \
+    sed -e "s|@PORT_PORTAL@|$PORT_PORTAL|g" \
+        -e "s|@PORT_GUIDE@|$PORT_GUIDE|g" \
         -e "s|@CPUS@|$CPUS|g" -e "s|@MEMORY@|$MEMORY|g" -e "s|@DISK@|$DISK|g" \
         "$REPO_DIR/lima/agentbox.yaml" > "$tmpl"
     "$LIMACTL" create --tty=false --name "$VM_NAME" \

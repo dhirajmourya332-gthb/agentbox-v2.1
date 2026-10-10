@@ -25,7 +25,7 @@ fi
 if [ "$status" = "Running" ]; then
   say "==> VM $VM_NAME is already running"
 else
-  for port in $PORT_PORTAL $PORT_SCREEN $PORT_TERMINAL; do
+  for port in $PORT_PORTAL $PORT_GUIDE; do
     if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       say "error: port $port is already in use on this Mac:"
       lsof -nP -iTCP:"$port" -sTCP:LISTEN | tail -n +2 >&2
@@ -45,7 +45,7 @@ fi
 say "==> waiting for agentbox to come up"
 restarted=0
 for i in $(seq 1 90); do
-  health="$(curl -sf --max-time 5 "http://localhost:$PORT_PORTAL/api/health" 2>/dev/null || true)"
+  health="$(vm agentbox api /api/health 2>/dev/null || true)"
   if [ -n "$health" ]; then
     down="$(python3 -c '
 import json, sys
@@ -72,7 +72,7 @@ if [ -n "${down:-}" ]; then
 fi
 
 # 4. Summary.
-state="$(curl -sf "http://localhost:$PORT_PORTAL/api/state" || echo '{}')"
+state="$(vm agentbox api /api/state 2>/dev/null || echo '{}')"
 python3 -c '
 import json, sys
 s = json.loads(sys.argv[1] or "{}")

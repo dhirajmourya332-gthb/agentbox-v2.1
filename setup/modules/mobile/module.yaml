@@ -10,6 +10,7 @@ steps:
     run: install.sh
     check: "systemctl is-active --quiet agentbox-tailnet-guard && systemctl is-active --quiet agentbox-tailnet-guard-watch.timer"
   - id: policy
+    when: "access == tailscale"
     title: Allow your devices to reach the gateway (tailnet policy)
     human: true
     instructions: |
@@ -25,6 +26,7 @@ steps:
     copy: "mkdir -p ~/.agentbox && touch ~/.agentbox/tailnet-policy-ok"
     check: "test -f \"$HOME/.agentbox/tailnet-policy-ok\" && ! tailscale status --json 2>/dev/null | jq -e '((.Self.CapMap // {}) | keys) + ((.Self.Capabilities // []) | map(tostring)) | map(ascii_downcase) | any(test(\"funnel\"))' >/dev/null"
   - id: serve
+    when: "access == tailscale"
     title: Serve the gateway on the tailnet (never Funnel)
     run: configure.sh
     check: "tailscale serve status --json 2>/dev/null | grep -q \"127.0.0.1:$(agentbox config get ports.gateway)\" && ! tailscale funnel status 2>/dev/null | grep -qi 'funnel on'"
