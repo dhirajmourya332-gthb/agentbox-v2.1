@@ -564,7 +564,7 @@ function status(json) {
   });
   const ss = spawnSync("ss", ["-Hltn"], { encoding: "utf8" });
   const listeners = (ss.stdout ?? "").split("\n").filter(Boolean).map((l) => l.trim().split(/\s+/)[3]).filter(Boolean)
-    .map((addr) => ({ addr, loopback: /^(127\.[\d.]+|\[::1\]):\d+$/.test(addr) }));
+    .map((addr) => ({ addr, loopback: /^(127\.[\d.]+(%\w+)?|\[::1\](%\w+)?):\d+$/.test(addr) }));
   if (json) { console.log(JSON.stringify({ host: conf.host, access: conf.access, modules: mods, units, listeners }, null, 2)); return 0; }
   console.log(bold(`agentbox · host ${conf.host} · access ${conf.access} · user ${agentUser(conf)}`));
   console.log(bold("\nmodules"));

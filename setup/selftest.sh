@@ -11,9 +11,10 @@ SECRETS="$(cfg paths.secrets)"; DATA="$(cfg paths.data)"
 on() { [ "$(cfg "modules.$1")" = true ]; }
 
 fails=0 warns=0
-pass() { printf '\033[32mPASS\033[0m  %s\n' "$*"; }
-fail() { printf '\033[31mFAIL\033[0m  %s\n' "$*"; fails=$((fails + 1)); }
-warn() { printf '\033[33mWARN\033[0m  %s\n' "$*"; warns=$((warns + 1)); }
+if [ -t 1 ]; then G=$'\033[32m' R=$'\033[31m' Y=$'\033[33m' N=$'\033[0m'; else G="" R="" Y="" N=""; fi
+pass() { printf '%sPASS%s  %s\n' "$G" "$N" "$*"; }
+fail() { printf '%sFAIL%s  %s\n' "$R" "$N" "$*"; fails=$((fails + 1)); }
+warn() { printf '%sWARN%s  %s\n' "$Y" "$N" "$*"; warns=$((warns + 1)); }
 note() { printf 'NOTE  %s\n' "$*"; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
