@@ -1,0 +1,10 @@
+{
+  "name": "agentbox-cli",
+  "private": true,
+  "type": "module",
+  "description": "The agentbox command (docs/V2-ARCHITECTURE.md § 4). Installed to /opt/agentbox/cli by setup/bootstrap.sh.",
+  "bin": { "agentbox": "agentbox.mjs" },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
+}

@@ -1,0 +1,25 @@
+id: db-tunnel
+title: Database tunnels
+description: Named SSH / AWS Session Manager port forwards to private databases (agentbox-tunnel), configured by you
+optional: true
+depends: [core]
+steps:
+  - id: install
+    title: Install agentbox-tunnel
+    run: install.sh
+    check: "command -v agentbox-tunnel && command -v ssh && command -v nc"
+  - id: config
+    title: Describe your tunnels
+    human: true
+    instructions: |
+      For each tunnel write a small file (format: `agentbox-tunnel` with no arguments, or
+      /team/db-tunnel.md) and save it, plus the SSH key if the mode uses SSH, in the terminal:
+        `agentbox secret set tunnels/<name>.conf < <name>.conf`
+        `agentbox secret set tunnels/<name>.key < key.pem`
+      Modes: ssh-ssm (SSH over AWS Session Manager; needs the aws module), ssh (a bastion), ssm.
+    copy: "agentbox secret set tunnels/main.conf"
+    check: "agentbox-tunnel check"
+  - id: verify
+    title: Open, check and close every tunnel
+    run: verify.sh
+    check: "agentbox-tunnel check"

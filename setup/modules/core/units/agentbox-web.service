@@ -1,0 +1,20 @@
+[Unit]
+Description=agentbox orchestrator + portal (127.0.0.1:@PORTAL_PORT@); mobile gateway when enabled
+After=network.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@APP@/server
+# Ports, paths and modules come from the config (server/src/config.ts).
+Environment=HOME=@HOME@ AGENTBOX_CONFIG=@CONFIG@ DISPLAY=:99 BROWSER=/usr/local/bin/agentbox-open
+Environment=PATH=@HOME@/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Optional extra environment (e.g. EXPO_ACCESS_TOKEN), kept with the secrets.
+EnvironmentFile=-@SECRETS@/agentbox-web.env
+# Files the portal and agents create are private to the agent user (DB, uploads, documents).
+UMask=0077
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+id: mobile-app
+title: Phone app (Android)
+description: Build the agentbox Android app with Expo EAS (cloud build; no Android SDK on the VM)
+optional: true
+depends: [mobile]
+steps:
+  - id: install
+    title: Install the EAS CLI
+    run: install.sh
+    check: "command -v eas && command -v agentbox-mobile-build"
+  - id: login
+    title: Log in to Expo
+    human: true
+    instructions: |
+      Create a free account at https://expo.dev if you don't have one, then in the terminal run
+        `eas login`
+      Then set your Expo owner (and, after the first `eas init`, the project id):
+        `sudo agentbox config set mobile.expo_owner <your-expo-username>`
+    copy: "eas login"
+    check: "eas whoami"
+  - id: build
+    title: Build the APK
+    run: build.sh
+    instructions: |
+      `agentbox-mobile-build` (about 15 minutes on Expo's servers). Open the build link it prints on
+      your phone and install the APK.
+    check: "test -n \"$(cd \"$(agentbox config get paths.work)/agentbox-mobile\" 2>/dev/null && eas build:list --platform android --status finished --limit 1 --json --non-interactive 2>/dev/null | jq -r '.[0].id // empty')\""
+  - id: verify
+    title: Verify
+    run: verify.sh
+    check: "eas whoami"

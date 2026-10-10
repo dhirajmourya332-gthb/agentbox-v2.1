@@ -1,0 +1,19 @@
+id: core
+title: agentbox core
+description: Node 22, the agentbox server and portal (127.0.0.1:<ports.portal>), its systemd unit, directories and the database
+optional: false
+depends: []
+units: [agentbox-web.service]
+steps:
+  - id: install
+    title: Install base packages, Node 22 and the directories
+    run: install.sh
+    check: "command -v node && node -v | grep -q '^v22\\.' && test -d \"$(agentbox config get paths.agents)\""
+  - id: app
+    title: Build and start the portal
+    run: configure.sh
+    check: "systemctl is-active --quiet agentbox-web"
+  - id: verify
+    title: Portal answers on loopback only
+    run: verify.sh
+    check: "curl -sf --max-time 5 \"http://127.0.0.1:$(agentbox config get ports.portal)/api/health\" >/dev/null"

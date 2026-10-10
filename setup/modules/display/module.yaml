@@ -1,0 +1,19 @@
+id: display
+title: Shared screen and browser
+description: Xvfb display :99, fluxbox, VNC (password, loopback) + noVNC on 127.0.0.1:<ports.screen>, a shared Chromium (CDP 127.0.0.1:9222), the screen lock
+optional: true
+depends: [core]
+units: [agentbox-xvfb.service, agentbox-wm.service, agentbox-vnc.service, agentbox-novnc.service, agentbox-chromium.service]
+steps:
+  - id: install
+    title: Install the display stack and Chromium
+    run: install.sh
+    check: "command -v Xvfb && command -v x11vnc && ls \"$HOME\"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"
+  - id: services
+    title: Display services running
+    run: configure.sh
+    check: "systemctl is-active --quiet agentbox-xvfb agentbox-wm agentbox-vnc agentbox-novnc agentbox-chromium"
+  - id: verify
+    title: Browser answers on loopback; screen loopback only
+    run: verify.sh
+    check: "curl -sf --max-time 3 http://127.0.0.1:9222/json/version >/dev/null && agentbox-check-loopback $(agentbox config get ports.screen) 5900 9222 >/dev/null 2>&1"

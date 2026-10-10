@@ -1,0 +1,15 @@
+id: terminal
+title: Web terminal
+description: ttyd for the portal's terminal, on 127.0.0.1:<ports.terminal> with the Origin check (-O)
+optional: false
+depends: [core]
+units: [agentbox-ttyd.service]
+steps:
+  - id: install
+    title: Install ttyd
+    run: install.sh
+    check: "command -v ttyd"
+  - id: verify
+    title: ttyd running, loopback only, Origin check on
+    run: verify.sh
+    check: "systemctl is-active --quiet agentbox-ttyd && agentbox-check-loopback $(agentbox config get ports.terminal) >/dev/null 2>&1"

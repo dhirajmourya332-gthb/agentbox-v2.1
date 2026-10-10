@@ -316,7 +316,7 @@ export type GatewayStatus = {
     funnel_capable: boolean | null;
     error?: string;
   };
-  /** The in-VM tailnet firewall (vm/bin/agentbox-tailnet-guard): present with its drop rules. */
+  /** The in-VM tailnet firewall (setup/modules/mobile/bin/agentbox-tailnet-guard): present with its drop rules. */
   guard: { present: boolean | null; detail: string };
   manual_url: string | null;
   url: string | null;

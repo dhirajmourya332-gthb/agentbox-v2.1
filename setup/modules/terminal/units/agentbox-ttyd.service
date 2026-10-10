@@ -1,0 +1,12 @@
+[Unit]
+Description=agentbox web terminal (ttyd on 127.0.0.1:@TERMINAL_PORT@, Origin checked)
+
+[Service]
+User=@USER@
+WorkingDirectory=@HOME@
+Environment=HOME=@HOME@ DISPLAY=:99
+ExecStart=/usr/bin/ttyd -i lo -p @TERMINAL_PORT@ -O -W -t fontSize=14 -t titleFixed=agentbox /bin/bash -l
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

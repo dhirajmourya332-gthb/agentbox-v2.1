@@ -1,0 +1,23 @@
+id: github
+title: GitHub
+description: git + gh CLI so agents can work with repos, issues and PRs; team rules for issues and branching
+optional: true
+depends: [core]
+steps:
+  - id: install
+    title: Install git and gh
+    run: install.sh
+    check: "command -v gh && command -v git"
+  - id: login
+    title: Log in to GitHub
+    human: true
+    instructions: |
+      In the terminal run: `gh auth login` (GitHub.com, HTTPS, log in with a web browser).
+      Add the project scope if you use GitHub Projects: `gh auth refresh -s project`.
+      Then edit /team/github.md (your org, board, labels) and /team/branching.md to fit your team.
+    copy: "gh auth login"
+    check: "gh auth status"
+  - id: verify
+    title: Verify
+    run: verify.sh
+    check: "gh api user -q .login"

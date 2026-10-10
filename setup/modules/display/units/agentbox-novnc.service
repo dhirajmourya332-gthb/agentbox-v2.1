@@ -1,0 +1,11 @@
+[Unit]
+Description=agentbox web screen (noVNC on 127.0.0.1:@SCREEN_PORT@)
+After=agentbox-vnc.service
+
+[Service]
+User=@USER@
+ExecStart=/usr/bin/websockify --web /usr/share/novnc 127.0.0.1:@SCREEN_PORT@ 127.0.0.1:5900
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

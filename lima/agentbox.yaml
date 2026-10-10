@@ -1,26 +1,29 @@
-# agentbox: the single shared computer for all agents.
-# Created by scripts/up.sh, which adds the read-only repo mount (it needs an absolute path).
+# agentbox on a local Lima VM (host: lima). This is a TEMPLATE: host/lima/up.sh fills in the
+# @PLACEHOLDERS@ (Mac ports from --ports, size from --cpus/--memory/--disk) and adds the read-only
+# repo mount (it needs an absolute path). Guest ports are the config defaults (7699-7702).
 minimumLimaVersion: 2.0.0
 base: template:ubuntu-24.04
 
 vmType: vz
 mountType: virtiofs
-cpus: 4
-memory: 6GiB
-disk: 60GiB
+cpus: @CPUS@
+memory: @MEMORY@
+disk: @DISK@
 
 # No host home mount: agents get full control of the VM, not of your Mac.
 mounts: []
 
-# Only expose the UI, screen and terminal, on 127.0.0.1. Everything else (VNC 5900,
-# Chromium CDP 9222, …) stays inside the VM. First matching rule wins.
+# Only the portal, screen, terminal and setup guide, on the Mac's 127.0.0.1. Everything else (VNC
+# 5900, Chromium CDP 9222, the phone gateway 7710, …) stays inside the VM. First matching rule wins.
 portForwards:
   - guestPort: 7700
-    hostPort: 7700
+    hostPort: @PORT_PORTAL@
   - guestPort: 7701
-    hostPort: 7701
+    hostPort: @PORT_SCREEN@
   - guestPort: 7702
-    hostPort: 7702
+    hostPort: @PORT_TERMINAL@
+  - guestPort: 7699
+    hostPort: @PORT_GUIDE@
   - guestPortRange: [1, 65535]
     guestIP: 0.0.0.0
     guestIPMustBeZero: false
