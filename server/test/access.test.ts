@@ -475,6 +475,79 @@ describe("/term and /screen proxies", () => {
   });
 });
 
+describe("/setup: the setup guide behind the portal login", () => {
+  const seen: { method: string; url: string; headers: http.IncomingHttpHeaders; body: string }[] = [];
+  const wsSeen: http.IncomingHttpHeaders[] = [];
+  const guide = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => { seen.push({ method: req.method ?? "", url: req.url ?? "", headers: req.headers, body }); res.writeHead(200, { "content-type": "application/json", "set-cookie": "agentbox_guide=x" }); res.end(JSON.stringify({ ok: true, url: req.url })); });
+  });
+  const wss = new WebSocketServer({ noServer: true });
+  guide.on("upgrade", (req, socket, head) => { wsSeen.push(req.headers); wss.handleUpgrade(req, socket, head, (ws) => ws.on("message", (d) => ws.send(String(d)))); });
+  const secretFile = path.join(tmp, "guide-proxy-token");
+  let app: FastifyInstance, base = "";
+  const owner = { host: TS_HOST, "tailscale-user-login": OWNER_LOGIN };
+  before(async () => {
+    await new Promise<void>((r) => guide.listen(0, "127.0.0.1", r));
+    const gp = (guide.address() as AddressInfo).port;
+    ({ app } = await makeApp(tsConfig({ ports: { screen: 1, terminal: 1, guide: gp } }), { guideProxyTokenFile: secretFile }));
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    base = `ws://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  });
+  after(async () => { await app.close(); guide.close(); });
+  const inject = (o: any) => app.inject({ remoteAddress: "127.0.0.1", ...o });
+
+  test("while the guide isn't running (no secret file): 503 for the owner, 401 for anyone else", async () => {
+    fs.rmSync(secretFile, { force: true });
+    assert.equal((await inject({ url: "/setup/api/state", headers: owner })).statusCode, 503);
+    assert.equal((await inject({ url: "/setup/api/state", headers: { host: TS_HOST } })).statusCode, 401);
+    assert.equal(seen.length, 0);
+  });
+  test("the owner reaches the guide with the secret; prefix stripped; identity and cookies dropped", async () => {
+    fs.writeFileSync(secretFile, "guide-secret-123\n", { mode: 0o600 });
+    const r = await inject({ url: "/setup/api/state?x=1", headers: { ...owner, cookie: "a=b" } });
+    assert.equal(r.statusCode, 200);
+    assert.equal(r.headers["set-cookie"], undefined, "the guide's cookies never reach the portal origin");
+    const s = seen.at(-1)!;
+    assert.equal(s.url, "/api/state?x=1");
+    assert.equal(s.headers["x-agentbox-guide-proxy"], "guide-secret-123");
+    assert.equal(s.headers["tailscale-user-login"], undefined);
+    assert.equal(s.headers.cookie, undefined);
+    assert.equal((await inject({ url: "/setup", headers: owner })).statusCode, 302);
+  });
+  test("JSON writes are forwarded; other bodies refused before the guide", async () => {
+    const n = seen.length;
+    const r = await inject({ method: "POST", url: "/setup/api/profile", headers: { ...owner, "content-type": "application/json" }, payload: { modules: { github: true } } });
+    assert.equal(r.statusCode, 200);
+    assert.equal(seen.at(-1)!.method, "POST");
+    assert.deepEqual(JSON.parse(seen.at(-1)!.body), { modules: { github: true } });
+    assert.equal((await inject({ method: "POST", url: "/setup/api/profile", headers: { ...owner, "content-type": "text/plain" }, payload: "x" })).statusCode, 415);
+    assert.equal((await inject({ method: "POST", url: "/setup/api/finish", headers: owner })).statusCode, 200, "bodyless POST");
+    assert.equal(seen.length, n + 2);
+  });
+  test("cross-site, foreign Origin and the wrong Host are refused", async () => {
+    assert.equal((await inject({ url: "/setup/", headers: { ...owner, origin: "https://evil.example" } })).statusCode, 403);
+    assert.equal((await inject({ url: "/setup/api/state", headers: { ...owner, "sec-fetch-site": "cross-site" } })).statusCode, 403);
+    assert.equal((await inject({ url: "/setup/", headers: { ...owner, host: "localhost" } })).statusCode, 403);
+  });
+  test("the guide's WebSockets are bridged with the secret; refused without the owner", async () => {
+    const open = (headers: Record<string, string>) => new Promise<{ r: string; ws?: WebSocket }>((res) => {
+      const ws = new WebSocket(`${base}/setup/ws/term`, { headers });
+      ws.once("open", () => res({ r: "open", ws }));
+      ws.once("unexpected-response", (_q, x) => res({ r: String(x.statusCode) }));
+      ws.once("error", () => res({ r: "error" }));
+    });
+    assert.equal((await open({ host: TS_HOST })).r, "401");
+    const { r, ws } = await open({ ...owner, origin: `https://${TS_HOST}` });
+    assert.equal(r, "open");
+    const echo = await new Promise<string>((res) => { ws!.once("message", (d) => res(String(d))); ws!.send("hi"); });
+    assert.equal(echo, "hi");
+    assert.equal(wsSeen.at(-1)!["x-agentbox-guide-proxy"], "guide-secret-123");
+    ws!.close();
+  });
+});
+
 describe("config projection", () => {
   test("yaml keys map onto AccessConfig; absent keys are defaults", () => {
     const c = toAccessConfig({ access: "cloudflare", cloudflare: { hostname: " a.example.com ", team_domain: TEAM, aud: AUD }, owner: { email: OWNER_EMAIL }, ports: { terminal: 9000 } });

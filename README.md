@@ -65,9 +65,9 @@ agentbox runs on **any Ubuntu 24.04 VM**. Everything (agents, services, repos) l
    ./setup/bootstrap.sh
    ```
 
-3. Bootstrap installs the basics and starts the **setup guide** on `127.0.0.1:7699`. Run
-   `agentbox guide --tunnel` to print the port-forward command for your provider, open the guide,
-   and follow it. The guide has a terminal on the left and a roadmap on the right: Claude runs the
+3. Bootstrap installs the basics, starts the **setup guide** on `127.0.0.1:7699` and prints a
+   one-time link plus the port-forward command for your provider (`agentbox guide --tunnel` prints
+   them again, with a new link). Forward the port, open the link and follow it. The guide has a terminal on the left and a roadmap on the right: Claude runs the
    install steps and stops at "your turn" cards for logins (Claude, GitHub, Tailscale…). A step
    turns green only when its check passes.
 4. Once the access step is done, the portal is at your private HTTPS address
@@ -81,7 +81,8 @@ git clone https://github.com/<you>/agentbox.git && cd agentbox
 ./scripts/up.sh          # creates the Lima VM, mounts this repo read-only, provisions it
 ```
 
-Then open the guide at the forwarded `http://localhost:7699` and follow it as above. Day to day:
+Then open the one-time guide link it prints (`host/lima/guide.sh` prints a new one) and follow it as
+above. Day to day:
 `./scripts/start.sh`, `./scripts/stop.sh` (refuses while agents are working, unless `--force`) and
 `./scripts/deploy.sh` (after code changes). Set `LIMA_HOME` to keep VMs somewhere other than
 `~/.lima`, and `VM_NAME` to run a second instance side by side.
@@ -174,6 +175,7 @@ you pass `--force`.
 | | |
 |---|---|
 | [docs/SETUP-PLAN.md](docs/SETUP-PLAN.md) | The setup design: modules, access modes, the guide |
+| [docs/GUIDE.md](docs/GUIDE.md) | The setup guide: opening it, the roadmap, the setup agent, its security |
 | [docs/V2-ARCHITECTURE.md](docs/V2-ARCHITECTURE.md) | Hosts, config, modules, CLI, access and auth, self-test |
 | [docs/MODULES.md](docs/MODULES.md) | The module format, with an example |
 | [docs/PLAN.md](docs/PLAN.md) | The original architecture |

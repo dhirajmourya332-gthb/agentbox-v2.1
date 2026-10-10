@@ -39,7 +39,7 @@ steps:
       In the terminal run the command below. It brings Tailscale up under a random node name and
       prints a login URL: open it and log in **with the account that will use the portal**. That
       login becomes the portal's owner.
-    copy: "sudo bash \"$(agentbox config get paths.app)/setup/modules/access/tailscale-up.sh\""
+    copy: "sudo bash \"$(agentbox config get paths.src)/setup/modules/access/tailscale-up.sh\""
     check: "tailscale status --json 2>/dev/null | python3 -c 'import sys,json; sys.exit(json.load(sys.stdin).get(\"BackendState\")!=\"Running\")'"
   - id: tailscale-configure
     title: Serve the portal on your tailnet (HTTPS, no Funnel)
@@ -64,7 +64,7 @@ steps:
       2. Run the command below, open the URL it prints, sign in to Cloudflare and authorise the
          zone (domain) the hostname is on. It saves the certificate for creating tunnels to
          `/etc/cloudflared/cert.pem` (root only, 0600); it never leaves the VM.
-    copy: "sudo bash \"$(agentbox config get paths.app)/setup/modules/access/cloudflared-login.sh\""
+    copy: "sudo bash \"$(agentbox config get paths.src)/setup/modules/access/cloudflared-login.sh\""
     check: "test -n \"$(agentbox config get cloudflare.hostname)\" && test -e /etc/cloudflared/cert.pem"
   - id: cloudflare-tunnel
     title: Create the tunnel and its service
@@ -98,4 +98,4 @@ steps:
   - id: verify
     title: Verify the login is enforced and nothing listens publicly
     run: verify.sh
-    check: "bash \"$(agentbox config get paths.app)/setup/modules/access/verify.sh\" --quiet"
+    check: "bash \"$(agentbox config get paths.src)/setup/modules/access/verify.sh\" --quiet"

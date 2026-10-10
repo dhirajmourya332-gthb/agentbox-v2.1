@@ -6,3 +6,7 @@ node_modules/
 
 # Install-specific private docs (backlog, audit, release notes of one install)
 docs/internal/
+
+# Built page of the setup guide (guide/install.sh builds it on the VM)
+guide/dist/
+.gstack/

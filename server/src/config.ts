@@ -178,7 +178,7 @@ export function publicConfig() {
 
 /**
  * What the access layer (server/src/access-config.ts, access workstream) needs: the mode, the
- * identities it trusts and the ports it proxies (/term/, /screen/). Wired in at merge.
+ * identities it trusts and the ports it proxies (/term/, /screen/, /setup/). Wired in at merge.
  */
 export function accessProjection() {
   return {
@@ -186,6 +186,6 @@ export function accessProjection() {
     tailscale: { hostname: config.tailscale.hostname },
     cloudflare: { hostname: config.cloudflare.hostname, team_domain: config.cloudflare.team_domain, aud: config.cloudflare.aud },
     owner: { tailscale_login: config.owner.tailscale_login, email: config.owner.email },
-    ports: { screen: config.ports.screen, terminal: config.ports.terminal },
+    ports: { screen: config.ports.screen, terminal: config.ports.terminal, guide: config.ports.guide },
   };
 }

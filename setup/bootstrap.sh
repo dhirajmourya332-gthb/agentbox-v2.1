@@ -128,10 +128,10 @@ fi
 
 say "bootstrap done"
 if [ "$GUIDE" = 1 ]; then
-  case "$HOST" in
-    lima) echo "Open the guide on your Mac at the port forwarded to guest port $GUIDE_PORT (host/lima/up.sh prints it)" ;;
-    cloud) echo "Open the guide through a port forward: run 'agentbox guide --tunnel' for the SSM / IAP / SSH commands." ;;
-  esac
+  # Start the guide and print its one-time link (lima: host/lima/up.sh prints it with the Mac port).
+  if [ "$HOST" = cloud ]; then agentbox guide --tunnel || echo "warning: the guide didn't start: journalctl -u agentbox-guide -n 50" >&2
+  else agentbox guide || echo "warning: the guide didn't start: journalctl -u agentbox-guide -n 50" >&2; fi
+  echo "A new link any time: agentbox guide   ·   stop it: agentbox guide stop"
 else
   cat <<EOF
 The setup guide isn't in this tree yet. Next steps, by hand (as $AGENT_USER or with sudo):

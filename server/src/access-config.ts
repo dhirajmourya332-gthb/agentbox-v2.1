@@ -17,8 +17,8 @@ export interface AccessConfig {
   /** `cloudflare.*`: the public hostname, the Zero Trust team domain (`<team>.cloudflareaccess.com`), the Access AUD tag. */
   cloudflare: { hostname: string; team_domain: string; aud: string };
   owner: { tailscale_login: string; email: string };
-  /** `ports.screen` (websockify/noVNC) and `ports.terminal` (ttyd), both on 127.0.0.1. */
-  ports: { screen: number; terminal: number };
+  /** `ports.screen` (websockify/noVNC), `ports.terminal` (ttyd) and `ports.guide` (the setup guide), all on 127.0.0.1. */
+  ports: { screen: number; terminal: number; guide: number };
 }
 
 /** Today's behaviour: localhost only. Used when there is no config file (dev) or a key is absent. */
@@ -27,7 +27,7 @@ export const DEFAULT_ACCESS_CONFIG: AccessConfig = {
   tailscale: { hostname: "" },
   cloudflare: { hostname: "", team_domain: "", aud: "" },
   owner: { tailscale_login: "", email: "" },
-  ports: { screen: 7701, terminal: 7702 },
+  ports: { screen: 7701, terminal: 7702, guide: 7699 },
 };
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -42,7 +42,7 @@ export function toAccessConfig(doc: any): AccessConfig {
     tailscale: { hostname: str(doc?.tailscale?.hostname) },
     cloudflare: { hostname: str(doc?.cloudflare?.hostname), team_domain: str(doc?.cloudflare?.team_domain), aud: str(doc?.cloudflare?.aud) },
     owner: { tailscale_login: str(doc?.owner?.tailscale_login), email: str(doc?.owner?.email) },
-    ports: { screen: port(doc?.ports?.screen, d.ports.screen), terminal: port(doc?.ports?.terminal, d.ports.terminal) },
+    ports: { screen: port(doc?.ports?.screen, d.ports.screen), terminal: port(doc?.ports?.terminal, d.ports.terminal), guide: port(doc?.ports?.guide, d.ports.guide) },
   };
 }
 
