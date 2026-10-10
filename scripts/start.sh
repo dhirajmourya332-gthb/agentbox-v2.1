@@ -2,7 +2,7 @@
 # Start agentbox (e.g. after the Mac reboots): check the VM exists, start it, and wait until the
 # web UI and the shared computer are healthy. Usage: ./scripts/start.sh [--open]
 # First-time setup is ./scripts/up.sh instead.
-source "$(dirname "$0")/env.sh"   # also refuses to run if the External drive isn't mounted
+source "$(dirname "$0")/env.sh"   # also refuses to run if a configured LIMA_HOME is missing
 
 say() { printf '%s\n' "$*"; }
 

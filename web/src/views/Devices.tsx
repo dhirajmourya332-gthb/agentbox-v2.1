@@ -242,7 +242,7 @@ function Notifications() {
         {saved && <span className="hint">Saved</span>}
       </label>
       <p className="hint" style={{ marginTop: 4 }}>
-        Off by default. When on, notifications include a short title such as "tech-lead replied: MSP API keys". That text
+        Off by default. When on, notifications include a short title such as "tech-lead replied: Partner API keys". That text
         passes through Expo's and Google's push services and shows on the lock screen.
       </p>
       {error && <div className="error-box" style={{ marginTop: 8 }}>{error}</div>}

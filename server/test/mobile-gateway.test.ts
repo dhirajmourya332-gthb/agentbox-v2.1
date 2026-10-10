@@ -477,7 +477,7 @@ async function main() {
     await portal("POST", `/api/devices/${p3.id}/approve`, {});
     const ok = await p3.call("GET", "/m/v1/whoami", undefined, { "tailscale-user-login": "owner@example.com" });
     assert(ok.status === 200, `matching login ${ok.status}`);
-    isEmpty404(await p3.call("GET", "/m/v1/whoami", undefined, { "tailscale-user-login": "someone@else.com" }), "other login");
+    isEmpty404(await p3.call("GET", "/m/v1/whoami", undefined, { "tailscale-user-login": "someone@example.org" }), "other login");
     p3.login = null;
     isEmpty404(await p3.call("GET", "/m/v1/whoami"), "missing login");
     await portal("POST", `/api/devices/${p3.id}/revoke`, {});

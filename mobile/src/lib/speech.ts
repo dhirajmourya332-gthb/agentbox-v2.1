@@ -131,8 +131,9 @@ export async function downloadModel(lang: string): Promise<string> {
   }
 }
 
-/** The fixed words recognition is biased towards, besides agent names and roles. */
+/** The fixed, generic words recognition is biased towards, besides agent names, roles and group
+ *  names (which come from the box, so a team's own vocabulary is picked up from there). */
 export const GLOSSARY = [
-  "tech-lead", "coder", "devops", "security", "Dependabot", "Keycloak", "MSSP", "Brandsek", "Scrutex",
-  "epic", "PR", "worktree", "staging", "Swagger",
+  "tech-lead", "coder", "devops", "security", "Dependabot", "epic", "PR", "worktree", "staging",
+  "Swagger", "GitHub", "agentbox",
 ];

@@ -109,7 +109,7 @@ export function RoutineRulesEditor({ rules, routineRoleId, onChange }: {
           <div className="field">
             <label htmlFor="rr-everyone">For everyone</label>
             <textarea id="rr-everyone" className="text" rows={3} value={rules.everyone}
-              placeholder="e.g. Only handle Critical and High alerts in Brandsek/digital_risk. One PR per package."
+              placeholder="e.g. Only handle Critical and High alerts in acme/web-app. One PR per package."
               onChange={(e) => onChange({ ...rules, everyone: e.target.value })} />
           </div>
 

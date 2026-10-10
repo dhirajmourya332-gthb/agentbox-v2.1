@@ -14,7 +14,7 @@
       "checkAutomatically": "NEVER"
     },
     "android": {
-      "package": "local.agentbox.mobile",
+      "package": "org.agentbox.mobile",
       "versionCode": 6,
       "allowBackup": false,
       "adaptiveIcon": {
@@ -51,8 +51,7 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "com.google.android.gms.permission.AD_ID"
-      ],
-      "googleServicesFile": "./google-services.json"
+      ]
     },
     "plugins": [
       [
@@ -83,14 +82,6 @@
           }
         }
       ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/android-icon-monochrome.png",
-          "color": "#2f5bd3",
-          "defaultChannel": "attention"
-        }
-      ],
       "expo-asset",
       [
         "expo-speech-recognition",
@@ -101,12 +92,6 @@
           ]
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "8a399c11-b929-4bbf-83c9-c07623f03f39"
-      }
-    },
-    "owner": "dhirajmourya332"
+    ]
   }
 }

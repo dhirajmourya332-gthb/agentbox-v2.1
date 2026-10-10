@@ -4,6 +4,26 @@ A small React Native (Expo) app for starting, delegating and watching agentbox w
 It talks only to the agentbox mobile gateway over Tailscale, and signs every request with a key that
 never leaves the phone. The contract with the server is `docs/MOBILE-PROTOCOL.md`.
 
+## Install-specific inputs
+
+The repo holds no account ids. `app.json` is the shared base; `app.config.ts` layers your own values
+over it from environment variables:
+
+| Variable | Required | What it is |
+|---|---|---|
+| `EXPO_OWNER` | no | Your Expo account or organisation. Defaults to the logged-in Expo user. |
+| `EAS_PROJECT_ID` | for EAS builds | The project id `eas init` prints. |
+| `ANDROID_PACKAGE` | no | The Android application id. Default `org.agentbox.mobile`. Keep it the same across builds, or Android treats each build as a different app. |
+| `GOOGLE_SERVICES_FILE` | no | Path to your Firebase `google-services.json` (default `./google-services.json`). Push notifications are configured only if this file exists. It is git-ignored: never commit it. |
+
+Put them in your shell (or in EAS environment variables for cloud builds), e.g.:
+
+```bash
+export EXPO_OWNER=your-expo-name EAS_PROJECT_ID=00000000-0000-0000-0000-000000000000
+```
+
+The `mobile-app` setup module asks for these and fills them in for you.
+
 ## Build it (EAS cloud)
 
 You need a free Expo account. Nothing is built or uploaded until you run these yourself.
@@ -12,9 +32,13 @@ You need a free Expo account. Nothing is built or uploaded until you run these y
 cd mobile
 npm install
 npx eas-cli@latest login
-npx eas-cli@latest init                                   # links the project; adds extra.eas.projectId to app.json
-npx eas-cli@latest build -p android --profile preview     # installable APK
+npx eas-cli@latest init                                  # creates the project, prints its id
+export EAS_PROJECT_ID=<the id it printed>                # app.config.ts reads it
+npx eas-cli@latest build -p android --profile preview    # installable APK
 ```
+
+`eas init` may offer to write the id into the config; with `app.config.ts` it can't, so set
+`EAS_PROJECT_ID` instead.
 
 When the build finishes, EAS prints a link and a QR code to download the `.apk`.
 
@@ -28,9 +52,10 @@ When the build finishes, EAS prints a link and a QR code to download the `.apk`.
 Android delivers Expo push notifications through Firebase Cloud Messaging. Until this is set up the
 app works normally, but it can't get a push token, so it never registers for notifications.
 
-1. In the Firebase console, create a project and add an Android app with package
-   `local.agentbox.mobile`. Download `google-services.json` into `mobile/` and add
-   `"googleServicesFile": "./google-services.json"` under `expo.android` in `app.json`.
+1. In the Firebase console, create a project and add an Android app with the same package as
+   `ANDROID_PACKAGE` (default `org.agentbox.mobile`). Download `google-services.json` into
+   `mobile/` (or anywhere, and point `GOOGLE_SERVICES_FILE` at it). `app.config.ts` notices the
+   file and turns on the push configuration.
 2. Create a service-account key for FCM V1 and upload it to the project's EAS credentials
    (`npx eas-cli@latest credentials` → Android → Google Service Account → FCM V1).
 3. Build again.
@@ -44,7 +69,7 @@ app works normally, but it can't get a push token, so it never registers for not
 
 ## Pair
 
-1. On the Mac, open the portal → **Devices** → **Pair a phone**. A QR code appears for 2 minutes.
+1. Open the portal → **Devices** → **Pair a phone**. A QR code appears for 2 minutes.
 2. In the app, name the phone, tap **Scan pairing code** and scan it.
    - Codes must point to an `https://…ts.net` address. Any other https address shows a warning first.
 3. The app shows a fingerprint like `K3QF-7ZMA-2XWB-…`. Check it matches the pending device in the

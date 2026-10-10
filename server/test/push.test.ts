@@ -37,7 +37,7 @@ function addDevice(status: "active" | "pending", token: string | null) {
 }
 const tokenOf = (id: string) => get<{ push_token: string | null }>(`SELECT push_token FROM devices WHERE id = ?`, id)?.push_token ?? null;
 let seq = 0;
-const item = (title = "tech-lead#1 replied: MSP API keys"): import("../src/push.ts").Attention => ({
+const item = (title = "tech-lead#1 replied: Partner API keys"): import("../src/push.ts").Attention => ({
   id: `att-${++seq}`, kind: "reply", agent_id: "agent-1", task_id: "task-1", room_id: `room-${seq}`, title, created_at: now(), seen_at: null,
 });
 const allMessages = () => mock.state.sends.flatMap((s) => s.messages);
@@ -76,7 +76,7 @@ await test("first item: one request, content-free body, ids-only data, channel a
     assert(JSON.stringify(Object.keys(m.data).sort()) === JSON.stringify(["attention_id", "kind", "room_id"]), `data keys ${Object.keys(m.data)}`);
     assert(m.data.kind === "reply" && m.data.attention_id === "att-1" && m.data.room_id === "room-1", "data values");
     assert(m.channelId === "attention" && m.priority === "high", "channel/priority");
-    assert(!JSON.stringify(m).includes("MSP") && !JSON.stringify(m).includes("tech-lead"), "attention text leaked");
+    assert(!JSON.stringify(m).includes("Partner") && !JSON.stringify(m).includes("tech-lead"), "attention text leaked");
   }
   assert(!mock.state.sends[0].headers.authorization, "an access token was sent to a non-Expo host");
 });

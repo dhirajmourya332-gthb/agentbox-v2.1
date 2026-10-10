@@ -92,14 +92,14 @@ export function NewTask({ roleId }: { roleId?: string }) {
             </span>
           </div>
           <textarea id="nt-text" ref={ref} className="text" rows={7} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={att.onPaste}
-            placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the MSP portal. Ask me before filing the epic." : "e.g. Fix Dependabot alert #3232 in scrutex-guard/console."} />
+            placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the partner portal. Ask me before filing the epic." : "e.g. Fix Dependabot alert #1234 in acme/web-app."} />
           <VoiceStatus v={voice} />
           <AttachmentStrip a={att} />
           <span className="hint">{att.uploading ? "Uploading image…" : "Paste (⌘V), drop or attach screenshots; the agent can open them."}</span>
         </div>
         <div className="field">
           <label htmlFor="nt-title">Title <span className="hint">(optional; defaults to the first line)</span></label>
-          <input id="nt-title" className="text" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="MSP API keys" />
+          <input id="nt-title" className="text" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="Partner API keys" />
         </div>
 
         <div className="wizard-nav">
