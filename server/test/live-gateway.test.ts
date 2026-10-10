@@ -98,7 +98,7 @@ async function main() {
   // A role and an owner-started task (agents are paused in the rehearsal, so it stays queued).
   const role = await portal("POST", "/api/agents", { name: `Live-${Date.now() % 100000}`, title: "Rehearsal", summary: "Rehearsal", model: "haiku", instructions: "Rehearsal agent.", interview: {} });
   assert(role.status === 200, `create agent ${role.status} ${role.body}`);
-  const inst = await portal("POST", "/api/work", { role_id: json(role).id, text: "Ship MSP API keys" });
+  const inst = await portal("POST", "/api/work", { role_id: json(role).id, text: "Ship partner API keys" });
   assert(inst.status === 200, `new task ${inst.status} ${inst.body}`);
   const instance = json(inst);
   const roomView = json(await portal("GET", `/api/work/${instance.id}`));
@@ -114,7 +114,7 @@ async function main() {
     return id;
   };
   step(0, "gh pr checks 4984", { status: "done", started: 5, finished: 4.9, output: checks });
-  const watch = step(1, "cd /work/digital_risk-4950 && gh pr checks 4984 --watch", { status: "running", started: 2 });
+  const watch = step(1, "cd /work/web-app-4950 && gh pr checks 4984 --watch", { status: "running", started: 2 });
 
   let stalledItem: any;
   await test("portal socket: progress.updated (activity, stalled, summary) and attention.updated (stalled)", async () => {
@@ -164,7 +164,7 @@ async function main() {
 
   await test("resume: a new step → progress working on both sockets; the stall item is cleared (seen)", async () => {
     db.prepare(`UPDATE steps SET status = 'done', finished_at = ? WHERE id = ?`).run(new Date().toISOString(), watch);
-    db.prepare(`INSERT INTO steps (id, task_id, seq, kind, name, summary, input, status, started_at) VALUES (?, ?, 2, 'read', 'Read', '/work/digital_risk-4950/src/app.ts', '{}', 'running', ?)`)
+    db.prepare(`INSERT INTO steps (id, task_id, seq, kind, name, summary, input, status, started_at) VALUES (?, ?, 2, 'read', 'Read', '/work/web-app-4950/src/app.ts', '{}', 'running', ?)`)
       .run(`rt-${randomBytes(6).toString("hex")}`, taskId, new Date().toISOString());
     const working = (x: any) => x.type === "progress.updated" && x.progress.task_id === taskId && x.progress.state === "working";
     const e = await pe.wait(working);

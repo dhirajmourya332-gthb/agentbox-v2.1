@@ -46,7 +46,7 @@ function parseInput(step: Pick<StepRow, "input">): any {
   try { return step.input ? JSON.parse(step.input) : {}; } catch { return {}; }
 }
 
-/** The work folder a command runs in: /work/digital_risk-4950/... → "digital_risk-4950". */
+/** The work folder a command runs in: /work/web-app-4950/... → "web-app-4950". */
 function workDir(cmd: string) {
   const m = cmd.match(/(?:\bcd\s+|\s-C\s+|--prefix[ =]|--cwd[ =]|--dir(?:ectory)?[ =])["']?\/work\/([A-Za-z0-9._-]+)/);
   return m?.[1] ?? null;
@@ -102,7 +102,7 @@ export function shellActivity(cmd: string, description?: string): string {
   return `Running ${short(c.split("\n")[0], 60)}`;
 }
 
-/** A step in plain words: "Waiting on CI for PR #4984", "Running tests in digital_risk-4950", "Reading app.ts". */
+/** A step in plain words: "Waiting on CI for PR #4984", "Running tests in web-app-4950", "Reading app.ts". */
 export function activityFor(step: Pick<StepRow, "kind" | "name" | "summary" | "input">): string {
   const input = parseInput(step);
   const s = step.summary ?? "";

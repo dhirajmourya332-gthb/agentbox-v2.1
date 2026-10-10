@@ -63,7 +63,7 @@ function step(taskId: string, kind: string, name: string, summary: string, input
 }
 
 agent("role-tl", "tech-lead");
-agent("tl1", "tech-lead#1", { base_agent_id: "role-tl", created_by: "owner", label: "MSP API keys" });
+agent("tl1", "tech-lead#1", { base_agent_id: "role-tl", created_by: "owner", label: "Partner API keys" });
 agent("role-coder", "coder");
 agent("c3", "coder#3", { base_agent_id: "role-coder", created_by: "tl1", parent_instance_id: "tl1", label: "Fix tests" });
 agent("rt1", "tech-lead#9", { base_agent_id: "role-tl", created_by: "routine:r1", label: "Nightly" });
@@ -91,11 +91,11 @@ A.startAttention();
 async function main() {
   // --- plain words ------------------------------------------------------------------------------
   await test("shell activity: CI waits, checks, tests, PRs, git, fallbacks", () => {
-    eq(P.shellActivity("cd /work/digital_risk-4950 && while true; do gh pr checks 4984; sleep 60; done"), "Waiting on CI for PR #4984");
+    eq(P.shellActivity("cd /work/web-app-4950 && while true; do gh pr checks 4984; sleep 60; done"), "Waiting on CI for PR #4984");
     eq(P.shellActivity("gh pr checks 4984 --watch --interval 30"), "Waiting on CI for PR #4984");
     eq(P.shellActivity("gh pr checks https://github.com/o/r/pull/77"), "Checking CI for PR #77");
     eq(P.shellActivity("gh pr checks"), "Checking CI");
-    eq(P.shellActivity("cd /work/digital_risk-4950 && npm test -- --run"), "Running tests in digital_risk-4950");
+    eq(P.shellActivity("cd /work/web-app-4950 && npm test -- --run"), "Running tests in web-app-4950");
     eq(P.shellActivity("python -m pytest -q"), "Running tests");
     eq(P.shellActivity("git -C /work/agentbox-12 push -u origin feature/12-x"), "Pushing to GitHub in agentbox-12");
     eq(P.shellActivity("gh pr view 4957 --comments"), "Reviewing PR #4957");
@@ -148,8 +148,8 @@ async function main() {
   await test("progress for a running room task: activity, room, step, summary after 5 min", () => {
     task("t-ci", "tl1", "dm-tl1", "running", 6);
     step("t-ci", "shell", "Shell", "gh pr checks 4984", { command: "gh pr checks 4984" }, { startedMinAgo: 5, finishedMinAgo: 4.9, output: CHECKS_TAB });
-    step("t-ci", "shell", "Shell", "cd /work/digital_risk-4950 && gh pr checks 4984 --watch",
-      { command: "cd /work/digital_risk-4950 && gh pr checks 4984 --watch" }, { status: "running", startedMinAgo: 0.2 });
+    step("t-ci", "shell", "Shell", "cd /work/web-app-4950 && gh pr checks 4984 --watch",
+      { command: "cd /work/web-app-4950 && gh pr checks 4984 --watch" }, { status: "running", startedMinAgo: 0.2 });
     const p = P.computeProgress("t-ci")!;
     eq(p.activity, "Waiting on CI for PR #4984", "activity");
     eq([p.root_id, p.group_id, p.state], ["tl1", null, "working"], "place/state");
@@ -221,7 +221,7 @@ async function main() {
     publish({ type: "task.updated", task: { id: "t-ci", agent_id: "tl1", thread_id: "dm-tl1", status: "done", source: "user", result: "Done: PR #1" } });
     let items = A.listAttention().filter((i) => i.kind === "reply");
     eq(items.length, 1, "items");
-    eq([items[0].room_id, items[0].title, items[0].seen_at], ["tl1", "tech-lead#1 replied: MSP API keys", null]);
+    eq([items[0].room_id, items[0].title, items[0].seen_at], ["tl1", "tech-lead#1 replied: Partner API keys", null]);
     publish({ type: "task.updated", task: { id: "t-long", agent_id: "tl1", thread_id: "dm-tl1", status: "done", source: "result", result: "More" } });
     items = A.listAttention().filter((i) => i.kind === "reply");
     eq([items.length, items[0].task_id], [1, "t-long"], "refreshed");
@@ -248,7 +248,7 @@ async function main() {
     publish({ type: "task.updated", task: { id: "t-child", agent_id: "c3", thread_id: "ho-c3", status: "failed", source: "agent", error: "boom" } });
     publish({ type: "task.updated", task: { id: "t-rt", agent_id: "rt1", thread_id: "dm-rt1", status: "failed", source: "cron", error: "x" } });
     const f = A.listAttention().filter((i) => i.kind === "failed");
-    eq(f.map((i) => [i.room_id, i.title]), [["tl1", "coder#3 failed: MSP API keys (boom)"]]);
+    eq(f.map((i) => [i.room_id, i.title]), [["tl1", "coder#3 failed: Partner API keys (boom)"]]);
   });
 
   await test("seen: one, a room, all; unseen listed first", () => {

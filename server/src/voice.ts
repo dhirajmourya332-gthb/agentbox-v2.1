@@ -6,7 +6,7 @@ import { all } from "./db.ts";
 import { WORK_ROOT } from "./agents.ts";
 
 /**
- * Voice input (docs/BACKLOG.md item 12, docs/CONTRACTS-v2.md C). The owner speaks; the client's own
+ * Voice input (docs/CONTRACTS-v2.md C). The owner speaks; the client's own
  * free recogniser (Chrome's Web Speech API, Android's SpeechRecognizer) turns it into text and
  * POST /api/voice/clean has a GLM chat model tidy it up (cleanVoice). The older path, Z.ai GLM-ASR
  * on uploaded audio (transcribeVoice), stays but no client uses it. The result goes into the message
@@ -42,11 +42,19 @@ const MIME_EXT: Record<string, string> = {
   "audio/3gpp": ".3gp", "audio/flac": ".flac", "audio/x-flac": ".flac",
 };
 
-/** Terms the owner says that a speech model gets wrong (BACKLOG 12). */
+/** Generic terms a speech model often gets wrong. Team-specific terms (product, company and
+ *  service names) go in /team/glossary.txt, one per line; see teamGlossary(). */
 export const GLOSSARY = [
-  "Dependabot", "Keycloak", "MSSP", "MSP", "Brandsek", "Scrutex", "epic", "PR", "worktree", "Swagger",
-  "GitHub", "agentbox", "repo", "Claude",
+  "Dependabot", "epic", "PR", "worktree", "Swagger", "GitHub", "agentbox", "repo", "Claude",
 ];
+
+/** The owner's own terms: /team/glossary.txt (AGENTBOX_GLOSSARY overrides the path), one term per
+ *  line, `#` starts a comment. Missing file = none. */
+export function teamGlossary(): string[] {
+  let text: string;
+  try { text = fs.readFileSync(process.env.AGENTBOX_GLOSSARY ?? "/team/glossary.txt", "utf8"); } catch { return []; }
+  return text.split(/\r?\n/).map((l) => l.replace(/#.*$/, "").trim()).filter(Boolean);
+}
 
 export class VoiceError extends Error {
   constructor(public statusCode: number, message: string) {
@@ -205,7 +213,7 @@ export function hotwords(agentId?: string) {
     `SELECT id, name, base_agent_id FROM agents WHERE retired_at IS NULL ORDER BY base_agent_id IS NOT NULL, created_at`,
   );
   const first = rows.filter((r) => r.id === agentId || rows.some((x) => x.id === agentId && x.base_agent_id === r.id));
-  const words = [...first.map((r) => r.name), ...rows.filter((r) => !r.base_agent_id).map((r) => r.name), ...GLOSSARY, ...repoNames(),
+  const words = [...first.map((r) => r.name), ...rows.filter((r) => !r.base_agent_id).map((r) => r.name), ...teamGlossary(), ...GLOSSARY, ...repoNames(),
     ...rows.filter((r) => r.base_agent_id).map((r) => r.name)];
   const seen = new Set<string>();
   const out: string[] = [];

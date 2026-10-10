@@ -161,4 +161,4 @@ better-sqlite3 + Drizzle, croner, zod. UI: React + Vite (static, served by Fasti
 | 6 ✓ | Visibility & control | Activity feed; delegation graph; live screen preview on every page; shared-screen lock enforced on browser/GUI tool calls with Take control; Pause all |
 | + ✓ | Replicas (superseded by instances) | coder#1, coder#2… share the base agent's instructions, skills and memory and run in parallel; spawned/retired by the owner or agents allowed to scale (tech-lead); per-agent cap; find_work and list_agents(pool) for cheap lookups |
 | later | | Approval gate, MS Graph MCP for Teams, per-agent GitHub identities |
-| + ✓ | One instance per task | Agents are roles; each task runs on its own instance with its own conversation; task rooms, work-first sidebar, documents everywhere (see docs/BACKLOG.md items 3–6) |
+| + ✓ | One instance per task | Agents are roles; each task runs on its own instance with its own conversation; task rooms, work-first sidebar, documents everywhere |

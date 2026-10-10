@@ -3,8 +3,9 @@
 The contract for the v2 workstreams. Read it together with `docs/SETUP-PLAN.md` (the product plan).
 
 **Hard constraints:**
-- The original `../grok-alt` and its running VM `agentbox` are **never touched**: no edits, no deploys,
-  no `limactl` commands against the `agentbox` instance.
+- (Development only, remove at publish time.) The original `../grok-alt` and its running VM
+  `agentbox` are **never touched**: no edits, no deploys, no `limactl` commands against the
+  `agentbox` instance.
 - **No compromise on security:** zero inbound ports by default; every non-localhost access needs a login.
 - **Open source:** anyone who clones the repo can set it up. Nothing personal or company-specific
   stays in code, skills, prompts, tests or docs: those become examples or setup-time inputs.
@@ -113,7 +114,7 @@ steps:                      # shown on the roadmap, in order
 - **`ssh-tunnel`:** localhost-only, the current behaviour (Host and Origin must be loopback).
 - **The terminal and screen are served through the portal** (`/term/*`, `/screen/*` reverse proxies
   with WebSocket support) behind the same auth plus Origin checks, so ttyd and noVNC are never reachable
-  directly. This fixes audit H1. ttyd also gets `-O`; x11vnc gets a password in a 0600 file.
+  directly. This closes the cross-site terminal access risk. ttyd also gets `-O`; x11vnc gets a password in a 0600 file.
 - **The phone gateway** (mobile module) is unchanged: signed requests, Tailscale only.
 - **Sessions:** after the first authenticated request the portal sets an HttpOnly, Secure,
   SameSite=Strict session cookie (8 h); all `/api` calls need it or a valid identity header/JWT.
@@ -129,7 +130,7 @@ It fails on any of these:
 - the DB and data dir world-readable;
 - the terminal or screen reachable without portal auth;
 - the tailnet guard missing (when mobile is on);
-- passwordless sudo for the agent user **(warning only for now; see audit H3)**.
+- passwordless sudo for the agent user **(warning only for now: agents currently rely on sudo)**.
 
 Cloud-side checks print **instructions** (e.g. "verify your firewall / security group has no inbound
 rules") because the VM can't see the provider's firewall.

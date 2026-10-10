@@ -53,7 +53,7 @@ const clean = (body: unknown) => portal("POST", "/api/voice/clean", body);
 const SPOKEN = `um ask uh tech lead to review pull request forty nine fifty seven ${SECRET_WORDS}`;
 
 await new Promise<void>((r) => mock.listen(MOCK_PORT, "127.0.0.1", r));
-fs.mkdirSync(path.join(WORK, "scrutex-guard", "console", ".git"), { recursive: true });
+fs.mkdirSync(path.join(WORK, "acme", "web-app", ".git"), { recursive: true });
 const state = json(await portal("GET", "/api/state"));
 const role = state.agents.find((a: any) => !a.base_agent_id);
 
@@ -89,7 +89,7 @@ await test("happy path: cleaned text, raw kept, glossary and rules in the prompt
   assert(c.body.max_tokens >= 1024, `max_tokens ${c.body.max_tokens}`);
   const sys = String(c.body.messages[0].content);
   const names = sys.match(/Known names: (.*)\./)?.[1] ?? "";
-  for (const w of ["Dependabot", "Keycloak", "agentbox", "scrutex-guard", "console", ...(role ? [role.name] : [])]) {
+  for (const w of ["Dependabot", "Swagger", "agentbox", "acme", "web-app", ...(role ? [role.name] : [])]) {
     assert(names.split(", ").includes(w), `glossary lacks ${w}: ${names.slice(0, 200)}`);
   }
   if (role) assert(names.startsWith(role.name), "agent's own name first");

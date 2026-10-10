@@ -49,7 +49,7 @@ installed or asked for unless it's enabled.
 | **mobile**: gateway on 7710, Devices page, tailnet firewall (needs access = tailscale) | optional | access | **paste the tailnet policy** (tag, port 443 only) | serve tailnet-only, funnel not allowed, policy test passes |
 | **mobile-app**: build the APK with EAS | optional | mobile | **`eas login`** | build FINISHED, APK link |
 | **push**: Firebase / FCM | optional | mobile-app | **create the Firebase project, `google-services.json`, upload the FCM key to Expo** | "Send test notification" delivered |
-| **teams-bot** (backlog 15): Azure relay + Teams app | optional, later | github | **Entra app, Azure, Teams admin approval** | bot echo in the test channel |
+| **teams-bot** (planned): Azure relay + Teams app | optional, later | github | **Entra app, Azure, Teams admin approval** | bot echo in the test channel |
 
 ### 2a. Access: reaching the VM without opening ports
 The portal drives agents that hold production access, so it must never sit on a public port
@@ -72,8 +72,8 @@ inbound ports** (port 22 included) and gives **HTTPS + identity**:
 - **The portal gets an auth layer** when not used from localhost. The access module sets the trusted
   identity source (Tailscale header, or the Cloudflare Access JWT) and the allowed host and origin;
   `guardApi` uses that config instead of "loopback only". The CSRF and Origin protections stay.
-- **The terminal** stays behind the same login, with the origin check (audit H1 fixed by
-  construction).
+- **The terminal** stays behind the same login, with the origin check (the cross-site
+  terminal access finding of the security review is fixed by construction).
 
 Each module is a folder `setup/modules/<id>/` containing:
 - `module.yaml`: id, title, description, `depends`, `optional`, the `gate` text for humans, `checks`, `files`, `units`;

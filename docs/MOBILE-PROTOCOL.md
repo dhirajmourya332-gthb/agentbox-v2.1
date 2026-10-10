@@ -1,7 +1,7 @@
 # agentbox mobile: security design and protocol (v1)
 
 The contract between the agentbox server (mobile gateway + portal Devices page) and the Android
-app (`mobile/`, React Native / Expo). Backlog item 10. **Security is the top priority; when in
+app (`mobile/`, React Native / Expo). **Security is the top priority; when in
 doubt, refuse.**
 
 ## Goals

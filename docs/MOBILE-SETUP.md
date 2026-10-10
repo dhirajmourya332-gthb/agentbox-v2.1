@@ -38,7 +38,7 @@ Tailscale outside the VM, so agents can't loosen it. The VM's own tailnet firewa
 second layer.
 
 ## 2. Put the gateway on your tailnet
-On the Mac, with the current code deployed (`scripts/deploy.sh`):
+On the machine that runs the scripts (the Mac, for a Lima install), with the current code deployed (`scripts/deploy.sh`):
 
 ```bash
 AGENTBOX_TS_TAG=tag:agentbox ./scripts/mobile-setup.sh
@@ -52,7 +52,7 @@ It refuses to run without `AGENTBOX_TS_TAG`. It's safe to re-run. It:
    `--force`;
 2. installs Tailscale in the VM, from the official repository for Ubuntu 24.04;
 3. runs `tailscale up` as a **tagged** node with a random, non-descriptive hostname such as
-   `node-3fa91c`. Certificate names for `*.ts.net` are published in public Certificate
+   `node-xxxxxx`. Certificate names for `*.ts.net` are published in public Certificate
    Transparency logs, so the name shouldn't describe the machine. It also passes `--ssh=false
    --accept-dns=false --accept-routes=false`. **The first time, it prints a login URL: open it and
    sign in;**

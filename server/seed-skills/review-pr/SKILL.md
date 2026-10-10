@@ -29,7 +29,7 @@ For each changed public function, endpoint, schema or shared module, search its 
 
 ## 3. Judge
 
-- Right branch and base (`/team/branching.md`)? An epic sub-issue PR must come from
+- Right branch and base (`/team/github.md`, Branching)? An epic sub-issue PR must come from
   `<prefix>/<sub#>-<slug>` and target `epic/<parent#>-<slug>`, with `Part of #<parent>` /
   `Resolves #<sub>`; a standalone PR targets `main` with `Closes #<issue>`. Wrong base is blocking.
 - Is the branch current with its base (no conflicts, `git merge origin/<base>` clean)?
@@ -61,9 +61,10 @@ with the verdict first, then blocking items, then the rest.
 - Sub-issue PR into an epic: `gh pr merge <n> --squash --delete-branch`, then close the sub-issue
   (`gh issue close <sub#> --comment "Merged into <epic> in #<pr>"`).
 - Small PR into `main`: `gh pr merge <n> --squash --delete-branch`.
-- Epic → `main`: never merge it yourself without the owner's approval; it uses a merge commit.
+- Epic → `main`: never merge it yourself without approval from the team's "Epic approval" person
+  (the owner by default); it uses a merge commit.
 
-**Right after any merge, delete the branch and its workspace** (`/team/branching.md` §8), whoever
+**Right after any merge, delete the branch and its workspace** (`/team/github.md`, Branching), whoever
 created the worktree:
 
 ```bash

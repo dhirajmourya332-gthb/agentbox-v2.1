@@ -151,7 +151,7 @@ const transcribe = (body: unknown) => portal("POST", "/api/voice/transcribe", bo
 
 async function main() {
   await new Promise<void>((r) => mock.listen(MOCK_PORT, "127.0.0.1", r));
-  fs.mkdirSync(path.join(WORK, "scrutex-guard", "console", ".git"), { recursive: true });
+  fs.mkdirSync(path.join(WORK, "acme", "web-app", ".git"), { recursive: true });
   const state = json(await portal("GET", "/api/state"));
   const role = state.agents.find((a: any) => !a.base_agent_id);
 
@@ -184,7 +184,7 @@ async function main() {
     assert(asrCalls.every((c) => c.auth === "Bearer test-asr-key" && c.model === "glm-asr-2512" && c.stream === "false"), "asr auth/model/stream");
     const hw = asrCalls[0].hotwords;
     assert(asrCalls[0].hotwordsRaw.length === 1, "hotwords sent as one JSON field");
-    assert(hw.includes("Dependabot") && hw.includes("Keycloak") && hw.includes("console") && hw.includes("scrutex-guard"), `hotwords ${hw.join(",")}`);
+    assert(hw.includes("Dependabot") && hw.includes("Swagger") && hw.includes("web-app") && hw.includes("acme"), `hotwords ${hw.join(",")}`);
     if (role) assert(hw[0] === role.name, `agent first: ${hw[0]}`);
     assert(hw.length <= 100 && !hw.includes("uploads"), "hotword cap / no uploads");
     assert(chatCalls.length === 1 && chatCalls[0].auth === "Bearer test-chat-key" && chatCalls[0].model === "glm-5.3-flash", "chat call");

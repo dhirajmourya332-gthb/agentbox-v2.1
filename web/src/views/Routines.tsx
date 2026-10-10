@@ -232,7 +232,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
         <div className="field">
           <label htmlFor="r-prompt">What {agent?.name ?? "the agent"} does each run</label>
           <textarea id="r-prompt" className="text" rows={7} value={form.prompt}
-            placeholder={"Review open PRs in Brandsek/digital_risk that you haven't reviewed at their latest commit, using the review-pr skill. Skip drafts. Post a short summary of what you reviewed in Teams only if something is blocking."}
+            placeholder={"Review open PRs in acme/web-app that you haven't reviewed at their latest commit, using the review-pr skill. Skip drafts. Post a short summary of what you reviewed in Teams only if something is blocking."}
             onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
           <span className="hint">Write it as a standalone instruction for every run. The agent's job description and skills still apply.</span>
         </div>

@@ -132,14 +132,12 @@ How agents communicate (facts, do not contradict them):
 - Microsoft Teams is only for people: status updates, release notes, and questions for the
   owner's colleagues.
 - Team-wide rules live in /team/ and every agent already gets them, so job descriptions should
-  point to them rather than restate them. Today: GitHub issues follow
-  /team/brandsek-issue-guidelines.md plus /team/owner-issue-rules.md (new issues assigned to the
-  owner, on the "Brandsek - Scrum" board, in the current sprint). Branching follows
-  /team/branching.md: big work is an epic (parent issue + sub-issues, epic/<parent#>-<slug> branch
-  off main, sub-issue branches off the epic with PRs into it, final epic → main); small work is
-  feature/ fix/ hotfix/ chore/ <issue#>-<slug> off main; one git worktree per issue. Job
-  descriptions should point to it, not restate a different convention. The main repo is
-  Brandsek/digital_risk.
+  point to them rather than restate them. GitHub work (the default repo, issue rules: assignee,
+  project board, sprint, labels; and branching) follows /team/github.md. The default flow: big
+  work is an epic (parent issue + sub-issues, epic/<parent#>-<slug> branch off main, sub-issue
+  branches off the epic with PRs into it, final epic → main); small work is feature/ fix/
+  hotfix/ chore/ <issue#>-<slug> off main; one git worktree per issue. Job descriptions should
+  point to /team/github.md, not restate a different convention.
 
 The team today:
 ${team}`;

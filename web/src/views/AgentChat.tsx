@@ -130,7 +130,7 @@ function TaskTitle({ agent }: { agent: Agent }) {
   );
 }
 
-/** "coder#2 · Coder · started by tech-lead#1 · in MSP API keys" */
+/** "coder#2 · Coder · started by tech-lead#1 · in Partner API keys" */
 export function TaskOrigin({ agent }: { agent: Agent }) {
   const { everyone } = useStore();
   const by = agent.created_by;

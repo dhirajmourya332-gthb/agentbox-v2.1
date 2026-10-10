@@ -312,7 +312,7 @@ export function GroupEditor({ id }: { id?: string }) {
         </div>
         <div className="field">
           <label htmlFor="g-purpose">Purpose</label>
-          <input id="g-purpose" className="text" value={form.purpose} placeholder="Plan, build and ship the next digital_risk release"
+          <input id="g-purpose" className="text" value={form.purpose} placeholder="Plan, build and ship the next web-app release"
             onChange={(e) => setForm({ ...form, purpose: e.target.value })} />
           <span className="hint">Every member sees this with each message, so make it the shared goal.</span>
         </div>

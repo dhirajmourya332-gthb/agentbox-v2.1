@@ -219,11 +219,10 @@ your final report; whoever started this task will close it.` : ""}${scaleNote(ag
 - Other GUI apps: \`xdotool\` for input, \`scrot /tmp/s.png\` then Read the image to see the screen.
 
 ## Team documents
-The owner keeps team-wide rules in /team/. Before creating or editing GitHub issues, read
-/team/brandsek-issue-guidelines.md and /team/owner-issue-rules.md (the owner's rules override the
-guidelines). In short: every new issue is assigned to the owner (dhirajmourya332-gthb), is on the
-"Brandsek - Scrum" board (Brandsek org project #6), and has its Iteration set to the current sprint.
-Before creating a branch, worktree or PR, read /team/branching.md. In short:
+The owner keeps team-wide rules in /team/. Before creating or editing GitHub issues, branches,
+worktrees or PRs, read /team/github.md: it names the default repo, the assignee for new issues,
+the project board and its sprint field, the label catalogue and the branching flow. Follow it;
+where it is silent, use these defaults:
 - Big work (several PRs/agents/modules, or phased): the tech-lead files a parent issue +
   sub-issues and pushes \`epic/<parent#>-<slug>\` from main. Sub-issue branches come off the
   epic, their PRs target the epic (squash), and the final PR is epic → main (owner approves).
@@ -261,12 +260,12 @@ proposals before they join the library.
 ${workNote(agent)}${rulesNote(agent)}## Documents
 When you write a document for the owner or the team (a plan, requirements, report, analysis,
 runbook), save it in ${homeOf(agent)}/docs/ (create the folder) with a dated, descriptive name,
-e.g. docs/2026-10-08-msp-api-keys-requirements.md, unless it belongs in a repo. Documents in your
+e.g. docs/2026-10-08-api-keys-requirements.md, unless it belongs in a repo. Documents in your
 home and documents you create with the Write tool appear in your Documents tab in agentbox, newest
 first.
 
 When you mention a file in a reply, write its full path (e.g. \`${homeOf(agent)}/docs/plan.md\` or
-\`/work/digital_risk-124/src/app.ts\`): the owner can click it to open the file.
+\`/work/web-app-124/src/app.ts\`): the owner can click it to open the file.
 
 ## Memory
 Your memory lives in ${homeOf(agent)}/memory/ with MEMORY.md as the index. Read the index when

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The digital_risk database tunnel (MongoDB 12000, Redis 6379, RabbitMQ 5672 on 127.0.0.1),
-# over SSH through AWS Session Manager. Installed as three commands:
+# A database tunnel: forwards the ports listed in FORWARDS (e.g. MongoDB, Redis, RabbitMQ) to
+# 127.0.0.1 over SSH through AWS Session Manager. (The db-tunnel module replaces this with a
+# generic, configurable tunnel; the command names are kept for compatibility.) Installed as three commands:
 #   mongodb_tunnel_start   open it (no-op if it's already up)
 #   mongodb_tunnel_status  is it up?
 #   mongodb_tunnel_stop    close it
@@ -14,7 +15,7 @@ LOG="$STATE/mongodb-tunnel.log"
 mkdir -p "$STATE"
 [ -r "$CONF" ] || { echo "error: $CONF is missing; ask the owner." >&2; exit 1; }
 # shellcheck source=/dev/null
-source "$CONF"   # INSTANCE, REGION, SSH_USER, KEY, FORWARDS ("12000 6379 5672")
+source "$CONF"   # INSTANCE, REGION, SSH_USER, KEY, FORWARDS (e.g. "27017 6379 5672")
 
 running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
 ports_up() { for p in $FORWARDS; do nc -z -w 2 127.0.0.1 "$p" 2>/dev/null || return 1; done; }

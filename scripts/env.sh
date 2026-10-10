@@ -5,12 +5,13 @@ VM_NAME="${VM_NAME:-agentbox}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_MOUNT="/mnt/agentbox-src"
 
-# Lima VMs live on the external drive. Refuse to fall back to ~/.lima on the boot disk.
-export LIMA_HOME="${LIMA_HOME:-/Volumes/External/lima}"
-if [ ! -d "$LIMA_HOME" ]; then
-  echo "error: LIMA_HOME ($LIMA_HOME) does not exist — is the External drive mounted?" >&2
+# Where Lima keeps its VMs. Set LIMA_HOME to put them elsewhere (e.g. on an external drive); if you
+# set it, it must exist, so an unmounted drive never makes Lima silently fall back to ~/.lima.
+if [ -n "${LIMA_HOME:-}" ] && [ ! -d "$LIMA_HOME" ]; then
+  echo "error: LIMA_HOME ($LIMA_HOME) does not exist — is its drive mounted?" >&2
   exit 1
 fi
+export LIMA_HOME="${LIMA_HOME:-$HOME/.lima}"
 
 LIMACTL="$(command -v limactl)"
 

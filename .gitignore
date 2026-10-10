@@ -3,3 +3,6 @@ node_modules/
 *.log
 .claude/worktrees/
 .wt/
+
+# Install-specific private docs (backlog, audit, release notes of one install)
+docs/internal/
