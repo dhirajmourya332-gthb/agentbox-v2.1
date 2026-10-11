@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 export type Route =
   | { name: "home" }
-  | { name: "agent"; id: string; thread?: string }
+  | { name: "agent"; id: string; thread?: string; msg?: string }
   | { name: "changes"; id: string }
   | { name: "tasks"; task?: string }
   | { name: "group"; id: string }
@@ -33,7 +33,9 @@ export function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   if (parts[0] === "agents" && parts[1] === "new") return { name: "new-agent" };
   if (parts[0] === "agents" && parts[1] && parts[2] === "changes") return { name: "changes", id: parts[1] };
-  if (parts[0] === "agents" && parts[1]) return { name: "agent", id: parts[1], thread: parts[2] === "threads" ? parts[3] : undefined };
+  // A message in a conversation: #/agents/<id>/m/<msg> or #/agents/<id>/threads/<thread>/m/<msg>.
+  if (parts[0] === "agents" && parts[1] && parts[2] === "m" && parts[3]) return { name: "agent", id: parts[1], msg: parts[3] };
+  if (parts[0] === "agents" && parts[1]) return { name: "agent", id: parts[1], thread: parts[2] === "threads" ? parts[3] : undefined, msg: parts[2] === "threads" && parts[4] === "m" ? parts[5] : undefined };
   if (parts[0] === "groups" && parts[1] === "new") return { name: "new-group" };
   if (parts[0] === "groups" && parts[1] && parts[2] === "settings") return { name: "group-settings", id: parts[1] };
   if (parts[0] === "groups" && parts[1]) return { name: "group", id: parts[1] };
@@ -60,7 +62,7 @@ export function parse(hash: string): Route {
 export function href(r: Route): string {
   switch (r.name) {
     case "home": return "#/";
-    case "agent": return r.thread ? `#/agents/${r.id}/threads/${r.thread}` : `#/agents/${r.id}`;
+    case "agent": return `#/agents/${r.id}${r.thread ? `/threads/${r.thread}` : ""}${r.msg ? `/m/${r.msg}` : ""}`;
     case "changes": return `#/agents/${r.id}/changes`;
     case "group": return `#/groups/${r.id}`;
     case "group-settings": return `#/groups/${r.id}/settings`;

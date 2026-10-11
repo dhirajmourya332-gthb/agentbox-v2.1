@@ -44,6 +44,25 @@ export function glance(items: RoadmapItem[]) {
   };
 }
 
+/**
+ * Where a step leads: the message behind it (the reply of the turn that last changed it: for a blocked
+ * step, the question to the owner), else its PR/issue/doc link.
+ */
+export function messageHref(i: RoadmapItem): string | null {
+  const s = i.source;
+  if (!s) return null;
+  if (!s.message_id) return `#/agents/${s.agent_id}`;
+  return `#/agents/${s.agent_id}${s.thread_id ? `/threads/${s.thread_id}` : ""}/m/${s.message_id}`;
+}
+const linkHref = (l: string) => (l.startsWith("/") ? `/api/file?path=${encodeURIComponent(l)}` : l);
+/** Open a step: blocked → the question; otherwise its link, else where it changed. */
+export function openStep(i: RoadmapItem, before?: () => void) {
+  const msg = messageHref(i);
+  if (i.status !== "blocked" && i.link) { window.open(linkHref(i.link), "_blank", "noopener"); return; }
+  if (msg) { before?.(); location.hash = msg; return; }
+  if (i.link) window.open(linkHref(i.link), "_blank", "noopener");
+}
+
 const pct = (r: Roadmap) => (r.counts.total ? Math.round(((r.counts.done + r.counts.skipped) / r.counts.total) * 100) : 0);
 
 /** The metro line: phases as labelled segments of dots. */
@@ -87,6 +106,7 @@ function Ring({ r, size = 18 }: { r: Roadmap; size?: number }) {
 
 function Glance({ r }: { r: Roadmap }) {
   const g = glance(r.items);
+  const ask = g.blocked.find((i) => messageHref(i));
   const line = (label: string, cls: string, list: RoadmapItem[], extra?: (i: RoadmapItem) => string) => list.length > 0 && (
     <div className={`rm-glance-line ${cls}`}>
       <span className="rm-glance-key">{label}</span>
@@ -99,6 +119,7 @@ function Glance({ r }: { r: Roadmap }) {
     <div className="rm-glance">
       {line("Now", "doing", g.now, (i) => (i.owner ? ` (${i.owner})` : ""))}
       {line("Blocked", "blocked", g.blocked, (i) => (i.note ? `: ${i.note}` : ""))}
+      {ask && <a className="rm-ask" href={messageHref(ask)!} title={`${ask.source?.agent_name}'s message about "${ask.title}"`}>Read what {ask.source?.agent_name} needs from you →</a>}
       {line("Next", "todo", g.next)}
       {r.status === "done" && <div className="rm-glance-line done"><span className="rm-glance-key">Done</span><span className="rm-glance-val">Every step is finished.</span></div>}
     </div>
@@ -183,15 +204,20 @@ export function RoadmapStrip({ instanceId }: { instanceId: string }) {
           : g.now.length ? { cls: "doing", text: `Now: ${g.now.map((i) => i.title).slice(0, 2).join(" · ")}` }
           : g.next.length ? { cls: "todo", text: `Next: ${g.next[0].title}` } : r.status === "done" ? { cls: "done", text: "Complete" } : null;
         return (
-          <button key={r.id} className="rm-strip-row" onClick={() => setOpen(r.id)} title="Open the map">
-            <Ring r={r} size={16} />
-            <span className="rm-strip-title">{r.title}</span>
-            <span className="rm-strip-count">{r.counts.done}/{r.counts.total}</span>
-            <span className="rm-strip-dots" aria-hidden="true">
-              {ordered(r.items).map((i) => <span key={i.id} className={`metro-dot sm ${i.status}`} />)}
-            </span>
-            {hint && <span className={`rm-strip-hint ${hint.cls}`}>{hint.text}</span>}
-          </button>
+          <div key={r.id} className="rm-strip-line">
+            <button className="rm-strip-row" onClick={() => setOpen(r.id)} title="Open the map">
+              <Ring r={r} size={16} />
+              <span className="rm-strip-title">{r.title}</span>
+              <span className="rm-strip-count">{r.counts.done}/{r.counts.total}</span>
+              <span className="rm-strip-dots" aria-hidden="true">
+                {ordered(r.items).map((i) => <span key={i.id} className={`metro-dot sm ${i.status}`} />)}
+              </span>
+              {hint && <span className={`rm-strip-hint ${hint.cls}`}>{hint.text}</span>}
+            </button>
+            {g.blocked[0] && messageHref(g.blocked[0]) && (
+              <a className="rm-strip-ask" href={messageHref(g.blocked[0])!} title="The message that asks you">Read the question →</a>
+            )}
+          </div>
         );
       })}
       {list.length > 2 && <button className="rm-strip-more" onClick={() => setMore(!more)}>{more ? "Fewer" : `+${list.length - 2} more`}</button>}
@@ -225,14 +251,14 @@ export function RoadmapFull({ list, initial, onClose }: { list: Roadmap[]; initi
     const nodes: GNode[] = r.items.map((i) => ({
       id: i.id, label: i.title, cls: i.status, badge: BADGE[i.status],
       sub: i.status === "blocked" ? `blocked${i.note ? `: ${i.note}` : ""}` : [i.phase, i.owner, i.status === "doing" ? "in progress" : ""].filter(Boolean).join(" · ") || undefined,
-      title: `${i.title} — ${LABEL[i.status]}${i.owner ? ` · ${i.owner}` : ""}${i.note ? `\n${i.note}` : ""}${i.link ? `\n${i.link}` : ""}`,
+      title: `${i.title} — ${LABEL[i.status]}${i.owner ? ` · ${i.owner}` : ""}${i.note ? `\n${i.note}` : ""}${i.link ? `\n${i.link}` : ""}\nClick: ${i.status === "blocked" ? "read the question" : i.link ? "open the link" : "open the message"}`,
     }));
     const edges: GEdge[] = r.items.flatMap((i) => i.after.filter((a) => byId.has(a)).map((a) => ({
       from: a, to: i.id, cls: byId.get(a)!.status === "done" || byId.get(a)!.status === "skipped" ? "met" : "waiting",
     })));
     return { nodes, edges };
   }, [r]);
-  const openLink = (itemId: string) => { const l = r.items.find((i) => i.id === itemId)?.link; if (l) window.open(l.startsWith("/") ? `/api/file?path=${encodeURIComponent(l)}` : l, "_blank", "noopener"); };
+  const openItem = (itemId: string) => { const i = r.items.find((x) => x.id === itemId); if (i) openStep(i, onClose); };
   const bar = (
     <>
       {list.length > 1 && (
@@ -256,15 +282,15 @@ export function RoadmapFull({ list, initial, onClose }: { list: Roadmap[]; initi
   return (
     <FullScreen label={`Roadmap: ${r.title}`} bar={bar} onClose={onClose}>
       {(budget) => {
-        if (mode === "list") return { size: { width: 900, height: 600 }, render: () => <RoadmapList r={r} /> };
+        if (mode === "list") return { size: { width: 900, height: 600 }, render: () => <RoadmapList r={r} onLeave={onClose} /> };
         const laid = layout(graph.nodes, graph.edges, budget);
-        return { size: laid, render: (zoom) => <Drawing kind="rm" nodes={graph.nodes} edges={graph.edges} laid={laid} scale={zoom} onNode={openLink} /> };
+        return { size: laid, render: (zoom) => <Drawing kind="rm" nodes={graph.nodes} edges={graph.edges} laid={laid} scale={zoom} onNode={openItem} /> };
       }}
     </FullScreen>
   );
 }
 
-function RoadmapList({ r }: { r: Roadmap }) {
+function RoadmapList({ r, onLeave }: { r: Roadmap; onLeave: () => void }) {
   const items = ordered(r.items);
   const phases = [...new Set(items.map((i) => i.phase))];
   return (
@@ -281,7 +307,14 @@ function RoadmapList({ r }: { r: Roadmap }) {
                   {LABEL[i.status]}{i.owner ? ` · ${i.owner}` : ""}{i.updated_at ? ` · ${relTime(i.updated_at)}` : ""}
                   {i.note && <><br />{i.note}</>}
                 </span>
-                {i.link && <a href={i.link.startsWith("/") ? `/api/file?path=${encodeURIComponent(i.link)}` : i.link} target="_blank" rel="noopener noreferrer">link</a>}
+                <span className="rm-list-links">
+                  {messageHref(i) && (
+                    <a href={messageHref(i)!} onClick={onLeave} title={`${i.source?.agent_name}'s message from when this last changed`}>
+                      {i.status === "blocked" ? "Read the question" : "Message"}
+                    </a>
+                  )}
+                  {i.link && <a href={linkHref(i.link)} target="_blank" rel="noopener noreferrer">link</a>}
+                </span>
               </li>
             ))}
           </ul>

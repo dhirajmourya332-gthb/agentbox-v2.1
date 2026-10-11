@@ -161,3 +161,30 @@ test("routes: the work's roadmaps for any task in it; archive is the owner's; ar
   assert.equal(r.statusCode, 404);
   await app.close();
 });
+
+test("a step leads to the message behind it: the reply of the turn that last changed it (also for older rows)", async () => {
+  const t = A.spawnInstance(lead.id, { label: "Decisions", createdBy: "owner", asLead: true });
+  const turn = fakeTask(t.id);
+  const tools = TM.teamTools(t, turn);
+  await call(tools, "roadmap_create", { title: "Decisions", items: [{ id: "keep", title: "Owner: keep or delete" }, { id: "go", title: "Go", after: ["keep"] }] });
+  const rm = RM.roadmapsOf(t.id)[0];
+  const r = await call(tools, "roadmap_update", { roadmap: rm.id, items: [{ id: "keep", status: "blocked", note: "Delete, archive or keep the 7 projects?" }] });
+  assert.ok(!r.isError, r.content[0].text);
+  // Before the turn's reply exists: the agent's conversation, no message yet.
+  let item = RM.roadmapView(RM.getRoadmap(rm.id)!).items.find((i) => i.id === "keep")!;
+  assert.equal(item.source?.agent_id, t.id);
+  assert.equal(item.source?.message_id, null);
+  // The turn replies (the question in full): the step now points at that reply.
+  const reply = newId();
+  run(`INSERT INTO messages (id, thread_id, author, task_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`, reply, A.dmThreadOf(t.id), t.id, turn, "Decision needed: …", now());
+  item = RM.roadmapView(RM.getRoadmap(rm.id)!).items.find((i) => i.id === "keep")!;
+  assert.equal(item.source?.message_id, reply);
+  assert.equal(item.source?.thread_id, A.dmThreadOf(t.id));
+  assert.equal(item.source?.agent_name, t.name);
+  // Older rows (no recorded turn) are traced from who changed them and when.
+  run(`UPDATE roadmap_items SET source_agent = NULL, source_task = NULL WHERE roadmap_id = ? AND id = 'keep'`, rm.id);
+  item = RM.roadmapView(RM.getRoadmap(rm.id)!).items.find((i) => i.id === "keep")!;
+  assert.equal(item.source?.message_id, reply, "found through updated_by + updated_at");
+  // The instructions ask for the question in the note and in the reply.
+  assert.match(RU.instructionLayers(t).find((l) => l.id === "work")!.text, /Blocked on the owner\? Put the decision itself in the note/);
+});

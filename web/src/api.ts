@@ -276,7 +276,12 @@ export type Plan = {
 export type PlanGate = { required: boolean; approved: { id: string; version: number; title: string } | null };
 /** server/src/roadmaps.ts › roadmapView (docs/V2.1-PLAN.md §3). */
 export type RoadmapStatus = "todo" | "doing" | "done" | "blocked" | "skipped";
-export type RoadmapItem = { id: string; title: string; phase: string; after: string[]; status: RoadmapStatus; owner: string; note: string; link: string; updated_at: string; updated_by: string | null };
+export type RoadmapItem = {
+  id: string; title: string; phase: string; after: string[]; status: RoadmapStatus; owner: string; note: string; link: string;
+  updated_at: string; updated_by: string | null;
+  /** Where it last changed: the agent's reply in that turn (null until posted). */
+  source?: { agent_id: string; agent_name: string; thread_id: string | null; message_id: string | null; at: string } | null;
+};
 export type Roadmap = {
   id: string; root_id: string; created_by: string; created_by_name: string | null; thread_id: string | null; title: string;
   status: "active" | "done" | "archived"; events: { at: string; by: string; text: string }[]; created_at: string; updated_at: string;

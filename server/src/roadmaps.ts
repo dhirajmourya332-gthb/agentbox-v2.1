@@ -1,6 +1,6 @@
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
-import { dmThreadOf, getAgent, rootOf, type Agent } from "./agents.ts";
+import { dmThreadOf, getAgent, instanceTree, rootOf, type Agent } from "./agents.ts";
 import { isSetupAgent } from "./setup.ts";
 
 /**
@@ -36,13 +36,23 @@ run(`CREATE TABLE IF NOT EXISTS roadmap_items (
   link TEXT NOT NULL DEFAULT '',       -- a PR, issue or doc
   updated_at TEXT NOT NULL,
   updated_by TEXT,
+  source_agent TEXT,                   -- the instance whose turn last changed it,
+  source_task TEXT,                    -- and that turn: its reply is "the message" behind the step
   PRIMARY KEY (roadmap_id, id)
 )`);
+for (const col of ["source_agent", "source_task"]) {
+  if (!all<{ name: string }>(`PRAGMA table_info(roadmap_items)`).some((c) => c.name === col)) run(`ALTER TABLE roadmap_items ADD COLUMN ${col} TEXT`);
+}
 
 export const LIMITS = { title: 60, item: 60, phase: 24, owner: 40, note: 200, link: 500, items: 40, active: 6, events: 20 };
 export const STATUSES = ["todo", "doing", "done", "blocked", "skipped"] as const;
 export type ItemStatus = (typeof STATUSES)[number];
-export type Item = { id: string; title: string; phase: string; after: string[]; status: ItemStatus; owner: string; note: string; link: string; updated_at: string; updated_by: string | null };
+export type Item = {
+  id: string; title: string; phase: string; after: string[]; status: ItemStatus; owner: string; note: string; link: string;
+  updated_at: string; updated_by: string | null; source_agent?: string | null; source_task?: string | null;
+};
+/** Where a step last changed: the agent's conversation, and the reply of the turn that changed it (once posted). */
+export type ItemSource = { agent_id: string; agent_name: string; thread_id: string | null; message_id: string | null; at: string };
 export type Roadmap = {
   id: string; root_id: string; created_by: string; thread_id: string | null; title: string; status: "active" | "done" | "archived";
   events: { at: string; by: string; text: string }[]; created_at: string; updated_at: string;
@@ -116,8 +126,29 @@ export function counts(items: Item[]) {
   return c;
 }
 
+/**
+ * The message behind a step: the reply of the turn that last changed it (recorded since v2.1; for
+ * older rows, the turn its updater was in at that time). Null until that agent's turn has a reply.
+ */
+export function itemSource(r: Roadmap, i: Item): ItemSource | null {
+  let agentId = i.source_agent ?? null, taskId = i.source_task ?? null;
+  if (!agentId && i.updated_by) {
+    // Older rows only know the updater's name: find that instance in this work's task tree.
+    agentId = instanceTree(r.root_id).find((a) => a.name === i.updated_by)?.id ?? null;
+  }
+  if (!agentId) return null;
+  if (!taskId) {
+    taskId = get<{ id: string }>(`SELECT id FROM tasks WHERE agent_id = ? AND created_at <= ? ORDER BY created_at DESC LIMIT 1`, agentId, i.updated_at)?.id ?? null;
+  }
+  const a = getAgent(agentId);
+  if (!a) return null;
+  const m = taskId ? get<{ id: string; thread_id: string }>(`SELECT id, thread_id FROM messages WHERE task_id = ? AND author = ? ORDER BY created_at DESC LIMIT 1`, taskId, agentId) : undefined;
+  const thread = m?.thread_id ?? (taskId ? get<{ thread_id: string }>(`SELECT thread_id FROM tasks WHERE id = ?`, taskId)?.thread_id : null) ?? null;
+  return { agent_id: a.id, agent_name: a.name, thread_id: thread, message_id: m?.id ?? null, at: i.updated_at };
+}
+
 export function roadmapView(r: Roadmap) {
-  const items = itemsOf(r.id);
+  const items = itemsOf(r.id).map((i) => ({ ...i, source: itemSource(r, i) }));
   return { ...r, items, counts: counts(items), created_by_name: getAgent(r.created_by)?.name ?? null };
 }
 function announce(id: string) {
@@ -179,8 +210,8 @@ export function createRoadmap(agent: Agent, taskId: string | null, input: { titl
   run(`INSERT INTO roadmaps (id, root_id, created_by, thread_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
     id, root.id, agent.id, threadId, title, at, at);
   items.forEach((i: Omit<Item, "updated_at" | "updated_by">, n: number) => run(
-    `INSERT INTO roadmap_items (roadmap_id, id, position, title, phase, after, status, owner, note, link, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id, i.id, n, i.title, i.phase, JSON.stringify(i.after), i.status, i.owner, i.note, i.link, at, agent.name,
+    `INSERT INTO roadmap_items (roadmap_id, id, position, title, phase, after, status, owner, note, link, updated_at, updated_by, source_agent, source_task) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, i.id, n, i.title, i.phase, JSON.stringify(i.after), i.status, i.owner, i.note, i.link, at, agent.name, agent.id, taskId,
   ));
   event(getRoadmap(id)!, agent.name, [`created with ${items.length} steps`]);
   settle(id);
@@ -196,7 +227,7 @@ export type UpdateInput = {
   remove?: unknown[];
 };
 
-export function updateRoadmap(agent: Agent, input: UpdateInput) {
+export function updateRoadmap(agent: Agent, input: UpdateInput, taskId: string | null = null) {
   const r = mine(agent, String(input?.roadmap ?? ""));
   const current = itemsOf(r.id);
   const byId = new Map(current.map((i) => [i.id, { ...i }]));
@@ -210,7 +241,7 @@ export function updateRoadmap(agent: Agent, input: UpdateInput) {
   for (const [n, raw] of (Array.isArray(input.add) ? input.add : []).entries()) {
     const i = item(raw, n + 1);
     if (byId.has(i.id)) throw new Error(`There's already a step "${i.id}"; change it with items instead`);
-    byId.set(i.id, { ...i, updated_at: at, updated_by: agent.name });
+    byId.set(i.id, { ...i, updated_at: at, updated_by: agent.name, source_agent: agent.id, source_task: taskId });
     texts.push(`added "${i.title}"`);
   }
   const changed = new Set<string>();
@@ -231,6 +262,8 @@ export function updateRoadmap(agent: Agent, input: UpdateInput) {
     }
     next.updated_at = at;
     next.updated_by = agent.name;
+    next.source_agent = agent.id;
+    next.source_task = taskId;
     byId.set(id, next);
     changed.add(id);
   }
@@ -253,8 +286,8 @@ export function updateRoadmap(agent: Agent, input: UpdateInput) {
   run(`DELETE FROM roadmap_items WHERE roadmap_id = ?`, r.id);
   order.forEach((id, n) => {
     const i = byId.get(id)!;
-    run(`INSERT INTO roadmap_items (roadmap_id, id, position, title, phase, after, status, owner, note, link, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      r.id, i.id, n, i.title, i.phase, JSON.stringify(i.after), i.status, i.owner, i.note, i.link, i.updated_at, i.updated_by);
+    run(`INSERT INTO roadmap_items (roadmap_id, id, position, title, phase, after, status, owner, note, link, updated_at, updated_by, source_agent, source_task) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      r.id, i.id, n, i.title, i.phase, JSON.stringify(i.after), i.status, i.owner, i.note, i.link, i.updated_at, i.updated_by, i.source_agent ?? null, i.source_task ?? null);
   });
   run(`UPDATE roadmaps SET title = ?, updated_at = ? WHERE id = ?`, title, at, r.id);
   event(getRoadmap(r.id)!, agent.name, texts);
@@ -289,6 +322,8 @@ export function roadmapNote(agent: Agent): string {
   return `## Roadmaps of this work
 The owner follows progress here instead of reading the chat. When you start a step, finish one (add its PR/issue as the
 link), get blocked (say why in the note) or the plan changes, update it right away with \`mcp__team__roadmap_update\`.
+Blocked on the owner? Put the decision itself in the note ("Delete, archive or keep the 7 undeployed projects?") and
+ask it, with the facts they need, in your reply in the same turn: clicking the step takes the owner to that reply.
 [x] done, [>] in progress, [!] blocked, [-] skipped, [ ] to do.
 ${body}`;
 }

@@ -19,7 +19,7 @@ const STARTERS = [
   "Read your instructions and tell me what's unclear or missing.",
 ];
 
-export function AgentChat({ agentId, threadParam }: { agentId: string; threadParam?: string }) {
+export function AgentChat({ agentId, threadParam, msgParam }: { agentId: string; threadParam?: string; msgParam?: string }) {
   const { agents, everyone } = useStore();
   const live = agents.find((a) => a.id === agentId);
   // Finished tasks aren't in the live list; load them so their history stays readable.
@@ -32,7 +32,7 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
   if (!agent.base_agent_id) return <RolePage role={agent} />;
   // The setup agent's sessions open in the Setup workspace (chat, terminal and checklist on one screen).
   if (everyone.find((a) => a.id === agent.base_agent_id)?.builtin === "setup" && !threadParam) return <SetupRedirect id={agent.id} />;
-  return <TaskChat key={agent.id} agent={agent} threadParam={threadParam} />;
+  return <TaskChat key={agent.id} agent={agent} threadParam={threadParam} msgParam={msgParam} />;
 }
 
 function SetupRedirect({ id }: { id: string }) {
@@ -40,7 +40,7 @@ function SetupRedirect({ id }: { id: string }) {
   return <div className="page" />;
 }
 
-function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }) {
+function TaskChat({ agent, threadParam, msgParam }: { agent: Agent; threadParam?: string; msgParam?: string }) {
   const { everyone, threads, live, loadThread, threadsVersion, progress } = useStore();
   // A task you started is its own room for "needs you": opening it marks those items seen.
   useSeenRoom(!agent.parent_instance_id && agent.created_by === "owner" ? agent.id : null);
@@ -111,7 +111,7 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
 
         {!isSetup && <RoadmapStrip instanceId={agent.id} />}
         {threadList.length > 1 && <ThreadTabs agent={agent} threads={threadList} current={threadId} />}
-        {thread ? <Timeline agent={agent} thread={thread} live={live} /> : <div className="timeline" />}
+        {thread ? <Timeline agent={agent} thread={thread} live={live} focus={msgParam} /> : <div className="timeline" />}
         {/* The work log is already in the timeline here: the bar only says what's happening, and flags a stall. */}
         <LiveBar items={Object.values(progress).filter((p) => p.agent_id === agent.id)} log={false} />
         {threadId && isMain && !done && <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0} />}
@@ -238,10 +238,12 @@ function ThreadTabs({ agent, threads, current }: { agent: Agent; threads: Thread
   );
 }
 
-export function Timeline({ agent, thread, live }: {
+export function Timeline({ agent, thread, live, focus }: {
   agent: Agent;
   thread: { messages: Message[]; tasks: Task[]; steps: Step[] };
   live: Record<string, string>;
+  /** A message to show (a link to it, e.g. from a roadmap step): scrolled to and highlighted once. */
+  focus?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -261,6 +263,18 @@ export function Timeline({ agent, thread, live }: {
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
+  });
+  // A linked message: bring it into view and flash it, once it's rendered (then stop following the bottom).
+  const focused = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!focus || focused.current === focus) return;
+    const el = document.getElementById(`msg-${focus}`);
+    if (!el) return;
+    focused.current = focus;
+    stick.current = false;
+    el.scrollIntoView({ block: "center" });
+    el.classList.add("msg-flash");
+    setTimeout(() => el.classList.remove("msg-flash"), 2600);
   });
   const onScroll = () => {
     const el = ref.current!;
@@ -374,7 +388,7 @@ function Turn({ agent, task, steps, reply, live }: { agent: Agent; task: Task; s
   const running = task.status === "running";
   const content = reply?.content ?? live ?? "";
   return (
-    <div className="msg">
+    <div className="msg" id={reply ? `msg-${reply.id}` : undefined}>
       <Avatar name={agent.name} color={agent.color} size={28} />
       <div style={{ minWidth: 0 }}>
         <div className="msg-meta">

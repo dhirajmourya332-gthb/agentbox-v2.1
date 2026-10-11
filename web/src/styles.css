@@ -1209,8 +1209,14 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .rm-tab .rm-summary { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 
 .rm-strip { display: grid; border-bottom: 1px solid var(--line); background: var(--surface); padding: 4px 12px 4px 20px; }
+.rm-strip-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rm-strip-ask { flex: none; font-size: 12.5px; color: var(--bad); white-space: nowrap; }
+.rm-ask { font-size: 13px; color: var(--bad); justify-self: start; }
+.rm-list-links { display: inline-flex; gap: 10px; font-size: 12.5px; }
+.msg.msg-flash { animation: msg-flash 2.6s ease-out; border-radius: var(--r-card); }
+@keyframes msg-flash { 0%, 35% { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent); } 100% { background: transparent; box-shadow: none; } }
 .rm-strip-row {
-  all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0;
+  all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;
   padding: 5px 6px; margin: 0 -6px; border-radius: var(--r-ctl); font-size: 13px;
 }
 .rm-strip-row:hover { background: var(--raised); }

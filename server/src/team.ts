@@ -530,7 +530,7 @@ export function teamTools(agent: Agent, taskId: string) {
 
       tool(
         "roadmap_update",
-        "Update a roadmap of this work as things happen: a step started (doing), finished (done, with its PR/issue as link), blocked (with the reason in note), skipped, or the plan changed (add, remove, retitle, re-order dependencies). Send only what changed. Do it right when it happens: the owner follows progress here.",
+        "Update a roadmap of this work as things happen: a step started (doing), finished (done, with its PR/issue as link), blocked (with the reason in note; blocked on the owner: the question itself, asked in full in your reply this turn, which the step links to), skipped, or the plan changed (add, remove, retitle, re-order dependencies). Send only what changed. Do it right when it happens: the owner follows progress here.",
         {
           roadmap: z.string().describe("Its id (or exact title), as listed under \"Roadmaps of this work\" in your instructions"),
           items: z.array(z.object({
@@ -552,7 +552,7 @@ export function teamTools(agent: Agent, taskId: string) {
         },
         async (args) => {
           try {
-            const r = updateRoadmap(agent, args as any);
+            const r = updateRoadmap(agent, args as any, taskId);
             const items = roadmapItems(r.id);
             const done = items.filter((i) => i.status === "done").length;
             return text(`Updated "${r.title}": ${done}/${items.length} done${r.status === "done" ? " (complete)" : ""}.`);
