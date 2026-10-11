@@ -20,6 +20,7 @@ import { setupServer } from "./setupTools.ts";
 import { grantSetupSudo, releaseSetupSudo, sudoActive } from "./sudo.ts";
 import { prepareWorktrees, reposLayer, setSender, worktreeDirs, worktreesFor } from "./repos.ts";
 import { repoGuard } from "./repoGuard.ts";
+import { planGuard, planNote } from "./plans.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -220,7 +221,7 @@ export function instructionLayers(agent: Agent, sudo?: SudoGrant, repoProblems: 
     { id: "repos", text: `${reposLayer(agent)}${repoNote}`.trim() },
     { id: "team", text: teamLayer() },
     { id: "role", text: roleLayer(agent) },
-    { id: "work", text: `${workNote(agent)}${rulesNote(agent)}`.trim() },
+    { id: "work", text: [`${workNote(agent)}${rulesNote(agent)}`.trim(), planNote(agent)].filter(Boolean).join("\n\n") },
   ];
 }
 
@@ -259,7 +260,9 @@ your final report; whoever started this task will close it.` : ""}${scaleNote(ag
   them. If one stops working, report it; the setup agent repairs integrations.${isSetupAgent(agent) ? "" : `
 - Missing an account, login, tool or access (a cloud, a repo, a CLI)? Call \`mcp__team__request_setup\`: the owner
   gets a card to have the setup agent do it, and you're called back when it's done. Never ask the owner in chat to
-  run logins or paste keys, and don't wait in a loop: end your turn or carry on with other work.`}
+  run logins or paste keys, and don't wait in a loop: end your turn or carry on with other work.
+- Before a big, risky or architecture-changing change (or whenever the work says "plan first"), get the owner's OK
+  with \`mcp__team__submit_plan\`: a small before/after diagram plus a few bullets, then end your turn.`}
 
 ## Your computer
 - Home: ${homeOf(agent)} (yours alone). Shared work area: ${WORK_ROOT}. Registered repos have read-only
@@ -391,6 +394,7 @@ function classify(name: string, input: any): { kind: string; label: string; summ
   if (name === "mcp__team__list_agents") return { kind: "meta", label: "Team", summary: "list agents" };
   if (name === "mcp__team__use_repo") return { kind: "meta", label: "Repo", summary: str(input?.name) };
   if (name === "mcp__team__request_setup") return { kind: "meta", label: "Setup request", summary: str(input?.title) };
+  if (name === "mcp__team__submit_plan") return { kind: "meta", label: "Plan for approval", summary: str(input?.title) };
   return { kind: "tool", label: name, summary: first(JSON.stringify(input ?? {})) };
 }
 
@@ -554,7 +558,7 @@ async function runTask(taskId: string) {
         },
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(agent, sudo, repoPrep.problems) },
         env: { ...process.env, DISPLAY: ":99", BROWSER: "/usr/local/bin/agentbox-open" },
-        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), repoGuard(agent), sudoGuard(agent), ...(enabled("display") ? [screenGuard(agent, taskId)] : [])] }] },
+        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), repoGuard(agent), planGuard(agent), sudoGuard(agent), ...(enabled("display") ? [screenGuard(agent, taskId)] : [])] }] },
       },
     });
     let result: any;

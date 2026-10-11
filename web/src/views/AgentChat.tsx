@@ -9,6 +9,8 @@ import { RolePage } from "./RolePage.tsx";
 import { LiveBar, useSeenRoom } from "../components/Live.tsx";
 import { ApprovalCard, IntegrationStepsCard, TerminalCtx, TerminalPanel } from "../components/Setup.tsx";
 import { RepoChips, SetupRequestCard } from "../components/Requests.tsx";
+import { PlanCard, PlanChip } from "../components/Plan.tsx";
+import { ChangesButton, ReviewCard } from "./Changes.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -86,7 +88,9 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
             <RepoChips instanceId={agent.id} />
           </div>
           <div className="actions">
+            {!isSetup && <PlanChip instanceId={agent.id} />}
             {done ? <span className="chip">Done</span> : <StatusGlyph status={agent.status} withLabel />}
+            {!isSetup && <ChangesButton instanceId={agent.id} />}
             {running && (
               <button className="btn sm danger" onClick={() => api.stop(running.id)} title="Stop (Esc)">
                 <Icon name="stop" size={14} />Stop
@@ -299,12 +303,14 @@ function Input({ message, task, active }: { message: Message; task?: Task; activ
   const { everyone } = useStore();
   const [open, setOpen] = useState(task?.source !== "result");
   // Setup agent cards: an integration's steps, or a proposal waiting for the owner.
-  if (message.author === "integration" || message.author === "approval" || message.author === "setup_request") {
+  if (["integration", "approval", "setup_request", "plan", "review"].includes(message.author)) {
     return (
       <div className="msg">
         <span aria-hidden="true" />
         {message.author === "integration" ? <IntegrationStepsCard id={message.content} active={active} />
-          : message.author === "setup_request" ? <SetupRequestCard id={message.content} /> : <ApprovalCard id={message.content} />}
+          : message.author === "setup_request" ? <SetupRequestCard id={message.content} />
+          : message.author === "plan" ? <PlanCard id={message.content} />
+          : message.author === "review" ? <ReviewCard id={message.content} /> : <ApprovalCard id={message.content} />}
       </div>
     );
   }

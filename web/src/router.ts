@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type Route =
   | { name: "home" }
   | { name: "agent"; id: string; thread?: string }
+  | { name: "changes"; id: string }
   | { name: "tasks"; task?: string }
   | { name: "group"; id: string }
   | { name: "group-settings"; id: string }
@@ -31,6 +32,7 @@ export type Route =
 export function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   if (parts[0] === "agents" && parts[1] === "new") return { name: "new-agent" };
+  if (parts[0] === "agents" && parts[1] && parts[2] === "changes") return { name: "changes", id: parts[1] };
   if (parts[0] === "agents" && parts[1]) return { name: "agent", id: parts[1], thread: parts[2] === "threads" ? parts[3] : undefined };
   if (parts[0] === "groups" && parts[1] === "new") return { name: "new-group" };
   if (parts[0] === "groups" && parts[1] && parts[2] === "settings") return { name: "group-settings", id: parts[1] };
@@ -59,6 +61,7 @@ export function href(r: Route): string {
   switch (r.name) {
     case "home": return "#/";
     case "agent": return r.thread ? `#/agents/${r.id}/threads/${r.thread}` : `#/agents/${r.id}`;
+    case "changes": return `#/agents/${r.id}/changes`;
     case "group": return `#/groups/${r.id}`;
     case "group-settings": return `#/groups/${r.id}/settings`;
     case "new-group": return "#/groups/new";

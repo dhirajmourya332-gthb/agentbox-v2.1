@@ -1035,3 +1035,119 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
   .repo-meta { grid-template-columns: 1fr; gap: 0 0; }
   .repo-meta dt { margin-top: 6px; }
 }
+
+/* ---- v2.1: plan diagram and plan card (docs/V2.1-PLAN.md §1) ------------------ */
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.pd { margin: 0; display: grid; gap: 8px; min-width: 0; }
+.pd-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pd-new { font-size: 12px; color: var(--ok); font-weight: 600; }
+.pd-legend { display: flex; gap: 10px; font-size: 12px; margin-left: auto; }
+.pd-legend .added { color: var(--ok); }
+.pd-legend .changed { color: var(--warn); }
+.pd-legend .removed { color: var(--bad); }
+.pd-canvas {
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-ctl);
+  padding: 12px; overflow: auto; max-height: 520px; display: flex; justify-content: center;
+}
+.pd-canvas svg { max-width: 100%; height: auto; font-family: var(--sans); }
+.pd-node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.4; }
+.pd-node .pd-label { fill: var(--text); font-size: 13px; font-weight: 500; }
+.pd-node .pd-sub { fill: var(--muted); font-size: 11px; }
+.pd-node.added rect { fill: color-mix(in srgb, var(--ok) 12%, var(--surface)); stroke: var(--ok); stroke-width: 2; }
+.pd-node.added .pd-sub { fill: var(--ok); font-weight: 600; }
+.pd-node.changed rect { fill: color-mix(in srgb, var(--warn) 12%, var(--surface)); stroke: var(--warn); stroke-width: 2; }
+.pd-node.changed .pd-sub { fill: var(--warn); }
+.pd-node.removed rect { fill: color-mix(in srgb, var(--bad) 8%, var(--surface)); stroke: var(--bad); stroke-dasharray: 5 4; }
+.pd-node.removed .pd-label { fill: var(--muted); text-decoration: line-through; }
+.pd-node.removed .pd-sub { fill: var(--bad); font-weight: 600; }
+.pd-edge path { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.pd-edge text { fill: var(--muted); font-size: 11px; }
+.pd-edge-bg { fill: var(--bg); stroke: none; }
+.pd-edge.changed path { stroke: var(--warn); stroke-width: 2; }
+.pd-edge.changed text { fill: var(--warn); }
+.pd-edge.added path { stroke: var(--ok); stroke-width: 2.2; }
+.pd-edge.added text { fill: var(--ok); }
+.pd-edge.removed path { stroke: var(--bad); stroke-dasharray: 5 4; }
+.pd-edge.removed text { fill: var(--bad); }
+.pd-head { fill: var(--muted); }
+.pd-head.added { fill: var(--ok); }
+.pd-head.removed { fill: var(--bad); }
+.pd-head.changed { fill: var(--warn); }
+
+.plan-card { gap: 12px; }
+.plan-card.pl-approved, .plan-card.pl-rejected, .plan-card.pl-superseded, .plan-card.pl-changes { border-color: var(--line); background: var(--surface); }
+.plan-card.pl-approved .approval-kicker { color: var(--ok); }
+.plan-card.pl-changes .approval-kicker { color: var(--warn); }
+.plan-card.pl-rejected .approval-kicker, .plan-card.pl-superseded .approval-kicker { color: var(--muted); }
+.plan-title { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 15px; }
+.plan-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.plan-summary { margin: 0; }
+.plan-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.plan-list { display: grid; gap: 4px; align-content: start; }
+.plan-list-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.plan-list.warn .plan-list-title { color: var(--warn); }
+.plan-list ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 13.5px; }
+.plan-details { margin-top: 8px; font-size: 13.5px; }
+.plan-card .sr-reject textarea { flex: 1 1 260px; min-width: 0; resize: vertical; }
+
+/* ---- v2.1: diff review (docs/V2.1-PLAN.md §2) ---------------------------------- */
+.changes { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.changes-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.changes-body { flex: 1; overflow: auto; padding: 16px 20px 24px; display: grid; gap: 16px; align-content: start; }
+.changes .add { color: var(--ok); }
+.changes .del { color: var(--bad); }
+.note-box { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); border-radius: var(--r-ctl); background: color-mix(in srgb, var(--ok) 8%, var(--surface)); }
+.changes .empty-state { padding: 24px; text-align: center; display: grid; gap: 6px; color: var(--muted); }
+.changes-repo { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); min-width: 0; }
+.changes-repo-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.changes-repo-head .grow { flex: 1; }
+.changes-commits { padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.changes-commits summary { cursor: pointer; color: var(--muted); }
+.changes-commits ul { margin: 6px 0 0; padding-left: 18px; }
+.changes-files { display: grid; padding: 6px 0; border-bottom: 1px solid var(--line); max-height: 220px; overflow: auto; }
+.changes-files a { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; padding: 3px 12px; color: var(--text); text-decoration: none; font-size: 13px; }
+.changes-files a:hover { background: var(--raised); }
+.fpath { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fstat { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--warn); }
+.fstat.added, .fstat.untracked { color: var(--ok); }
+.fstat.deleted { color: var(--bad); }
+.fdiff { border-top: 1px solid var(--line); }
+.fdiff:first-of-type { border-top: 0; }
+.fdiff-head { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; background: var(--raised); position: sticky; top: -16px; z-index: 1; }
+.fdiff-head[aria-expanded="true"] svg { transform: rotate(90deg); }
+.fdiff-head .grow { flex: 1; }
+.fdiff-note { padding: 8px 12px; margin: 0; }
+.fdiff-table { width: 100%; border-collapse: collapse; font: 12.5px/1.55 var(--mono); table-layout: fixed; }
+.fdiff-table td { padding: 0 8px; vertical-align: top; }
+.fdiff-table col.num { width: 48px; }
+.fdiff-table td.num { text-align: right; color: var(--muted); user-select: none; opacity: .8; }
+.fdiff-table td.code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fdiff-table .mark { display: inline-block; width: 14px; color: var(--muted); user-select: none; }
+.fdiff-table tr.ln { cursor: pointer; }
+.fdiff-table tr.ln:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.fdiff-table tr.add td { background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.fdiff-table tr.del td { background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.fdiff-table tr.add .mark { color: var(--ok); }
+.fdiff-table tr.del .mark { color: var(--bad); }
+.fdiff-table tr.hunk td { color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); padding: 3px 8px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.fdiff-table tr.has-comment td.num:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.fdiff-table tr.comment-row td { padding: 6px 8px 8px 112px; background: var(--surface); font-family: var(--sans); font-size: 13.5px; }
+.comment-box { display: grid; gap: 6px; max-width: 720px; }
+.comment-box textarea { resize: vertical; }
+.comment-view { display: inline-flex; gap: 6px; align-items: baseline; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: var(--r-ctl); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); cursor: pointer; white-space: pre-wrap; }
+.review-bar { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 20px; display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.review-bar textarea { flex: 1 1 320px; min-width: 0; resize: vertical; min-height: 34px; }
+.review-actions { display: flex; gap: 8px; align-items: center; }
+.review-comments { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
+.review-card.rv-approve .approval-kicker { color: var(--ok); }
+.review-card.rv-changes .approval-kicker { color: var(--warn); }
+.review-card.rv-reject .approval-kicker { color: var(--muted); }
+.review-card { border-color: var(--line); background: var(--surface); }
+@media (max-width: 760px) {
+  .changes-body { padding: 12px 12px 20px; }
+  .fdiff-table col.num { width: 34px; }
+  .fdiff-table td.num { padding: 0 4px; }
+  .fdiff-table tr.comment-row td { padding-left: 12px; }
+  .review-bar { padding: 10px 12px; }
+  .review-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+}

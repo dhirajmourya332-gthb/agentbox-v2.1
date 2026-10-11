@@ -9,6 +9,7 @@ import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
+import { LIMITS as PLAN_LIMITS, submitPlan } from "./plans.ts";
 
 /**
  * The internal channel between agents. Agents call these tools; agentbox queues the work,
@@ -449,6 +450,37 @@ export function teamTools(agent: Agent, taskId: string) {
             return text(`${joined ? `Joined the open setup request "${request.title}" (${request.id}): someone already asked for it.` : `Setup request ${request.id} raised: the owner sees a card with "Set up now" and "Reject".`} You'll get a new message when it's done or declined. End your turn now, or continue with work that doesn't need it; don't wait in a loop.`);
           } catch (e: any) {
             return refuse(e.message);
+          }
+        },
+      ),
+
+      tool(
+        "submit_plan",
+        `Ask the owner to approve a plan before you change things. The owner reads the DIAGRAM first, so make it carry the plan: two small graphs of components (services, queues, tables, pages, jobs; never file names) as they are now ("before") and as they'll be ("after"). Use the same id for the same component in both. Show ONLY what changes plus its direct neighbours: at most ${PLAN_LIMITS.afterNodes} boxes, labels of 2–4 words. A box that stays but behaves differently gets a short "change" note. For something entirely new, leave "before" empty. Text stays short: a 1–2 sentence summary, up to ${PLAN_LIMITS.changes} "changes" bullets, up to ${PLAN_LIMITS.checks} checks (how we'll know it works), up to ${PLAN_LIMITS.risks} risks; anything longer goes in "details" (collapsed). Plans that are too big, or that draw boxes unrelated to the change, are refused with what to simplify. After submitting, end your turn: you get a message when the owner approves, asks for changes or rejects. Example: before {service1 → service2}, after {service1 → logger (new), service1 → service2}.`,
+        {
+          title: z.string().describe(`What this plan does, ≤ ${PLAN_LIMITS.title} chars`),
+          summary: z.string().describe(`1–2 sentences, ≤ ${PLAN_LIMITS.summary} chars: the goal and the approach`),
+          diagram: z.object({
+            before: z.object({
+              nodes: z.array(z.object({ id: z.string(), label: z.string() })).describe("Components as they are now (only the ones that matter to this change). Empty for something new."),
+              edges: z.array(z.object({ from: z.string(), to: z.string(), label: z.string().optional() })),
+            }).optional(),
+            after: z.object({
+              nodes: z.array(z.object({ id: z.string(), label: z.string(), change: z.string().optional().describe(`For a box that stays but behaves differently, ≤ ${PLAN_LIMITS.change} chars`) })),
+              edges: z.array(z.object({ from: z.string(), to: z.string(), label: z.string().optional().describe("A few words: what flows (e.g. \"events\")") })),
+            }),
+          }),
+          changes: z.array(z.string()).describe(`What changes, one short bullet each (≤ ${PLAN_LIMITS.changes})`),
+          checks: z.array(z.string()).optional().describe("How we'll know it works: tests, commands, what to observe"),
+          risks: z.array(z.string()).optional().describe("What could go wrong, and the fallback"),
+          details: z.string().optional().describe("Optional longer markdown (files, steps); shown collapsed"),
+        },
+        async (args) => {
+          try {
+            const p = submitPlan(agent, taskId, args);
+            return text(`Plan "${p.title}" (v${p.version}) is with the owner as a card. End your turn now; you'll get a message with their decision.`);
+          } catch (e: any) {
+            return refuse(`Plan not submitted: ${e.message}`);
           }
         },
       ),

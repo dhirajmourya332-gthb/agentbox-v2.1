@@ -265,6 +265,26 @@ export type SetupRequest = {
   waiters: { instance_id: string; name: string | null; called_back_at: string | null }[];
 };
 
+/** server/src/plans.ts › planView (docs/V2.1-PLAN.md §1). */
+export type PlanGraph = { nodes: { id: string; label: string; change?: string }[]; edges: { from: string; to: string; label?: string }[] };
+export type Plan = {
+  id: string; root_id: string; instance_id: string; instance_name: string | null; task_id: string | null; thread_id: string | null;
+  version: number; status: "pending" | "approved" | "changes" | "rejected" | "superseded"; title: string;
+  body: { title: string; summary: string; diagram: { before: PlanGraph; after: PlanGraph }; changes: string[]; checks: string[]; risks: string[]; details: string };
+  feedback: string | null; created_at: string; decided_at: string | null;
+};
+export type PlanGate = { required: boolean; approved: { id: string; version: number; title: string } | null };
+/** server/src/changes.ts (docs/V2.1-PLAN.md §2). */
+export type DiffLine = { t: "hunk" | "ctx" | "add" | "del"; s: string; o?: number; n?: number };
+export type FileChange = { path: string; status: "added" | "modified" | "deleted" | "untracked"; additions: number; deletions: number; binary: boolean; truncated: boolean; lines: DiffLine[] };
+export type RepoChanges = {
+  worktree_id: string; repo: string; branch: string | null; base: string; path: string;
+  instance: { id: string; name: string; label: string | null } | null; head: string | null;
+  commits: { sha: string; subject: string }[]; files: FileChange[]; additions: number; deletions: number; truncated: boolean; error: string | null;
+};
+export type ReviewComment = { worktree_id: string; repo: string; path: string; line: number; side: "old" | "new"; text: string };
+export type Review = { id: string; root_id: string; instance_id: string; verdict: "approve" | "changes" | "reject"; note: string; comments: ReviewComment[]; heads: Record<string, string>; created_at: string };
+
 /** An API error with what the server attached (409s from repos carry `detail`). */
 export class ApiError extends Error {
   constructor(message: string, public status: number, public data: any) { super(message); }
@@ -285,7 +305,8 @@ export const api = {
   state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
-  newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[]) => call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos }),
+  newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean) =>
+    call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined }),
   room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
@@ -430,4 +451,14 @@ export const api = {
   rejectSetupRequest: (id: string, reason: string) => call<SetupRequest>("POST", `/api/setup-requests/${id}/reject`, { reason }),
   markSetupRequest: (id: string, status: "done" | "failed", note: string) => call<SetupRequest>("POST", `/api/setup-requests/${id}/mark`, { status, note }),
   reject: (id: string) => call<Approval>("POST", `/api/approvals/${id}/reject`),
+  // Plans (an agent asks before changing things) and diff review (v2.1).
+  plan: (id: string) => call<Plan>("GET", `/api/plans/${id}`),
+  taskPlans: (instanceId: string) => call<{ gate: PlanGate; plans: Plan[] }>("GET", `/api/agents/${instanceId}/plans`),
+  setPlanGate: (instanceId: string, required: boolean) => call<PlanGate>("POST", `/api/agents/${instanceId}/plan-gate`, { required }),
+  decidePlan: (id: string, verdict: "approve" | "changes" | "reject", note: string) => call<Plan>("POST", `/api/plans/${id}/decide`, { verdict, note }),
+  taskChanges: (instanceId: string) => call<{ root_id: string; repos: RepoChanges[]; review: Review | null }>("GET", `/api/agents/${instanceId}/changes`),
+  changesSummary: (instanceId: string) => call<{ root_id: string; worktrees: number }>("GET", `/api/agents/${instanceId}/changes/summary`),
+  review: (id: string) => call<Review>("GET", `/api/reviews/${id}`),
+  submitReview: (instanceId: string, b: { verdict: Review["verdict"]; note: string; comments: Omit<ReviewComment, "repo">[] }) =>
+    call<Review>("POST", `/api/agents/${instanceId}/review`, b),
 };

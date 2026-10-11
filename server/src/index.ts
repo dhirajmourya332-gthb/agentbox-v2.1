@@ -42,6 +42,8 @@ import { registerIntegrationRoutes } from "./integrationRoutes.ts";
 import { startSudoSweeper } from "./sudo.ts";
 import { registerSetupRoutes, startSetupWorkspace } from "./setupRoutes.ts";
 import { registerRepoRoutes } from "./repoRoutes.ts";
+import { registerReviewRoutes } from "./reviewRoutes.ts";
+import { setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
 
@@ -212,6 +214,7 @@ app.post("/api/work", async (req) => {
   }
   const inst = spawnInstance(role.id, { label, createdBy: "owner" });
   for (const n of repoNames) bindRepo(inst, n);
+  if (b?.require_plan) setGate(inst.id, true);
   sendMessage(inst.id, dmThreadOf(inst.id)!, text, images);
   return agentView(inst);
 });
@@ -519,6 +522,7 @@ registerIntegrationRoutes(app);
 registerSetupRoutes(app);
 // Repos (per-task worktrees, the Repos page) and setup requests from agents.
 registerRepoRoutes(app);
+registerReviewRoutes(app);
 
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 // Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.

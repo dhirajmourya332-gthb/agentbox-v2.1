@@ -1,3 +1,4 @@
+import { PlanGateSwitch } from "../components/Plan.tsx";
 import { useEffect, useState } from "react";
 import { api, type Agent } from "../api.ts";
 import { Avatar, Icon, Markdown, StatusGlyph, relTime } from "../components/ui.tsx";
@@ -206,6 +207,7 @@ function TaskOverview({ agent }: { agent: Agent }) {
           <a href={`#/work/${agent.id}`} style={{ fontSize: 13 }}>Open the task room</a>
         </div>
       )}
+      {!agent.retired_at && !agent.parent_instance_id && role?.builtin !== "setup" && <PlanGateSwitch instanceId={agent.id} />}
       <p className="hint">
         Instructions, skills and memory belong to {role ? <a href={`#/agents/${role.id}`}>{role.name}</a> : "the agent"} and are shared by all its tasks.
       </p>

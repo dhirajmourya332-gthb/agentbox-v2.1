@@ -7,7 +7,8 @@
     "test:access": "node --disable-warning=ExperimentalWarning --import tsx --test test/access.test.ts",
     "test:integrations": "node --disable-warning=ExperimentalWarning --import tsx --test test/integrations.test.ts",
     "test:setup-workspace": "node --disable-warning=ExperimentalWarning --import tsx --test test/setup-workspace.test.ts",
-    "test:repos": "node --disable-warning=ExperimentalWarning --import tsx --test test/repos.test.ts"
+    "test:repos": "node --disable-warning=ExperimentalWarning --import tsx --test test/repos.test.ts",
+    "test:review-plan": "node --disable-warning=ExperimentalWarning --import tsx --test test/review-plan.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.293",

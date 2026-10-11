@@ -44,6 +44,7 @@ function FileLinks() {
   return path ? <LinkedFileReader key={path} path={path} onClose={() => setPath(null)} /> : null;
 }
 import { DraftReview, SkillEditor, SkillsList } from "./views/Skills.tsx";
+import { Changes } from "./views/Changes.tsx";
 
 function App() {
   const route = useRoute();
@@ -51,6 +52,7 @@ function App() {
     <Shell route={route}>
       {route.name === "home" && <Team />}
       {route.name === "new-agent" && <CreateAgent />}
+      {route.name === "changes" && <Changes key={route.id} instanceId={route.id} />}
       {route.name === "agent" && <AgentChat key={route.id} agentId={route.id} threadParam={route.thread} />}
       {route.name === "tasks" && <TaskBoard selected={route.task} />}
       {route.name === "group" && <GroupChat key={route.id} id={route.id} />}

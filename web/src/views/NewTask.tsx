@@ -17,6 +17,7 @@ export function NewTask({ roleId }: { roleId?: string }) {
   const [busy, setBusy] = useState(false);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [pickedRepos, setPickedRepos] = useState<string[]>([]);
+  const [planFirst, setPlanFirst] = useState(false);
   useEffect(() => { api.repos().then((d) => setRepos(d.repos.filter((r) => r.status === "ready"))).catch(() => setRepos([])); }, []);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -37,7 +38,7 @@ export function NewTask({ roleId }: { roleId?: string }) {
     setBusy(true);
     setError(null);
     try {
-      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined);
+      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined, planFirst && !role.builtin);
       att.clear();
       // The setup agent works in its own workspace (chat, terminal and checklist on one screen).
       go(role.builtin === "setup" ? { name: "setup", id: inst.id } : { name: "agent", id: inst.id });
@@ -118,6 +119,15 @@ export function NewTask({ roleId }: { roleId?: string }) {
               ))}
             </div>
           </div>
+        )}
+        {role && !role.builtin && (
+          <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+            <input type="checkbox" checked={planFirst} style={{ marginTop: 3 }} onChange={(e) => setPlanFirst(e.target.checked)} />
+            <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <span style={{ fontWeight: 500 }}>Approve a plan first</span>
+              <span className="hint">Before changing anything, {role.name} shows you a simple before/after diagram of what it'll change. Edits and commits wait for your OK.</span>
+            </span>
+          </label>
         )}
         <div className="field">
           <label htmlFor="nt-title">Title <span className="hint">(optional; defaults to the first line)</span></label>

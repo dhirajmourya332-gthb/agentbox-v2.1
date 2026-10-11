@@ -1,3 +1,5 @@
+import { PlanCard } from "../components/Plan.tsx";
+import { ReviewCard } from "./Changes.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { SetupRequestCard } from "../components/Requests.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
@@ -141,6 +143,8 @@ export function TimelineEntries({ msgs, pending, steps, members, byThread, taskB
             if (!visible(inst?.id, from?.id)) return null;
             if (m.author === "system") return <p key={m.id} className="system-note">{inst ? `${inst.label ?? inst.name}: ` : ""}{m.content}</p>;
             if (m.author === "setup_request") return <div key={m.id} className="msg"><span aria-hidden="true" /><SetupRequestCard id={m.content} /></div>;
+            if (m.author === "plan") return <div key={m.id} className="msg"><span aria-hidden="true" /><PlanCard id={m.content} /></div>;
+            if (m.author === "review") return <div key={m.id} className="msg"><span aria-hidden="true" /><ReviewCard id={m.content} /></div>;
             const task = m.task_id ? taskById.get(m.task_id) : undefined;
             const isReply = !!task && task.agent_id === m.author;
             const author = m.author === "user" ? null : everyone.find((a) => a.id === m.author);
