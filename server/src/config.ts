@@ -31,7 +31,11 @@ export type Config = {
   user: string;
   /** Passwordless sudo for the agent user (audit H3: selftest warns while true). */
   agent_sudo: boolean;
-  paths: { src: string; app: string; data: string; work: string; agents: string; team: string; skills: string; secrets: string };
+  paths: {
+    src: string; app: string; data: string; work: string; agents: string; team: string; skills: string; secrets: string;
+    /** Integration settings and rendered prompt summaries (§10.2): <id>.yaml, <id>.summary.md. */
+    integrations: string;
+  };
   ports: { portal: number; screen: number; terminal: number; gateway: number; guide: number };
   modules: Record<ModuleId, boolean>;
   tailscale: { hostname: string };
@@ -50,7 +54,7 @@ const FILE_DEFAULTS: Omit<Config, "source"> = {
   agent_sudo: true,
   paths: {
     src: "/opt/agentbox/src", app: "/opt/agentbox/app", data: "/opt/agentbox/data", work: "/work", agents: "/agents",
-    team: "/team", skills: "/skills", secrets: "/secrets",
+    team: "/team", skills: "/skills", secrets: "/secrets", integrations: "/etc/agentbox/integrations",
   },
   ports: { portal: 7700, screen: 7701, terminal: 7702, gateway: 7710, guide: 7699 },
   modules: {
@@ -147,6 +151,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.AGENTBOX_SKILLS) c.paths.skills = path.resolve(env.AGENTBOX_SKILLS);
   if (env.AGENTBOX_TEAM) c.paths.team = path.resolve(env.AGENTBOX_TEAM);
   if (env.AGENTBOX_SECRETS) c.paths.secrets = path.resolve(env.AGENTBOX_SECRETS);
+  if (env.AGENTBOX_INTEGRATIONS) c.paths.integrations = path.resolve(env.AGENTBOX_INTEGRATIONS);
   if (env.PORT) c.ports.portal = port(env.PORT, c.ports.portal, "portal (PORT)");
   if (env.AGENTBOX_MOBILE_PORT) c.ports.gateway = port(env.AGENTBOX_MOBILE_PORT, c.ports.gateway, "gateway (AGENTBOX_MOBILE_PORT)");
   return { ...c, source };

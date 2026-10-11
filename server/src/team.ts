@@ -369,7 +369,8 @@ export function teamServer(agent: Agent, taskId: string) {
 
 export function rosterFor(agent: Agent) {
   const myRole = agent.base_agent_id ?? agent.id;
-  const roles = listAgents().filter((a) => !a.base_agent_id && a.id !== myRole);
+  // Built-in roles (the setup agent) take work from the owner only, so they aren't offered here.
+  const roles = listAgents().filter((a) => !a.base_agent_id && a.id !== myRole && !a.builtin);
   return roles.length
     ? roles.map((a) => `- **${a.name}** (${a.title}): ${a.summary}${a.can_scale ? " (hand it work to bring it in as this work's lead)" : ""}`).join("\n")
     : "- (no other agents yet)";

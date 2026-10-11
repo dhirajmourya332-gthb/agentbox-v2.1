@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# agentbox-setup-sudo grant|revoke|sweep
+#
+# Root-owned helper (install to /usr/local/sbin/agentbox-setup-sudo, 0755 root:root) that creates or
+# removes /etc/sudoers.d/agentbox-setup: temporary passwordless sudo for the agent user while the
+# setup agent's turn runs (docs/V2-ARCHITECTURE.md §10.4, server/src/sudo.ts).
+#
+# The agent user may run only this helper through sudo:
+#   /etc/sudoers.d/agentbox-setup-helper:  <user> ALL=(root) NOPASSWD: /usr/local/sbin/agentbox-setup-sudo
+#
+# "grant" succeeds only while the portal reports a running setup turn (GET /api/setup/sudo with the
+# local token), so calling it at any other time does nothing. "revoke" always works. "sweep" (for a
+# root timer, optional) revokes when no setup turn is running or the portal is down.
+set -euo pipefail
+umask 0337
+
+DROPIN=/etc/sudoers.d/agentbox-setup
+CONFIG=${AGENTBOX_CONFIG:-/etc/agentbox/config.yaml}
+
+conf() { /usr/local/bin/agentbox config get "$1" 2>/dev/null || true; }
+
+active() {
+  local port data token
+  port=$(conf ports.portal); port=${port:-7700}
+  data=$(conf paths.data); data=${data:-/opt/agentbox/data}
+  [[ -r "$data/local-token" ]] || return 1
+  token=$(<"$data/local-token")
+  curl -fsS --max-time 5 -H "X-Agentbox-Local-Token: $token" "http://127.0.0.1:$port/api/setup/sudo" 2>/dev/null \
+    | grep -q '"active":true'
+}
+
+revoke() { rm -f "$DROPIN" "$DROPIN.tmp"; }
+
+case "${1:-}" in
+  grant)
+    active || { echo "no setup turn is running; not granting" >&2; exit 1; }
+    user=$(conf user)
+    [[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "bad agent user in $CONFIG" >&2; exit 1; }
+    printf '# agentbox: temporary sudo for the setup agent; removed when its turn ends\n%s ALL=(ALL) NOPASSWD:ALL\n' "$user" > "$DROPIN.tmp"
+    visudo -cf "$DROPIN.tmp" >/dev/null
+    mv -f "$DROPIN.tmp" "$DROPIN"
+    ;;
+  revoke) revoke ;;
+  sweep) active || revoke ;;
+  *) echo "usage: agentbox-setup-sudo grant|revoke|sweep" >&2; exit 2 ;;
+esac

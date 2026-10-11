@@ -27,7 +27,11 @@ export type BusEvent =
   | { type: "progress.updated"; progress: any } // progress.ts: a running task's live status changed
   | { type: "progress.cleared"; agent_id: string; task_id: string } // its turn ended
   | { type: "attention.updated"; item: any } // attention.ts: a "needs you" item was created, refreshed or seen
-  | { type: "routine-run.updated"; run: any }; // routineRuns.ts: a routine run started, changed or finished
+  | { type: "routine-run.updated"; run: any } // routineRuns.ts: a routine run started, changed or finished
+  | { type: "integration.output"; integrationId: string; taskId: string | null; line: string } // integrations.ts: CLI output
+  | { type: "integration.updated"; integrationId: string } // its state may have changed: refetch
+  | { type: "integration.mapping"; integrationId: string; roles: string[] } // role ↔ integration mapping changed
+  | { type: "approval.updated"; approval: any }; // approvals.ts: a proposal was made or decided
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
@@ -36,7 +40,8 @@ emitter.setMaxListeners(100);
 
 // Streaming deltas and live progress are too chatty to keep; everything else is the activity log.
 // Run updates are derived state (the run rows and routine.updated already record runs).
-const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared", "routine-run.updated"]);
+const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared", "routine-run.updated",
+  "integration.output", "integration.updated"]);
 
 export function publish(event: BusEvent) {
   if (!EPHEMERAL.has(event.type)) {
