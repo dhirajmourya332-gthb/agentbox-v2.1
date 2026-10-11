@@ -3,9 +3,10 @@ import { LOCAL_TOKEN_HEADER } from "./access.ts";
 import { getAgent, rootOf } from "./agents.ts";
 import { getReview, reviewsOf, submitReview, taskChanges, treeWorktrees } from "./changes.ts";
 import { decidePlan, gateState, getPlan, planView, plansOf, setGate, type Decision } from "./plans.ts";
+import { archiveRoadmap, getRoadmap, roadmapView, workRoadmaps } from "./roadmaps.ts";
 
 /**
- * Portal routes for plan approval and diff review (docs/V2.1-PLAN.md). Deciding a plan and
+ * Portal routes for plans, diff review and roadmaps (docs/V2.1-PLAN.md). Deciding a plan and
  * submitting a review are the owner's clicks (refused with the local token, so the CLI and agents
  * can't approve their own work); the phone may decide plans.
  */
@@ -39,6 +40,18 @@ export function registerReviewRoutes(app: FastifyInstance) {
   app.post("/api/agents/:id/review", async (req) => wrap(() => {
     ownerOnly(req, "Reviewing changes");
     return submitReview(mustTask((req.params as any).id).id, (req.body ?? {}) as any);
+  }));
+
+  // Roadmaps (agents write them; the owner reads, and may archive one)
+  app.get("/api/agents/:id/roadmaps", async (req) => wrap(() => workRoadmaps(mustTask((req.params as any).id).id, { archived: (req.query as any)?.archived === "1" })));
+  app.get("/api/roadmaps/:id", async (req) => {
+    const r = getRoadmap((req.params as any).id);
+    if (!r) throw httpError(404, "No such roadmap");
+    return roadmapView(r);
+  });
+  app.post("/api/roadmaps/:id/archive", async (req) => wrap(() => {
+    ownerOnly(req, "Archiving a roadmap");
+    return roadmapView(archiveRoadmap((req.params as any).id, (req.body as any)?.archived !== false));
   }));
 
   // Plans

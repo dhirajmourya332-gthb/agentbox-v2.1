@@ -10,6 +10,7 @@ import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutin
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
 import { LIMITS as PLAN_LIMITS, submitPlan } from "./plans.ts";
+import { LIMITS as RM_LIMITS, STATUSES as RM_STATUSES, createRoadmap, itemsOf as roadmapItems, updateRoadmap } from "./roadmaps.ts";
 
 /**
  * The internal channel between agents. Agents call these tools; agentbox queues the work,
@@ -484,6 +485,66 @@ export function teamTools(agent: Agent, taskId: string) {
               : `Plan "${p.title}" (v${p.version}) is shared with the owner. Carry on with the work now; don't wait for a reply. If the owner wants a different direction, you'll get a message.`);
           } catch (e: any) {
             return refuse(`Plan not submitted: ${e.message}`);
+          }
+        },
+      ),
+
+      tool(
+        "roadmap_create",
+        `Start a roadmap for big work (several steps, phases or agents), so the owner can see at a glance what's done, in progress, blocked and next, without reading the chat. Give it a clear label (e.g. "Partner API keys", "CSPM rollout"); separate streams of work can each have their own. Steps are short outcomes (≤ ${RM_LIMITS.item} chars, e.g. "Schema + migration", not "work on DB"), ${RM_LIMITS.items} at most; "after" lists the steps that must come first (only real dependencies), "phase" groups them (e.g. "Build", "Rollout"). Every agent on this work can update it, and it appears in your instructions each turn. Don't make one for small tasks.`,
+        {
+          title: z.string().describe(`The label, ≤ ${RM_LIMITS.title} chars`),
+          items: z.array(z.object({
+            id: z.string().describe("Short id, e.g. \"schema\""),
+            title: z.string(),
+            phase: z.string().optional(),
+            after: z.array(z.string()).optional().describe("Ids of steps that must be done first"),
+            status: z.enum(RM_STATUSES).optional().describe("Default todo"),
+            owner: z.string().optional().describe("Who does it, e.g. coder#3 (when known)"),
+            note: z.string().optional(),
+            link: z.string().optional().describe("PR, issue or doc"),
+          })),
+        },
+        async (args) => {
+          try {
+            const r = createRoadmap(agent, taskId, args);
+            return text(`Roadmap "${r.title}" (${r.id}) is live for the owner. Update it with roadmap_update as steps start, finish or get blocked.`);
+          } catch (e: any) {
+            return refuse(`Roadmap not created: ${e.message}`);
+          }
+        },
+      ),
+
+      tool(
+        "roadmap_update",
+        "Update a roadmap of this work as things happen: a step started (doing), finished (done, with its PR/issue as link), blocked (with the reason in note), skipped, or the plan changed (add, remove, retitle, re-order dependencies). Send only what changed. Do it right when it happens: the owner follows progress here.",
+        {
+          roadmap: z.string().describe("Its id (or exact title), as listed under \"Roadmaps of this work\" in your instructions"),
+          items: z.array(z.object({
+            id: z.string(),
+            status: z.enum(RM_STATUSES).optional(),
+            title: z.string().optional(),
+            phase: z.string().optional(),
+            after: z.array(z.string()).optional(),
+            owner: z.string().optional(),
+            note: z.string().optional(),
+            link: z.string().optional(),
+          })).optional().describe("Changes to existing steps (only the fields that changed)"),
+          add: z.array(z.object({
+            id: z.string(), title: z.string(), phase: z.string().optional(), after: z.array(z.string()).optional(),
+            status: z.enum(RM_STATUSES).optional(), owner: z.string().optional(), note: z.string().optional(), link: z.string().optional(),
+          })).optional(),
+          remove: z.array(z.string()).optional().describe("Ids of steps that no longer apply (prefer status skipped to keep history)"),
+          title: z.string().optional().describe("A new label"),
+        },
+        async (args) => {
+          try {
+            const r = updateRoadmap(agent, args as any);
+            const items = roadmapItems(r.id);
+            const done = items.filter((i) => i.status === "done").length;
+            return text(`Updated "${r.title}": ${done}/${items.length} done${r.status === "done" ? " (complete)" : ""}.`);
+          } catch (e: any) {
+            return refuse(`Roadmap not updated: ${e.message}`);
           }
         },
       ),

@@ -77,7 +77,9 @@ const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
     // Setup requests from agents: the card's status. ("Set up now" answers web_only: the terminal is on the web.)
     "setup-requests", `setup-requests/${ID}`,
     // Plans (v2.1): the card, so a plan can be decided from the phone. Diff review stays on the web.
-    `plans/${ID}`, `agents/${ID}/plans`]
+    `plans/${ID}`, `agents/${ID}/plans`,
+    // Roadmaps (v2.1): progress at a glance.
+    `roadmaps/${ID}`, `agents/${ID}/roadmaps`]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
   ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe", "voice/clean",
     `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`, `setup-requests/${ID}/start`, `setup-requests/${ID}/reject`, `plans/${ID}/decide`]

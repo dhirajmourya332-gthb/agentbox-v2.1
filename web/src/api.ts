@@ -274,6 +274,14 @@ export type Plan = {
   feedback: string | null; created_at: string; decided_at: string | null;
 };
 export type PlanGate = { required: boolean; approved: { id: string; version: number; title: string } | null };
+/** server/src/roadmaps.ts › roadmapView (docs/V2.1-PLAN.md §3). */
+export type RoadmapStatus = "todo" | "doing" | "done" | "blocked" | "skipped";
+export type RoadmapItem = { id: string; title: string; phase: string; after: string[]; status: RoadmapStatus; owner: string; note: string; link: string; updated_at: string; updated_by: string | null };
+export type Roadmap = {
+  id: string; root_id: string; created_by: string; created_by_name: string | null; thread_id: string | null; title: string;
+  status: "active" | "done" | "archived"; events: { at: string; by: string; text: string }[]; created_at: string; updated_at: string;
+  items: RoadmapItem[]; counts: Record<RoadmapStatus | "total", number>;
+};
 /** server/src/changes.ts (docs/V2.1-PLAN.md §2). */
 export type DiffLine = { t: "hunk" | "ctx" | "add" | "del"; s: string; o?: number; n?: number };
 export type FileChange = { path: string; status: "added" | "modified" | "deleted" | "untracked"; additions: number; deletions: number; binary: boolean; truncated: boolean; lines: DiffLine[] };
@@ -457,6 +465,9 @@ export const api = {
   setPlanGate: (instanceId: string, required: boolean) => call<PlanGate>("POST", `/api/agents/${instanceId}/plan-gate`, { required }),
   decidePlan: (id: string, verdict: "approve" | "changes" | "reject", note: string) => call<Plan>("POST", `/api/plans/${id}/decide`, { verdict, note }),
   taskChanges: (instanceId: string) => call<{ root_id: string; repos: RepoChanges[]; review: Review | null }>("GET", `/api/agents/${instanceId}/changes`),
+  roadmap: (id: string) => call<Roadmap>("GET", `/api/roadmaps/${id}`),
+  taskRoadmaps: (instanceId: string, archived = false) => call<{ root_id: string; roadmaps: Roadmap[] }>("GET", `/api/agents/${instanceId}/roadmaps${archived ? "?archived=1" : ""}`),
+  archiveRoadmap: (id: string, archived: boolean) => call<Roadmap>("POST", `/api/roadmaps/${id}/archive`, { archived }),
   changesSummary: (instanceId: string) => call<{ root_id: string; worktrees: number }>("GET", `/api/agents/${instanceId}/changes/summary`),
   review: (id: string) => call<Review>("GET", `/api/reviews/${id}`),
   submitReview: (instanceId: string, b: { verdict: Review["verdict"]; note: string; comments: Omit<ReviewComment, "repo">[] }) =>

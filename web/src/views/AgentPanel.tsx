@@ -1,4 +1,5 @@
 import { PlanGateSwitch } from "../components/Plan.tsx";
+import { RoadmapsTab } from "../components/Roadmap.tsx";
 import { useEffect, useState } from "react";
 import { api, type Agent } from "../api.ts";
 import { Avatar, Icon, Markdown, StatusGlyph, relTime } from "../components/ui.tsx";
@@ -156,13 +157,13 @@ export function Memory({ files, agent }: { files: { file: string; content: strin
 // A task's (instance's) side panel: what it is and what it produced.
 
 export function TaskPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
-  const [tab, setTab] = useState<"overview" | "documents">("overview");
+  const [tab, setTab] = useState<"overview" | "roadmaps" | "documents">("overview");
   return (
     <aside className="panel" aria-label="Task details">
       <div className="tabs" role="tablist">
-        {(["overview", "documents"] as const).map((t) => (
+        {(["overview", "roadmaps", "documents"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t === "overview" ? "Overview" : "Documents"}
+            {t === "overview" ? "Overview" : t === "roadmaps" ? "Roadmaps" : "Documents"}
           </button>
         ))}
         <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close details" onClick={onClose}>
@@ -171,6 +172,7 @@ export function TaskPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
       </div>
       <div className="panel-body" role="tabpanel">
         {tab === "overview" && <TaskOverview agent={agent} />}
+        {tab === "roadmaps" && <RoadmapsTab instanceId={agent.id} />}
         {tab === "documents" && <AgentDocuments agent={agent} />}
       </div>
     </aside>

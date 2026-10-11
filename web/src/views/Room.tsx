@@ -1,5 +1,6 @@
 import { PlanCard } from "../components/Plan.tsx";
 import { ReviewCard } from "./Changes.tsx";
+import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { SetupRequestCard } from "../components/Requests.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
@@ -84,6 +85,7 @@ export function Room({ id }: { id: string }) {
             <button className="icon-btn" aria-pressed={panel} aria-label="Room details" onClick={() => setPanel(!panel)}><Icon name="panel" /></button>
           </div>
         </header>
+        <RoadmapStrip instanceId={root.id} />
 
         <nav className={`room-filter${showFilter ? "" : " collapsed"}`} aria-label="Show">
           <button className="room-filter-toggle" aria-expanded={showFilter} onClick={toggleFilter}
@@ -145,6 +147,7 @@ export function TimelineEntries({ msgs, pending, steps, members, byThread, taskB
             if (m.author === "setup_request") return <div key={m.id} className="msg"><span aria-hidden="true" /><SetupRequestCard id={m.content} /></div>;
             if (m.author === "plan") return <div key={m.id} className="msg"><span aria-hidden="true" /><PlanCard id={m.content} /></div>;
             if (m.author === "review") return <div key={m.id} className="msg"><span aria-hidden="true" /><ReviewCard id={m.content} /></div>;
+            if (m.author === "roadmap") return <div key={m.id} className="msg"><span aria-hidden="true" /><RoadmapCard id={m.content} /></div>;
             const task = m.task_id ? taskById.get(m.task_id) : undefined;
             const isReply = !!task && task.agent_id === m.author;
             const author = m.author === "user" ? null : everyone.find((a) => a.id === m.author);

@@ -11,6 +11,7 @@ import { ApprovalCard, IntegrationStepsCard, TerminalCtx, TerminalPanel } from "
 import { RepoChips, SetupRequestCard } from "../components/Requests.tsx";
 import { PlanCard, PlanChip } from "../components/Plan.tsx";
 import { ChangesButton, ReviewCard } from "./Changes.tsx";
+import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -108,6 +109,7 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
           </div>
         </header>
 
+        {!isSetup && <RoadmapStrip instanceId={agent.id} />}
         {threadList.length > 1 && <ThreadTabs agent={agent} threads={threadList} current={threadId} />}
         {thread ? <Timeline agent={agent} thread={thread} live={live} /> : <div className="timeline" />}
         {/* The work log is already in the timeline here: the bar only says what's happening, and flags a stall. */}
@@ -303,14 +305,15 @@ function Input({ message, task, active }: { message: Message; task?: Task; activ
   const { everyone } = useStore();
   const [open, setOpen] = useState(task?.source !== "result");
   // Setup agent cards: an integration's steps, or a proposal waiting for the owner.
-  if (["integration", "approval", "setup_request", "plan", "review"].includes(message.author)) {
+  if (["integration", "approval", "setup_request", "plan", "review", "roadmap"].includes(message.author)) {
     return (
       <div className="msg">
         <span aria-hidden="true" />
         {message.author === "integration" ? <IntegrationStepsCard id={message.content} active={active} />
           : message.author === "setup_request" ? <SetupRequestCard id={message.content} />
           : message.author === "plan" ? <PlanCard id={message.content} />
-          : message.author === "review" ? <ReviewCard id={message.content} /> : <ApprovalCard id={message.content} />}
+          : message.author === "review" ? <ReviewCard id={message.content} />
+          : message.author === "roadmap" ? <RoadmapCard id={message.content} /> : <ApprovalCard id={message.content} />}
       </div>
     );
   }
