@@ -34,7 +34,9 @@ export function RolePage({ role }: { role: Agent }) {
             <h1 style={{ margin: 0 }}>{role.name}{role.builtin && <span className="builtin-badge" title="Built into agentbox">built-in</span>}</h1>
             <p className="hint" style={{ marginTop: 2 }}>{role.title} · {role.model}</p>
           </div>
-          <a className="btn primary" href={`#/new/${role.id}`}><Icon name="plus" />New task</a>
+          {role.builtin === "setup"
+            ? <a className="btn primary" href="#/setup"><Icon name="terminal" />Open the Setup workspace</a>
+            : <a className="btn primary" href={`#/new/${role.id}`}><Icon name="plus" />New task</a>}
         </div>
         <p className="lede" style={{ marginTop: 12 }}>{role.summary}</p>
 

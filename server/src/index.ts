@@ -40,6 +40,7 @@ import { ensureSetupRole } from "./setup.ts";
 import { mappedIntegrations, refreshIntegrations } from "./integrations.ts";
 import { registerIntegrationRoutes } from "./integrationRoutes.ts";
 import { startSudoSweeper } from "./sudo.ts";
+import { registerSetupRoutes, startSetupWorkspace } from "./setupRoutes.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Ports and feature flags come from /etc/agentbox/config.yaml (config.ts). A disabled module's
@@ -501,6 +502,8 @@ app.post("/api/attention/:id/seen", async (req) => {
 
 // --- integrations, the setup agent and approvals (docs/V2-ARCHITECTURE.md §10) ---------------
 registerIntegrationRoutes(app);
+// The Setup workspace: the owner's terminal (readable by the setup agent) and the checklist.
+registerSetupRoutes(app);
 
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 // Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.
@@ -523,6 +526,8 @@ migrateToInstances((m) => app.log.info(m));
 seedSkills();
 ensureSetupRole(); // the built-in setup agent (§10.4)
 startSudoSweeper(); // no setup sudo grant survives a restart
+const setupWorkspace = startSetupWorkspace({ log: (m) => app.log.warn(m) }); // owner terminal + checklist checks
+app.addHook("onClose", async () => setupWorkspace.stop());
 refreshIntegrations(0).catch(() => {});
 startRoutines();
 startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish

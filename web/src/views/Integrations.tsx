@@ -65,7 +65,7 @@ function IntegrationCard({ it, onChange }: { it: Integration; onChange: () => vo
     setBusy(true); setError(null);
     try {
       const r = await api.integrationTask(it.id, action);
-      location.hash = `#/agents/${r.instance_id}`;
+      location.hash = `#/setup/${r.instance_id}`;
     } catch (e: any) { setError(e.message); setBusy(false); }
   };
   const st = STATE_STEP[it.state];

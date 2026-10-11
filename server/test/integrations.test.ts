@@ -525,7 +525,7 @@ test("tools: list, status (posts a card), settings via the CLI, connect streams 
   const thread = A.dmThreadOf(setupTask.id)!;
   const tools = T.setupTools(setupTask, tid);
   assert.deepEqual(tools.map((t) => t.name).sort(),
-    ["connect", "disconnect", "integration_status", "list_integrations", "propose_mapping", "propose_team_rule", "save_settings", "verify"]);
+    ["add_steps", "connect", "disconnect", "integration_status", "list_integrations", "propose_mapping", "propose_team_rule", "read_terminal", "save_settings", "set_plan", "update_step", "verify"]);
 
   const l = await call(tools, "list_integrations", {});
   assert.match(l.content[0].text, /code-hosting:\n {2}- github: GitHub \[connected\]/);

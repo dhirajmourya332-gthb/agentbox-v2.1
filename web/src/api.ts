@@ -71,6 +71,24 @@ export type Integration = {
   /** The server's clock when it answered (elapsed times don't depend on the browser's). */
   now?: string;
 };
+/** server/src/setupPlan.ts › PlanView: a setup session's checklist. */
+export type PlanStepStatus = "pending" | "done" | "skipped" | "failed";
+export type PlanCheck = { ok: boolean; code: number | null; output: string; at: string; timed_out: boolean };
+export type PlanStep = {
+  id: string; title: string; why: string; instructions: string; commands: string[]; check: string | null; human: boolean;
+  integration: { id: string; step: string | null } | null;
+  status: PlanStepStatus; done_by: "check" | "owner" | "agent" | null; done_at: string | null; note: string | null;
+  last_check: PlanCheck | null; nudged: boolean;
+};
+export type SetupPlan = {
+  instance_id: string; title: string; steps: PlanStep[]; created_at: string; updated_at: string;
+  current: string | null; checking: Record<string, string>; checked_at: Record<string, string>; interval_ms: number;
+  done_count: number; total: number;
+};
+export type SetupSession = {
+  id: string; label: string | null; name: string; retired_at: string | null; created_at: string;
+  plan: { title: string; done: number; total: number; current: string | null } | null;
+};
 export type Approval = {
   id: string; kind: "mapping" | "team_rule"; status: "pending" | "approved" | "rejected" | "failed";
   proposed_by: string; proposed_by_name?: string | null; task_id: string | null; thread_id: string | null;
@@ -344,6 +362,11 @@ export const api = {
     call<{ integrations: string[] }>("PUT", `/api/agents/${roleId}/integrations`, { integrations }),
   saveNotes: (roleId: string, text: string) => call<{ owner_notes: string }>("PUT", `/api/agents/${roleId}/notes`, { text }),
   approval: (id: string) => call<Approval>("GET", `/api/approvals/${id}`),
+  setupSessions: () => call<{ setup_role_id: string | null; sessions: SetupSession[] }>("GET", "/api/setup/sessions"),
+  setupPlan: (instanceId: string) => call<{ plan: SetupPlan | null }>("GET", `/api/setup/plans/${instanceId}`),
+  setupStep: (instanceId: string, stepId: string, action: "check" | "skip" | "done" | "reopen") =>
+    call<{ plan: SetupPlan | null; result: PlanCheck | null }>("POST", `/api/setup/plans/${instanceId}/steps/${encodeURIComponent(stepId)}`, { action }),
+  terminalInfo: () => call<{ available: boolean; error: string | null }>("GET", "/api/setup/terminal/info"),
   approve: (id: string) => call<Approval>("POST", `/api/approvals/${id}/approve`),
   reject: (id: string) => call<Approval>("POST", `/api/approvals/${id}/reject`),
 };

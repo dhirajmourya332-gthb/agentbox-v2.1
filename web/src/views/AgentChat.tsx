@@ -26,7 +26,14 @@ export function AgentChat({ agentId, threadParam }: { agentId: string; threadPar
   const agent = live ?? loaded ?? (everyone.find((a) => a.id === agentId) as Agent | undefined);
   if (!agent) return <div className="page"><div className="page-inner"><p className="lede">Loading…</p></div></div>;
   if (!agent.base_agent_id) return <RolePage role={agent} />;
+  // The setup agent's sessions open in the Setup workspace (chat, terminal and checklist on one screen).
+  if (everyone.find((a) => a.id === agent.base_agent_id)?.builtin === "setup" && !threadParam) return <SetupRedirect id={agent.id} />;
   return <TaskChat key={agent.id} agent={agent} threadParam={threadParam} />;
+}
+
+function SetupRedirect({ id }: { id: string }) {
+  useEffect(() => { location.replace(`#/setup/${id}`); }, [id]);
+  return <div className="page" />;
 }
 
 function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }) {
@@ -117,7 +124,7 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
 }
 
 /** The task's title; click to rename. */
-function TaskTitle({ agent }: { agent: Agent }) {
+export function TaskTitle({ agent }: { agent: Agent }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(agent.label ?? "");
   useEffect(() => setValue(agent.label ?? ""), [agent.label]);
@@ -168,7 +175,7 @@ function rootOfLocal(a: Agent, all: Agent[]) {
 }
 
 /** Done: finish this task (and anything it started). */
-function FinishButton({ agent }: { agent: Agent }) {
+export function FinishButton({ agent }: { agent: Agent }) {
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -223,7 +230,7 @@ function ThreadTabs({ agent, threads, current }: { agent: Agent; threads: Thread
   );
 }
 
-function Timeline({ agent, thread, live }: {
+export function Timeline({ agent, thread, live }: {
   agent: Agent;
   thread: { messages: Message[]; tasks: Task[]; steps: Step[] };
   live: Record<string, string>;
@@ -232,8 +239,9 @@ function Timeline({ agent, thread, live }: {
   const stick = useRef(true);
   const tasks = useMemo(() => new Map(thread.tasks.map((t) => [t.id, t])), [thread.tasks]);
   const replies = useMemo(
-    () => new Map(thread.messages.filter((m) => m.author !== "user" && m.task_id).map((m) => [m.task_id!, m])),
-    [thread.messages],
+    // A turn's reply is the message its own agent wrote (not a system note or handoff queued with it).
+    () => new Map(thread.messages.filter((m) => m.task_id && tasks.get(m.task_id)?.agent_id === m.author).map((m) => [m.task_id!, m])),
+    [thread.messages, tasks],
   );
   const stepsByTask = useMemo(() => {
     const m = new Map<string, Step[]>();
@@ -448,7 +456,9 @@ function StepRow({ step }: { step: Step }) {
   );
 }
 
-function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; empty: boolean }) {
+export function Composer({ agent, threadId, empty, starters = STARTERS, placeholder }: {
+  agent: Agent; threadId: string; empty: boolean; starters?: string[]; placeholder?: string;
+}) {
   const [text, setText] = useState("");
   const att = useAttachments();
   const [error, setError] = useState<string | null>(null);
@@ -488,13 +498,13 @@ function Composer({ agent, threadId, empty }: { agent: Agent; threadId: string; 
     <div className="composer-wrap">
       {empty && (
         <div className="choices" style={{ maxWidth: 820, margin: "0 auto 10px" }}>
-          {STARTERS.map((s) => <button key={s} className="pill" onClick={() => send(s)}>{s}</button>)}
+          {starters.map((s) => <button key={s} className="pill" onClick={() => send(s)}>{s}</button>)}
         </div>
       )}
       <AttachmentStrip a={att} />
       <VoiceStatus v={voice} />
       <div className={`composer${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
-        <textarea ref={ref} rows={1} value={text} placeholder={`Message ${agent.name}…`} aria-label={`Message ${agent.name}`}
+        <textarea ref={ref} rows={1} value={text} placeholder={placeholder ?? `Message ${agent.name}…`} aria-label={`Message ${agent.name}`}
           onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={att.onPaste} />
         <AttachButton a={att} />
         <MicButton v={voice} />
