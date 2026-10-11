@@ -91,13 +91,24 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-// File paths agents mention: absolute under /agents or /work, or ~/ (the agent's home).
-const PATH_RE = /(^|[\s(\[{"'“‘`,;:])((?:~|\/agents|\/work)\/[^\s`'"“”‘’<>()\[\]{},;|*]+)/g;
+// File paths agents mention: absolute under the agents' homes or the work area (from the server's
+// config: /agents and /work by default), or ~/ (the agent's home).
+let ROOTS = ["/agents", "/work"];
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const buildPathRe = () => new RegExp(`(^|[\\s(\\[{"'“‘\`,;:])((?:~|${ROOTS.map(escRe).join("|")})\\/[^\\s\`'"“”‘’<>()\\[\\]{},;|*]+)`, "g");
+let PATH_RE = buildPathRe();
+/** Called once the server says where the roots are (GET /api/state › roots). */
+export function setPathRoots(roots: string[]) {
+  const next = roots.map((r) => r.replace(/\/+$/, "")).filter((r) => r.startsWith("/") && r.length > 1);
+  if (!next.length || next.join() === ROOTS.join()) return;
+  ROOTS = next;
+  PATH_RE = buildPathRe();
+}
 const TRAILING = /[.:,!?]+$/;
 
 /** Turn file paths in rendered Markdown into links that open the document reader. */
 function linkPaths(html: string, home?: string) {
-  if (!html.includes("/agents/") && !html.includes("/work/") && !html.includes("~/")) return html;
+  if (!ROOTS.some((r) => html.includes(r + "/")) && !html.includes("~/")) return html;
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
   const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT);

@@ -127,7 +127,9 @@ export const contentType = (p: string) => TYPES[path.extname(p).toLowerCase()] ?
 
 // --- documents for a piece of work (task room, group, instance) and across everything ---------
 
-const PATH_IN_TEXT = /(?:\/agents|\/work)\/[^\s`'"<>()\[\]{},;|*]+/g;
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Absolute paths under the agents' homes or the work area (from the config, e.g. /agents or /agents-v21). */
+const PATH_IN_TEXT = new RegExp(`(?:${[AGENTS_ROOT, WORK_ROOT].map((r) => esc(r.replace(/\/+$/, ""))).join("|")})\\/[^\\s\`'"<>()\\[\\]{},;|*]+`, "g");
 
 function describe(p: string, extra: Partial<DocumentInfo>): DocumentInfo | null {
   try {
@@ -160,9 +162,29 @@ export function documentsForWork(taskIds: string[], threadIds: string[]): (Docum
       const d = describe(r.path, { task_id: r.task_id, task_title: r.title });
       if (d) out.set(r.path, { ...d, author: r.agent_id });
     }
+    // Documents written from the shell (cat > file, tee file, cp …): the paths in the command.
+    const shells = all<{ cmd: string; task_id: string; title: string; agent_id: string }>(
+      `SELECT steps.summary AS cmd, steps.task_id, tasks.title, tasks.agent_id FROM steps JOIN tasks ON tasks.id = steps.task_id
+       WHERE steps.task_id IN (${ids.map(() => "?").join(",")}) AND steps.name IN ('Shell', 'Bash') AND steps.status = 'done'`,
+      ...ids,
+    );
+    for (const r of shells) {
+      for (const raw of String(r.cmd ?? "").match(/(?:>>?|\btee\s+(?:-a\s+)?)\s*["']?([^\s"'|;&<>]+)/g) ?? []) {
+        const p = raw.replace(/^(?:>>?|tee\s+(?:-a\s+)?)\s*["']?/, "");
+        if (out.has(p) || !isDoc(p) || !allowed(p) || /\/memory\/[^/]+$/.test(p)) continue;
+        const d = describe(p, { task_id: r.task_id, task_title: r.title });
+        if (d) out.set(p, { ...d, author: r.agent_id });
+      }
+    }
   }
   for (const t of threadIds) {
-    for (const m of all<{ content: string; author: string; task_id: string | null }>(`SELECT content, author, task_id FROM messages WHERE thread_id = ?`, t)) {
+    // Plans posted in this thread (their full text names the documents behind them).
+    const plans = (() => { try { return all<{ body: string; instance_id: string; task_id: string | null }>(`SELECT body, instance_id, task_id FROM plans WHERE thread_id = ?`, t); } catch { return []; } })();
+    const texts = [
+      ...all<{ content: string; author: string; task_id: string | null }>(`SELECT content, author, task_id FROM messages WHERE thread_id = ?`, t),
+      ...plans.map((p) => ({ content: p.body, author: p.instance_id, task_id: p.task_id })),
+    ];
+    for (const m of texts) {
       for (const raw of m.content.match(PATH_IN_TEXT) ?? []) {
         const p = raw.replace(/[.:,!?]+$/, "");
         if (out.has(p) || !isDoc(p) || !allowed(p) || /\/memory\/[^/]+$/.test(p) || p.endsWith("/CLAUDE.md")) continue;

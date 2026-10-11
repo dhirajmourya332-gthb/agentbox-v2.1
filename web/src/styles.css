@@ -1045,14 +1045,21 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .pd-legend .added { color: var(--ok); }
 .pd-legend .changed { color: var(--warn); }
 .pd-legend .removed { color: var(--bad); }
+.pd-bar .btn { margin-left: 4px; }
 .pd-canvas {
   background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-ctl);
-  padding: 12px; overflow: auto; max-height: 520px; display: flex; justify-content: center;
+  padding: 12px; overflow: auto; max-height: min(760px, 75vh); display: flex; cursor: zoom-in;
 }
-.pd-canvas svg { max-width: 100%; height: auto; font-family: var(--sans); }
+/* Natural size (readable); centred when it fits, scrolls sideways when it doesn't. */
+.pd-canvas svg, .pd-full-canvas svg { flex: none; margin: auto; font-family: var(--sans); }
+.pd-full { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; }
+.pd-full-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.pd-full-bar .pd-legend { margin-left: 0; }
+.pd-zoom { display: inline-flex; gap: 2px; margin-left: auto; }
+.pd-full-canvas { flex: 1; overflow: auto; display: flex; padding: 24px; }
 .pd-node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.4; }
-.pd-node .pd-label { fill: var(--text); font-size: 13px; font-weight: 500; }
-.pd-node .pd-sub { fill: var(--muted); font-size: 11px; }
+.pd-node .pd-label { fill: var(--text); font-weight: 500; }
+.pd-node .pd-sub { fill: var(--muted); }
 .pd-node.added rect { fill: color-mix(in srgb, var(--ok) 12%, var(--surface)); stroke: var(--ok); stroke-width: 2; }
 .pd-node.added .pd-sub { fill: var(--ok); font-weight: 600; }
 .pd-node.changed rect { fill: color-mix(in srgb, var(--warn) 12%, var(--surface)); stroke: var(--warn); stroke-width: 2; }
@@ -1061,7 +1068,7 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .pd-node.removed .pd-label { fill: var(--muted); text-decoration: line-through; }
 .pd-node.removed .pd-sub { fill: var(--bad); font-weight: 600; }
 .pd-edge path { fill: none; stroke: var(--muted); stroke-width: 1.5; }
-.pd-edge text { fill: var(--muted); font-size: 11px; }
+.pd-edge text { fill: var(--muted); }
 .pd-edge-bg { fill: var(--bg); stroke: none; }
 .pd-edge.changed path { stroke: var(--warn); stroke-width: 2; }
 .pd-edge.changed text { fill: var(--warn); }

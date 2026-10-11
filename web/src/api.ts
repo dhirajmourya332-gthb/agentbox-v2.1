@@ -302,7 +302,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
-  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
+  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[]; roots?: { agents: string; work: string } }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
   newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean) =>

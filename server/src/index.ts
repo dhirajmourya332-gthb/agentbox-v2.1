@@ -8,8 +8,7 @@ import { all, dataDir, get } from "./db.ts";
 import { subscribe } from "./bus.ts";
 import {
   createAgent, deleteAgent, dmThreadOf, editInstructions, getAgent, homeOf, listAgents, listMemory, listRetired, readInstructions, retireReplica,
-  setInstanceMeta, spawnInstance, spawnReplica, updateAgent,
-} from "./agents.ts";
+  setInstanceMeta, spawnInstance, spawnReplica, updateAgent, AGENTS_ROOT, WORK_ROOT } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
 import { activity, graph } from "./activity.ts";
 import { checkImages, displayWithImages, saveUpload } from "./uploads.ts";
@@ -109,6 +108,8 @@ app.get("/api/config/public", async () => publicConfig());
 app.get("/api/state", async () => ({
   agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups(), paused: isPaused(), display: DISPLAY ? screen() : null,
   retired: listRetired().map((a) => ({ id: a.id, name: a.name, color: a.color, base_agent_id: a.base_agent_id })),
+  // Where agents' homes and the shared work area are (the UI links file paths under them).
+  roots: { agents: AGENTS_ROOT, work: WORK_ROOT },
 }));
 
 // --- owner controls -------------------------------------------------------------
