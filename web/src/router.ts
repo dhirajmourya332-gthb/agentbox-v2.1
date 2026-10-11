@@ -25,6 +25,7 @@ export type Route =
   | { name: "new-skill" }
   | { name: "draft"; id: string }
   | { name: "integrations" }
+  | { name: "repos"; repo?: string }
   | { name: "setup"; id?: string };
 
 export function parse(hash: string): Route {
@@ -45,6 +46,7 @@ export function parse(hash: string): Route {
   if (parts[0] === "skills") return { name: "skills" };
   if (parts[0] === "activity") return { name: "activity" };
   if (parts[0] === "integrations") return { name: "integrations" };
+  if (parts[0] === "repos") return { name: "repos", repo: parts[1] };
   if (parts[0] === "setup") return { name: "setup", id: parts[1] };
   if (parts[0] === "new") return { name: "new-task", role: parts[1] };
   if (parts[0] === "work" && parts[1]) return { name: "room", id: parts[1] };
@@ -71,6 +73,7 @@ export function href(r: Route): string {
     case "new-skill": return "#/skills/new";
     case "draft": return `#/skills/drafts/${r.id}`;
     case "setup": return r.id ? `#/setup/${r.id}` : "#/setup";
+    case "repos": return r.repo ? `#/repos/${r.repo}` : "#/repos";
     default: return `#/${r.name}`;
   }
 }

@@ -1,4 +1,5 @@
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
+import { SetupRequestCard } from "../components/Requests.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type DocumentInfo, type InstanceSummary, type Message, type RoomView, type Step, type Task } from "../api.ts";
@@ -139,6 +140,7 @@ export function TimelineEntries({ msgs, pending, steps, members, byThread, taskB
             const from = m.author !== inst?.id ? member(m.author) : undefined;
             if (!visible(inst?.id, from?.id)) return null;
             if (m.author === "system") return <p key={m.id} className="system-note">{inst ? `${inst.label ?? inst.name}: ` : ""}{m.content}</p>;
+            if (m.author === "setup_request") return <div key={m.id} className="msg"><span aria-hidden="true" /><SetupRequestCard id={m.content} /></div>;
             const task = m.task_id ? taskById.get(m.task_id) : undefined;
             const isReply = !!task && task.agent_id === m.author;
             const author = m.author === "user" ? null : everyone.find((a) => a.id === m.author);

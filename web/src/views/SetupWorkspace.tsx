@@ -252,7 +252,10 @@ const STARTERS = [
 
 /** A new session: the first message starts the setup agent's task and lands here. */
 function StartChat({ role }: { role: Agent }) {
-  const [text, setText] = useState("");
+  // Another page can hand over a prefilled request ("agentbox.setup.prefill", read once).
+  const [text, setText] = useState(() => {
+    try { const v = sessionStorage.getItem("agentbox.setup.prefill") ?? ""; sessionStorage.removeItem("agentbox.setup.prefill"); return v; } catch { return ""; }
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);

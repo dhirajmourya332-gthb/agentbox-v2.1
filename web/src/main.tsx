@@ -23,6 +23,7 @@ import { DocumentsPage } from "./views/DocumentsPage.tsx";
 import { LinkedFileReader } from "./views/Documents.tsx";
 import { Devices } from "./views/Devices.tsx";
 import { Integrations } from "./views/Integrations.tsx";
+import { Repos } from "./views/Repos.tsx";
 // The Setup workspace brings xterm.js: loaded on first use.
 const SetupWorkspace = lazy(() => import("./views/SetupWorkspace.tsx").then((m) => ({ default: m.SetupWorkspace })));
 
@@ -72,6 +73,7 @@ function App() {
       {route.name === "system" && <System />}
       {route.name === "devices" && <Devices />}
       {route.name === "integrations" && <Integrations />}
+      {route.name === "repos" && <Repos focus={route.repo} />}
       {route.name === "setup" && <Suspense fallback={<div className="page" />}><SetupWorkspace key={route.id ?? "latest"} instanceId={route.id} /></Suspense>}
       <FileLinks />
     </Shell>
