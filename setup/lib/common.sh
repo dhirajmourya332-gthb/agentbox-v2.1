@@ -4,6 +4,9 @@
 # shellcheck shell=bash disable=SC2034  # variables for the scripts that source this
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# wait_for_apt: call before every apt-get / dpkg action (prints why it waits; see the file).
+# shellcheck source=setup/lib/apt-wait.sh
+source "$(dirname "${BASH_SOURCE[0]}")/apt-wait.sh"
 
 # Read the config through the CLI (docs/V2-ARCHITECTURE.md § 3). Prints "" for a missing key.
 cfg() { agentbox config get "$1" 2>/dev/null || true; }
@@ -30,10 +33,13 @@ _apt_updated=0
 apt_install() {
   local stamp=/var/lib/apt/periodic/agentbox-update-stamp
   if [ "$_apt_updated" = 0 ] && { [ ! -f "$stamp" ] || [ -n "$(find "$stamp" -mmin +60 2>/dev/null)" ]; }; then
+    wait_for_apt
     apt-get update -qq
     mkdir -p "$(dirname "$stamp")" && touch "$stamp"
   fi
   _apt_updated=1
+  log "apt-get install $*"
+  wait_for_apt
   apt-get install -y -qq --no-install-recommends "$@" >/dev/null
 }
 # Install only the packages that are missing (fast re-runs).

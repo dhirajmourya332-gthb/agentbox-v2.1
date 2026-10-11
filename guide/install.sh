@@ -26,7 +26,11 @@ echo "--> build tools for the terminal (node-pty)"
 missing=()
 for p in make g++ python3; do command -v "$p" >/dev/null 2>&1 || missing+=("$p"); done
 if [ ${#missing[@]} -gt 0 ]; then
+  # shellcheck source=setup/lib/apt-wait.sh
+  . "$SRC/setup/lib/apt-wait.sh"
+  wait_for_apt
   apt-get update -qq
+  wait_for_apt
   apt-get install -y -qq --no-install-recommends build-essential python3 >/dev/null
 fi
 

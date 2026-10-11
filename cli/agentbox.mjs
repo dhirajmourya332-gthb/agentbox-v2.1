@@ -174,12 +174,40 @@ function scriptEnv(conf, m) {
     AGENTBOX_HOME: homeOf(user),
   };
 }
-function runScript(conf, m, name) {
+function runScript(conf, m, name, logFile = null) {
   const file = path.join(m.dir, name);
   if (!fs.existsSync(file)) return false;
   console.log(bold(`==> ${m.id}: ${name}`));
-  sh("bash", [file], { cwd: m.dir, env: scriptEnv(conf, m) });
+  if (logFile) {
+    // Also into the setup guide's progress log for this module (the guide shows it live).
+    try { fs.appendFileSync(logFile, `==> ${m.id}: ${name}\n`); } catch { /* best effort */ }
+    sh("bash", ["-c", 'set -o pipefail; bash "$1" 2>&1 | tee -a "$2"', "agentbox-module", file, logFile], { cwd: m.dir, env: scriptEnv(conf, m) });
+  } else {
+    sh("bash", [file], { cwd: m.dir, env: scriptEnv(conf, m) });
+  }
   return true;
+}
+
+/**
+ * While the setup guide is installed, `module install` (run by the setup agent, output not a TTY)
+ * also writes each module's script output to <data>/guide/runs/<id>.log (0600, the agent user's),
+ * so the guide can show it live in the step's card. A fresh file (new inode) per run.
+ */
+function progressLog(conf, m) {
+  if (process.stdout.isTTY || !isRoot()) return null;
+  const guideDir = path.join(conf.paths?.data ?? "/opt/agentbox/data", "guide");
+  if (!fs.existsSync(guideDir)) return null;
+  try {
+    const user = agentUser(conf);
+    const runs = path.join(guideDir, "runs");
+    fs.mkdirSync(runs, { recursive: true, mode: 0o700 });
+    spawnSync("chown", [`${user}:${user}`, runs]);
+    const file = path.join(runs, `${m.id}.log`);
+    fs.rmSync(file, { force: true });
+    fs.writeFileSync(file, "", { mode: 0o600 });
+    spawnSync("chown", [`${user}:${user}`, file]);
+    return file;
+  } catch { return null; }
 }
 
 /** Fill @PLACEHOLDERS@ in a unit file from the config. */
@@ -249,9 +277,10 @@ function copyTeam(conf, m) {
 
 function installModule(conf, m) {
   console.log(bold(`\n### ${m.id}: ${m.title ?? ""}`));
-  runScript(conf, m, "install.sh");
+  const logFile = progressLog(conf, m);
+  runScript(conf, m, "install.sh", logFile);
   installUnits(conf, m);
-  runScript(conf, m, "configure.sh");
+  runScript(conf, m, "configure.sh", logFile);
   copyTeam(conf, m);
   if (m.units.length) {
     systemctl("enable", ...m.units);

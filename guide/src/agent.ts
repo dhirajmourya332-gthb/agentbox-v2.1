@@ -7,7 +7,8 @@ import { applicableSteps } from "./roadmap.ts";
  * never performs logins and never handles secrets: at a human gate it says what to run and ends its
  * turn; the guide sends "continue" when the gate's check turns green.
  *
- * The session id is persisted (resume after a guide restart or a Pause).
+ * The session id is persisted (resume after a guide restart or a Pause). A turn that a guide
+ * restart cut off is resumed by the guide with RESUME_PROMPT (app.ts).
  */
 
 export type AgentStatus = "idle" | "running" | "waiting" | "paused";
@@ -93,6 +94,10 @@ export type AgentDeps = {
   onUsage: (u: Usage) => void;
   /** A Bash command started / finished (to follow which module the agent is working on). */
   onTool?: (ev: { phase: "start" | "end"; id: string; command: string; isError?: boolean; output?: string }) => void;
+  /** Any message from the SDK (the page's "no news for N s" heartbeat). */
+  onActivity?: () => void;
+  /** How a turn ended: finished (a result came back), error (the SDK threw), paused. */
+  onTurnEnd?: (how: "finished" | "error" | "paused") => void;
   /** Whether a human gate is open after a turn ends (→ "waiting" instead of "idle"). */
   gateOpen: () => boolean;
   model?: string;
@@ -123,6 +128,7 @@ export function createSetupAgent(d: AgentDeps) {
   };
 
   function handle(msg: any, textBuf: { s: string }) {
+    d.onActivity?.();
     switch (msg?.type) {
       case "system":
         if (msg.subtype === "init" && msg.session_id) d.saveSession(msg.session_id);
@@ -208,11 +214,13 @@ export function createSetupAgent(d: AgentDeps) {
           result = await run(undefined);
         } else throw e;
       }
-      if (pausedFlag) { log("info", "paused"); set("paused"); return true; }
+      if (pausedFlag) { d.onTurnEnd?.("paused"); log("info", "paused"); set("paused"); return true; }
+      d.onTurnEnd?.("finished");
       if (result?.subtype && result.subtype !== "success") log("error", `the turn ended: ${result.subtype}`);
       else log("done", "turn finished");
     } catch (e: any) {
-      if (pausedFlag) { log("info", "paused"); set("paused"); return true; }
+      if (pausedFlag) { d.onTurnEnd?.("paused"); log("info", "paused"); set("paused"); return true; }
+      d.onTurnEnd?.("error");
       log("error", `the setup agent stopped: ${clip(String(e?.message ?? e), 500)}`);
     } finally {
       current = null;
@@ -243,15 +251,22 @@ export function createSetupAgent(d: AgentDeps) {
     },
     /** No gate is open any more (e.g. the owner switched the module off): stop waiting. */
     gatesClosed() { if (status === "waiting") set("idle"); },
-    /** After a guide restart: a paused agent stays paused, a waiting one keeps waiting for its gate. */
+    /**
+     * After a guide restart: a paused agent stays paused, a waiting one keeps waiting for its gate.
+     * One that was running is idle here; the guide resumes it (RESUME_PROMPT) once the checks are in.
+     */
     restoreStatus(s: AgentStatus) {
       if (s === "paused") { pausedFlag = true; set("paused"); }
-      else if (s === "waiting" || s === "running") set("waiting");
+      else if (s === "waiting") set("waiting");
     },
   };
 }
 
 export const START_PROMPT =
   "Set up the modules in the profile, in dependency order, following the rules. Start by running `agentbox module check` for each module to see what is already done, then install what's missing.";
+
+/** Sent to the saved session when the guide restarted in the middle of a turn. */
+export const RESUME_PROMPT =
+  "continue: the setup guide restarted while you were working, so your last command may have been cut off. Check where things stand (`agentbox module check <id>` for the module you were on), re-run what didn't finish, and carry on.";
 
 export type SetupAgent = ReturnType<typeof createSetupAgent>;

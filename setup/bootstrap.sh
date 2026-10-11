@@ -61,7 +61,12 @@ say "base packages"
 cat > /etc/apt/apt.conf.d/90agentbox-lock <<'APT'
 DPkg::Lock::Timeout "900";
 APT
+# wait_for_apt says what it's waiting for (every 15 s, up to 15 min) instead of hanging silently.
+# shellcheck source=setup/lib/apt-wait.sh
+. "$SRC/setup/lib/apt-wait.sh"
+wait_for_apt
 apt-get update -qq
+wait_for_apt
 apt-get install -y -qq --no-install-recommends \
   ca-certificates curl gnupg git jq rsync unzip python3 sudo iproute2 netcat-openbsd ttyd >/dev/null
 # Ubuntu's ttyd package starts a ttyd on all interfaces: never.
@@ -69,7 +74,9 @@ if [ -d /run/systemd/system ]; then systemctl disable --now ttyd.service >/dev/n
 
 say "node 22"
 if ! have node || [[ "$(node -v)" != v22.* ]]; then
+  wait_for_apt
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
+  wait_for_apt
   apt-get install -y -qq nodejs >/dev/null
 fi
 node -v

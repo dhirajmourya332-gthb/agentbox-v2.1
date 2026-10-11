@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -10,7 +10,8 @@ import "@fontsource/ibm-plex-sans/600.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "./styles.css";
 import { toggleModule } from "../src/profile.ts";
-import type { LogEntry, ModuleView, Snapshot, StepState, StepView } from "./types.ts";
+import { fmtDuration, heartbeat, runningLabel, waitNotice } from "../src/progress.ts";
+import type { JobView, LogEntry, ModuleView, Progress, Snapshot, StepState, StepView } from "./types.ts";
 
 // Every URL is relative: the page lives at / (direct) or /setup/ (through the portal).
 const wsUrl = (p: string) => { const u = new URL(p, location.href); u.protocol = u.protocol === "https:" ? "wss:" : "ws:"; return u.toString(); };
@@ -23,6 +24,56 @@ async function post(p: string, body?: unknown) {
 
 const ICON: Record<StepState, string> = { pending: "○", running: "●", human: "⏸", done: "✔", failed: "✖", disabled: "─" };
 const LABEL: Record<StepState, string> = { pending: "pending", running: "working", human: "your turn", done: "done", failed: "failed", disabled: "off" };
+
+// --- live progress ----------------------------------------------------------------------------------------
+/** The latest progress and the offset between the server's clock and ours. */
+type Live = { progress: Progress; skew: number };
+const LiveCtx = createContext<Live | null>(null);
+
+/** The server's "now", ticking every second. */
+function useServerNow() {
+  const live = useContext(LiveCtx);
+  const [t, setT] = useState(() => Date.now());
+  useEffect(() => { const i = setInterval(() => setT(Date.now()), 1000); return () => clearInterval(i); }, []);
+  return t + (live?.skew ?? 0);
+}
+
+const isUbuntuUpdates = (text: string) => /unattended-upgrades|automatic security updates/i.test(text);
+
+function WaitBadge({ text }: { text: string }) {
+  return (
+    <div className="apt-wait" role="status">
+      <span className="wait-badge">{isUbuntuUpdates(text) ? "Waiting for Ubuntu updates" : "Waiting for the package manager"}</span>
+      <span className="wait-text">{text}</span>
+    </div>
+  );
+}
+
+function Tail({ lines }: { lines: string[] }) {
+  const box = useRef<HTMLPreElement>(null);
+  useEffect(() => { const b = box.current; if (b) b.scrollTop = b.scrollHeight; }, [lines]);
+  if (!lines.length) return null;
+  return <pre className="pg-tail" ref={box}>{lines.join("\n")}</pre>;
+}
+
+/** A running step: spinner, elapsed time, the last lines of output, a heartbeat when it's quiet. */
+function JobProgress({ job }: { job: JobView }) {
+  const now = useServerNow();
+  const lines = job.tail.filter((l) => waitNotice(l) === null);
+  const hb = job.waiting ? null : heartbeat(job.lastOutputAt, now);
+  return (
+    <div className="progress" aria-live="polite">
+      <div className="pg-head">
+        <span className="spinner" aria-hidden="true" />
+        <span>{runningLabel(job.what, job.startedAt, now)}</span>
+        {job.by === "retry" && <span className="tag">Retry</span>}
+      </div>
+      {job.waiting && <WaitBadge text={job.waiting.text} />}
+      <Tail lines={lines} />
+      {hb && <div className="heartbeat">{hb}</div>}
+    </div>
+  );
+}
 
 // --- the terminal (shared so "Paste in terminal" can type into it) -----------------------------------
 let termSend: ((s: string) => void) | null = null;
@@ -70,7 +121,7 @@ function TerminalPane({ finished }: { finished: boolean }) {
     <section className="pane term-pane" aria-label="Terminal">
       <div className="pane-head">
         <span>Terminal</span>
-        <span className={`conn ${status}`}>{status === "open" ? "connected" : status}</span>
+        <span className={`conn ${status}`}>{status === "open" ? "connected" : status === "closed" ? "reconnecting…" : status}</span>
       </div>
       <div className="term-host" ref={host} />
     </section>
@@ -78,13 +129,38 @@ function TerminalPane({ finished }: { finished: boolean }) {
 }
 
 // --- the setup agent's log ----------------------------------------------------------------------------
-function AgentLog({ log, status }: { log: LogEntry[]; status: string }) {
+function AgentNow({ status }: { status: string }) {
+  const live = useContext(LiveCtx);
+  const now = useServerNow();
+  if (status !== "running" || !live) return null;
+  const { tool, lastActivityAt, resumedAt } = live.progress.agent;
+  // The job of the module this command works on (its output counts as activity; its apt wait shows here too).
+  const job = tool ? live.progress.jobs.find((j) => j.by === "agent" && new RegExp(`\\b${j.module}\\b`).test(tool.command)) : undefined;
+  const last = Math.max(lastActivityAt, tool?.startedAt ?? 0, job?.lastOutputAt ?? 0);
+  const hb = job?.waiting ? null : heartbeat(last, now);
+  return (
+    <div className="agent-now" aria-live="polite">
+      <div className="pg-head">
+        <span className="spinner" aria-hidden="true" />
+        {tool
+          ? <><span className="muted">Running</span> <code className="cmd" title={tool.command}>{tool.command.length > 90 ? `${tool.command.slice(0, 90)}…` : tool.command}</code> <span>{fmtDuration(now - tool.startedAt)}</span></>
+          : <span className="muted">Thinking…</span>}
+        {resumedAt && <span className="tag resumed">Resumed after a restart</span>}
+      </div>
+      {job?.waiting && <WaitBadge text={job.waiting.text} />}
+      {hb && <div className="heartbeat">{hb}</div>}
+    </div>
+  );
+}
+
+function AgentLog({ log, status, resumePending }: { log: LogEntry[]; status: string; resumePending?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   useEffect(() => { const b = box.current; if (b && stick.current) b.scrollTop = b.scrollHeight; }, [log]);
   return (
     <section className="pane log-pane" aria-label="Setup agent">
-      <div className="pane-head"><span>Setup agent</span><span className={`agent-status s-${status}`}>{agentLabel(status)}</span></div>
+      <div className="pane-head"><span>Setup agent</span><span className={`agent-status s-${resumePending ? "running" : status}`}>{resumePending ? "resuming after a restart…" : agentLabel(status)}</span></div>
+      <AgentNow status={status} />
       <div className="log" ref={box} onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 40; }}>
         {log.length === 0 && <p className="muted">The setup agent's work shows up here once you start it.</p>}
         {log.map((e) => (
@@ -132,13 +208,16 @@ function YourTurn({ step }: { step: StepView }) {
 }
 
 function StepRow({ step, onRetry }: { step: StepView; onRetry?: () => void }) {
+  const live = useContext(LiveCtx);
+  const job = step.state === "running" ? live?.progress.jobs.find((j) => j.module === step.module) : undefined;
   return (
     <li className={`step st-${step.state}`}>
       <div className="step-line">
         <span className="icon" aria-label={LABEL[step.state]} title={LABEL[step.state]}>{ICON[step.state]}</span>
         <span className="step-title">{step.title}</span>
-        {step.state === "running" && <span className="tag">working…</span>}
+        {step.state === "running" && !job && <span className="tag">working…</span>}
       </div>
+      {job && <JobProgress job={job} />}
       {step.state === "human" && <YourTurn step={step} />}
       {step.state === "failed" && (
         <div className="failure">
@@ -227,6 +306,7 @@ function AgentCard({ snap, onError }: { snap: Snapshot; onError: (e: string) => 
   else if (!snap.profile.done) note = "Starts once you've chosen your modules.";
   else if (s === "waiting") note = "Waiting for your turn above; it continues by itself when that step turns green.";
   else if (s === "paused") note = "Paused. Nothing runs until you resume.";
+  else if (snap.agent.resumePending) note = "The guide restarted while the setup agent was working; it resumes by itself in a moment.";
   else if (s === "running") note = "Installing in dependency order. You can watch it below the terminal.";
   else if (snap.roadmap.allDone) note = "Everything is done.";
   return (
@@ -343,33 +423,64 @@ function Usage({ u }: { u: Snapshot["usage"] }) {
   return <span className={`chip ${u.status && u.status !== "allowed" ? "warn" : ""}`}>{bits.join(" · ")}</span>;
 }
 
+/** What the page knows about its link to the guide. */
+type Conn =
+  | { kind: "connecting" }
+  | { kind: "open" }
+  | { kind: "retrying"; attempt: number; at: number; down: boolean }
+  | { kind: "expired" };
+
+const EXPIRED = "Your setup link expired or the guide restarted. Run `agentbox guide` in the VM (or `host/lima/guide.sh` on the Mac) for a new link.";
+
+function ConnChip({ conn }: { conn: Conn }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(i); }, []);
+  if (conn.kind === "open") return null;
+  if (conn.kind === "connecting") return <span className="chip">connecting…</span>;
+  if (conn.kind === "expired") return <span className="chip bad">signed out</span>;
+  const secs = Math.max(0, Math.ceil((conn.at - Date.now()) / 1000));
+  return <span className="chip warn" role="status">{secs > 0 ? `Reconnecting in ${secs} s (attempt ${conn.attempt})` : "Reconnecting…"}</span>;
+}
+
 function App() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [live, setLive] = useState<Live | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
-  const [conn, setConn] = useState(false);
+  const [conn, setConn] = useState<Conn>({ kind: "connecting" });
   const [error, setError] = useState<string | null>(null);
   const [finished, setFinished] = useState<{ portalUrl: string | null } | null>(null);
   const [theme, cycleTheme] = useTheme();
   useEffect(() => {
-    let ws: WebSocket | null = null, stopped = false, backoff = 500;
+    let ws: WebSocket | null = null, stopped = false, attempt = 0, timer: ReturnType<typeof setTimeout> | null = null;
+    const takeProgress = (p: Progress) => setLive({ progress: p, skew: p.now - Date.now() });
     const connect = () => {
+      timer = null;
       ws = new WebSocket(wsUrl("ws/state"));
-      ws.onopen = () => { setConn(true); backoff = 500; };
+      ws.onopen = () => { attempt = 0; setConn({ kind: "open" }); };
       ws.onmessage = (e) => {
         const m = JSON.parse(e.data);
-        if (m.type === "state") setSnap(m);
+        if (m.type === "state") { setSnap(m); if (m.progress) takeProgress(m.progress); }
+        else if (m.type === "progress") takeProgress(m);
         else if (m.type === "logs") setLog(m.log);
         else if (m.type === "log") setLog((l) => [...l.slice(-399), m.entry]);
         else if (m.type === "finished") { setFinished({ portalUrl: m.portalUrl }); stopped = true; }
       };
-      ws.onclose = (ev) => {
-        setConn(false);
-        if (ev.code === 1008 || stopped) return;
-        setTimeout(connect, backoff = Math.min(backoff * 2, 8000));
+      ws.onclose = async () => {
+        ws = null;
+        if (stopped) return;
+        // Why did it close? A 401 means the session is gone: say so instead of retrying forever.
+        let status = 0;
+        try { status = (await fetch("api/state", { credentials: "same-origin", cache: "no-store" })).status; } catch { /* the guide is down */ }
+        if (stopped) return;
+        if (status === 401) { stopped = true; setConn({ kind: "expired" }); return; }
+        attempt++;
+        const wait = Math.min(1000 * 2 ** Math.min(attempt - 1, 4), 15_000);
+        setConn({ kind: "retrying", attempt, at: Date.now() + wait, down: status === 0 || status >= 500 });
+        timer = setTimeout(connect, wait);
       };
     };
     connect();
-    return () => { stopped = true; ws?.close(); };
+    return () => { stopped = true; if (timer) clearTimeout(timer); ws?.close(); };
   }, []);
   useEffect(() => { if (error) { const t = setTimeout(() => setError(null), 8000); return () => clearTimeout(t); } }, [error]);
 
@@ -385,25 +496,42 @@ function App() {
     );
   }
   return (
-    <div className="app">
-      <header className="top">
-        <span className="brand"><span className="brand-mark">a</span> agentbox setup</span>
-        {snap && <span className="chip" title="host adapter · machine">{snap.host.kind} · {snap.host.name}</span>}
-        {snap && <span className="chip" title="access mode">access: {snap.host.access}</span>}
-        {snap && <Usage u={snap.usage} />}
-        <span className="spacer" />
-        {!conn && <span className="chip warn">reconnecting…</span>}
-        <button className="btn small" onClick={cycleTheme} title="Theme">{theme === "auto" ? "Theme: auto" : theme === "light" ? "Theme: light" : "Theme: dark"}</button>
-      </header>
-      {error && <div className="toast" role="alert" onClick={() => setError(null)}>{error}</div>}
-      <main className="split">
-        <div className="left">
-          <TerminalPane finished={!!finished} />
-          <AgentLog log={log} status={snap?.agent.status ?? "idle"} />
-        </div>
-        {snap ? <Roadmap snap={snap} onError={setError} /> : <section className="pane roadmap"><p className="muted pad">Loading…</p></section>}
-      </main>
-    </div>
+    <LiveCtx.Provider value={live}>
+      <div className="app">
+        <header className="top">
+          <span className="brand"><span className="brand-mark">a</span> agentbox setup</span>
+          {snap && <span className="chip" title="host adapter · machine">{snap.host.kind} · {snap.host.name}</span>}
+          {snap && <span className="chip" title="access mode">access: {snap.host.access}</span>}
+          {snap && <Usage u={snap.usage} />}
+          <span className="spacer" />
+          <ConnChip conn={conn} />
+          <button className="btn small" onClick={cycleTheme} title="Theme">{theme === "auto" ? "Theme: auto" : theme === "light" ? "Theme: light" : "Theme: dark"}</button>
+        </header>
+        {conn.kind === "retrying" && conn.down && conn.attempt >= 3 && (
+          <div className="banner warn" role="status">
+            The guide isn't answering; it may be restarting (your progress is kept). Retrying by itself. If it stays like this, run <code>agentbox guide</code> in the VM.
+          </div>
+        )}
+        {error && <div className="toast" role="alert" onClick={() => setError(null)}>{error}</div>}
+        <main className="split">
+          <div className="left">
+            <TerminalPane finished={!!finished} />
+            <AgentLog log={log} status={snap?.agent.status ?? "idle"} resumePending={snap?.agent.resumePending} />
+          </div>
+          {snap ? <Roadmap snap={snap} onError={setError} /> : <section className="pane roadmap"><p className="muted pad">Loading…</p></section>}
+        </main>
+        {conn.kind === "expired" && (
+          <div className="overlay" role="alertdialog" aria-labelledby="expired-title">
+            <div className="overlay-card">
+              <h1 id="expired-title">Signed out of the setup guide</h1>
+              <div className="md" dangerouslySetInnerHTML={{ __html: md(EXPIRED) }} />
+              <p className="muted small">Your setup progress is kept on the VM; the new link picks up where you left off.</p>
+              <div className="actions"><button className="btn" onClick={() => location.reload()}>Try again</button></div>
+            </div>
+          </div>
+        )}
+      </div>
+    </LiveCtx.Provider>
   );
 }
 

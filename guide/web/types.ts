@@ -24,7 +24,8 @@ export type Snapshot = {
   problems: string[];
   profile: { done: boolean; checked: boolean; required: string[]; modules: Record<string, boolean> };
   claudeReady: boolean;
-  agent: { status: AgentStatus; hasSession: boolean };
+  agent: { status: AgentStatus; hasSession: boolean; resumePending?: boolean };
+  progress: Progress;
   roadmap: {
     modules: ModuleView[];
     profile: { order: string[]; chosen: string[]; implied: string[]; missing: string[]; cycles: string[] };
@@ -35,4 +36,17 @@ export type Snapshot = {
   selftest: { ok?: boolean; output?: string; at?: number; running: boolean };
   finished: boolean;
   settled: boolean;
+};
+
+/** Live progress (guide/src/progress.ts): sent in the state and as `{type: "progress"}` messages. */
+export type JobView = {
+  module: string; what: string; by: "agent" | "retry";
+  startedAt: number; lastOutputAt: number;
+  tail: string[];
+  waiting: { text: string; at: number } | null;
+};
+export type Progress = {
+  now: number;
+  jobs: JobView[];
+  agent: { tool: { command: string; startedAt: number } | null; lastActivityAt: number; resumedAt: number | null };
 };
