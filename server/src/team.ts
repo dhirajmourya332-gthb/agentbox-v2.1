@@ -456,7 +456,7 @@ export function teamTools(agent: Agent, taskId: string) {
 
       tool(
         "submit_plan",
-        `Ask the owner to approve a plan before you change things. The owner reads the DIAGRAM first, so make it carry the plan: two small graphs of components (services, queues, tables, pages, jobs; never file names) as they are now ("before") and as they'll be ("after"). Use the same id for the same component in both. Show ONLY what changes plus its direct neighbours: at most ${PLAN_LIMITS.afterNodes} boxes, labels of 2–4 words. A box that stays but behaves differently gets a short "change" note. For something entirely new, leave "before" empty. Text stays short: a 1–2 sentence summary, up to ${PLAN_LIMITS.changes} "changes" bullets, up to ${PLAN_LIMITS.checks} checks (how we'll know it works), up to ${PLAN_LIMITS.risks} risks; anything longer goes in "details" (collapsed). Plans that are too big, or that draw boxes unrelated to the change, are refused with what to simplify. After submitting, end your turn: you get a message when the owner approves, asks for changes or rejects. Example: before {service1 → service2}, after {service1 → logger (new), service1 → service2}.`,
+        `Share a plan. Use it when this work says "Plan first" or the owner asks for a plan (then it needs the owner's approval: set wait_for_owner if they asked in words, submit, end your turn and wait for the decision), or, optionally, for a high-impact design change (a new service, a changed data flow or schema), which is just for the record: submit and carry on immediately, never wait for a reply (the owner may redirect you later). Never for low- or medium-risk work: do that yourself. The owner reads the DIAGRAM first, so make it carry the plan: two small graphs of components (services, queues, tables, pages, jobs; never file names) as they are now ("before") and as they'll be ("after"). Use the same id for the same component in both. Show ONLY what changes plus its direct neighbours: at most ${PLAN_LIMITS.afterNodes} boxes, labels of 2–4 words. A box that stays but behaves differently gets a short "change" note. For something entirely new, leave "before" empty. Text stays short: a 1–2 sentence summary, up to ${PLAN_LIMITS.changes} "changes" bullets, up to ${PLAN_LIMITS.checks} checks (how we'll know it works), up to ${PLAN_LIMITS.risks} risks; anything longer goes in "details" (collapsed). Plans that are too big, or that draw boxes unrelated to the change, are refused with what to simplify. Example: before {service1 → service2}, after {service1 → logger (new), service1 → service2}.`,
         {
           title: z.string().describe(`What this plan does, ≤ ${PLAN_LIMITS.title} chars`),
           summary: z.string().describe(`1–2 sentences, ≤ ${PLAN_LIMITS.summary} chars: the goal and the approach`),
@@ -474,11 +474,14 @@ export function teamTools(agent: Agent, taskId: string) {
           checks: z.array(z.string()).optional().describe("How we'll know it works: tests, commands, what to observe"),
           risks: z.array(z.string()).optional().describe("What could go wrong, and the fallback"),
           details: z.string().optional().describe("Optional longer markdown (files, steps); shown collapsed"),
+          wait_for_owner: z.boolean().optional().describe("true only when the owner asked you for a plan before you start (the work says \"Plan first\" counts automatically); then end your turn and wait"),
         },
         async (args) => {
           try {
             const p = submitPlan(agent, taskId, args);
-            return text(`Plan "${p.title}" (v${p.version}) is with the owner as a card. End your turn now; you'll get a message with their decision.`);
+            return text(p.status === "pending"
+              ? `Plan "${p.title}" (v${p.version}) is with the owner for approval (this work is "plan first"). End your turn now; you'll get a message with their decision.`
+              : `Plan "${p.title}" (v${p.version}) is shared with the owner. Carry on with the work now; don't wait for a reply. If the owner wants a different direction, you'll get a message.`);
           } catch (e: any) {
             return refuse(`Plan not submitted: ${e.message}`);
           }

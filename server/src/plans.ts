@@ -8,11 +8,14 @@ import { isSetupAgent } from "./setup.ts";
 import { worktreesRoot } from "./repos.ts";
 
 /**
- * Plan approval (docs/V2.1-PLAN.md §1): an agent submits a short plan led by a before/after diagram
- * (`submit_plan`), the owner approves, asks for changes or rejects it on a card, and the agent is
- * called back with the decision. The diagram must stay simple: the server refuses plans that are too
- * big or that show parts which don't change. A task can require an approved plan first ("plan gate");
- * until then, file edits inside repo worktrees and git commits/pushes are refused.
+ * Plans (docs/V2.1-PLAN.md §1): a short plan led by a before/after diagram (`submit_plan`). Nothing
+ * makes agents plan, and by default nothing waits on the owner:
+ * - Shared (the default): the agent shares a plan for a significant design change and carries on in
+ *   the same turn. The owner may glance at it later and redirect or stop the work; no "needs you".
+ * - Approve first (the task's plan gate, the owner's opt-in per task): the plan waits for the owner
+ *   ("needs you"), and until one is approved, edits inside repo worktrees and git commits/pushes are
+ *   refused. The agent is called back with the decision.
+ * The diagram must stay simple: the server refuses plans that are too big or show parts that don't change.
  */
 
 run(`CREATE TABLE IF NOT EXISTS plans (
@@ -22,7 +25,7 @@ run(`CREATE TABLE IF NOT EXISTS plans (
   task_id TEXT,
   thread_id TEXT,
   version INTEGER NOT NULL,
-  status TEXT NOT NULL,                -- pending | approved | changes | rejected | superseded
+  status TEXT NOT NULL,                -- shared | pending | approved | changes | rejected | superseded
   title TEXT NOT NULL,
   body TEXT NOT NULL,                  -- the validated plan (JSON)
   feedback TEXT,
@@ -45,7 +48,7 @@ export type PlanBody = {
   title: string; summary: string; diagram: { before: Graph; after: Graph };
   changes: string[]; checks: string[]; risks: string[]; details: string;
 };
-export type PlanStatus = "pending" | "approved" | "changes" | "rejected" | "superseded";
+export type PlanStatus = "shared" | "pending" | "approved" | "changes" | "rejected" | "superseded";
 export type Plan = {
   id: string; root_id: string; instance_id: string; task_id: string | null; thread_id: string | null; version: number;
   status: PlanStatus; title: string; body: PlanBody; feedback: string | null; attention_id: string | null; created_at: string; decided_at: string | null;
@@ -197,35 +200,49 @@ function postCard(threadId: string, id: string) {
   publish({ type: "message.created", message });
 }
 
-/** `submit_plan`: a new version for this work; an older pending one is replaced. */
+/** `submit_plan`: a new version for this work (an older open one is replaced); waits only behind the gate. */
 export function submitPlan(agent: Agent, taskId: string | null, input: any): Plan {
   if (isSetupAgent(agent)) throw new Error("The setup agent uses its checklist (set_plan), not submit_plan.");
   if (!agent.base_agent_id) throw new Error("Plans come from tasks (instances)");
   const body = validatePlan(input);
   const root = rootOf(agent);
   const threadId = (taskId ? get<{ thread_id: string }>(`SELECT thread_id FROM tasks WHERE id = ?`, taskId)?.thread_id : null) ?? dmThreadOf(agent.id);
-  for (const old of all<any>(`SELECT * FROM plans WHERE root_id = ? AND status = 'pending'`, root.id)) {
+  // It waits for the owner when the work is gated, or when the owner asked for a plan in so many words.
+  const gated = (gateRequired(root.id) && !approvedPlan(root.id)) || input?.wait_for_owner === true;
+  for (const old of all<any>(`SELECT * FROM plans WHERE root_id = ? AND status IN ('pending', 'shared')`, root.id)) {
     run(`UPDATE plans SET status = 'superseded', decided_at = ? WHERE id = ?`, now(), old.id);
     if (old.attention_id) markSeen(old.attention_id);
     announce(old.id);
   }
   const version = ((get<{ v: number | null }>(`SELECT MAX(version) AS v FROM plans WHERE root_id = ?`, root.id)?.v ?? 0) as number) + 1;
   const id = newId();
-  run(`INSERT INTO plans (id, root_id, instance_id, task_id, thread_id, version, status, title, body, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-    id, root.id, agent.id, taskId, threadId, version, body.title, JSON.stringify(body), now());
+  run(`INSERT INTO plans (id, root_id, instance_id, task_id, thread_id, version, status, title, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, root.id, agent.id, taskId, threadId, version, gated ? "pending" : "shared", body.title, JSON.stringify(body), now());
   if (threadId) postCard(threadId, id);
-  const item = raiseAttention("question", agent.id, taskId, root.created_by === "owner" ? root.id : null, `${agent.name} has a plan for you: ${body.title}`);
-  run(`UPDATE plans SET attention_id = ? WHERE id = ?`, item.id, id);
+  // Only a plan the work is waiting on needs the owner; a shared one is there to look at, not to answer.
+  if (gated) {
+    const item = raiseAttention("question", agent.id, taskId, root.created_by === "owner" ? root.id : null, `${agent.name} has a plan for you: ${body.title}`);
+    run(`UPDATE plans SET attention_id = ? WHERE id = ?`, item.id, id);
+  }
   return announce(id);
 }
 
 export type Decision = "approve" | "changes" | "reject";
 
-export function decisionPrompt(p: Plan, verdict: Decision, note: string) {
+export function decisionPrompt(p: Plan, verdict: Decision, note: string, shared = false) {
   const name = `"${p.title}" (v${p.version})`;
+  if (shared) {
+    // The agent didn't wait for this: it's a course correction to work already under way.
+    if (verdict === "changes") {
+      return `The owner looked at the plan you shared, ${name}, and wants a different approach: ${note}
+Adjust your work to that: undo or stop what conflicts with it, then carry on. Don't wait for approval; share a revised plan only if the approach changes a lot.`;
+    }
+    return `The owner looked at the plan you shared, ${name}, and wants you to stop this approach${note ? `: ${note}` : "."}
+Stop work that follows it (don't push, merge or deploy it), report where things stand, and wait for the owner.`;
+  }
   if (verdict === "approve") {
     return `The owner approved your plan ${name}.${note ? ` Their note: ${note}` : ""}
-Go ahead and implement it. Stay within the plan; if you need to change direction in a way the diagram wouldn't show, submit a revised plan first.`;
+Go ahead and implement it. If you later change direction in a way the diagram wouldn't show, share a revised plan (submit_plan) and carry on.`;
   }
   if (verdict === "changes") {
     return `The owner asks for changes to your plan ${name}: ${note || "(no details given; ask what to change)"}
@@ -237,11 +254,16 @@ Don't implement it. Report what you'd need to know or do differently, and wait f
 
 export type DecideDeps = { send?: (a: Agent, p: Plan, content: string, prompt: string) => void };
 
-/** The owner's decision on a pending plan; the submitter gets a new turn with it. */
+/**
+ * The owner's decision. On a plan the work waits for (pending), the submitter always gets a new turn.
+ * On a shared one, "approve" just marks it looked at (the agent never waited); "changes" and "reject"
+ * redirect or stop the work under way.
+ */
 export function decidePlan(id: string, verdict: Decision, noteIn: unknown, deps: DecideDeps = {}): Plan {
   const p = getPlan(id);
   if (!p) throw httpError(404, "No such plan");
-  if (p.status !== "pending") throw httpError(409, `This plan is already ${p.status === "changes" ? "sent back for changes" : p.status}`);
+  if (p.status !== "pending" && p.status !== "shared") throw httpError(409, `This plan is already ${p.status === "changes" ? "sent back for changes" : p.status}`);
+  const shared = p.status === "shared";
   if (!["approve", "changes", "reject"].includes(verdict)) throw httpError(400, "verdict: approve, changes or reject");
   const note = block(noteIn, 4000);
   if (verdict === "changes" && !note) throw httpError(400, "Say what to change");
@@ -249,8 +271,14 @@ export function decidePlan(id: string, verdict: Decision, noteIn: unknown, deps:
   run(`UPDATE plans SET status = ?, feedback = ?, decided_at = ? WHERE id = ?`, status, note || null, now(), id);
   if (p.attention_id) markSeen(p.attention_id);
   const next = getPlan(id)!;
-  const content = { approve: `Plan approved: ${p.title}`, changes: `Plan sent back: ${p.title}`, reject: `Plan rejected: ${p.title}` }[verdict] + (note ? `\n\n${note}` : "");
-  (deps.send ?? deliver)(getAgent(p.instance_id)!, next, content, decisionPrompt(next, verdict, note));
+  const content = (shared
+    ? { approve: `Plan looks good: ${p.title}`, changes: `Redirected: ${p.title}`, reject: `Stop: ${p.title}` }
+    : { approve: `Plan approved: ${p.title}`, changes: `Plan sent back: ${p.title}`, reject: `Plan rejected: ${p.title}` })[verdict] + (note ? `\n\n${note}` : "");
+  // "Looks good" on a shared plan needs no turn (the agent is already on it), unless there's a note.
+  if (!(shared && verdict === "approve" && !note)) {
+    const prompt = shared && verdict === "approve" ? `The owner looked at the plan you shared, ${JSON.stringify(p.title)}, and it's fine. Their note: ${note}` : decisionPrompt(next, verdict, note, shared);
+    (deps.send ?? deliver)(getAgent(p.instance_id)!, next, content, prompt);
+  }
   if (verdict === "approve") publish({ type: "plan_gate.updated", rootId: p.root_id, required: gateRequired(p.root_id) });
   return announce(id);
 }
@@ -305,7 +333,7 @@ export function planGuard(agent: Agent) {
   };
 }
 
-/** The work layer's plan section: the gate, or the approved plan to stay within. */
+/** The work layer's plan section: only when the owner asked to approve a plan first (or did approve one). */
 export function planNote(agent: Agent): string {
   if (!agent.base_agent_id || isSetupAgent(agent)) return "";
   const root = rootOf(agent);
@@ -314,7 +342,7 @@ export function planNote(agent: Agent): string {
     return `## Approved plan (v${plan.version}): ${plan.title}
 ${plan.body.summary}
 ${plan.body.changes.map((c) => `- ${c}`).join("\n")}${plan.body.checks.length ? `\nChecks: ${plan.body.checks.join("; ")}` : ""}
-Stay within it. A change of direction the diagram wouldn't show needs a revised plan (submit_plan).`;
+Stay within it. If you change direction in a way the diagram wouldn't show, share a revised plan (submit_plan) and carry on.`;
   }
   if (!gateRequired(root.id)) return "";
   const pending = get<{ title: string; version: number }>(`SELECT title, version FROM plans WHERE root_id = ? AND status = 'pending' ORDER BY version DESC LIMIT 1`, root.id);

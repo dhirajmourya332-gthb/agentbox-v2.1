@@ -6,10 +6,13 @@ import { PlanDiagram } from "./PlanDiagram.tsx";
 
 /**
  * A plan in a conversation (author "plan"): the diagram first and largest, then a few short lists;
- * the full text stays collapsed. Approve / Request changes / Reject call the agent back.
+ * the full text stays collapsed. A plan the work waits for ("plan first") gets Approve / Request
+ * changes / Reject. A shared plan (the default: the agent carried on) gets Looks good / Redirect /
+ * Stop, for when the owner happens to look and wants another direction.
  */
 const STATUS: Record<Plan["status"], string> = {
-  pending: "Plan · needs you", approved: "Plan approved", changes: "Plan sent back", rejected: "Plan rejected", superseded: "Replaced by a newer version",
+  shared: "Plan · shared, the agent carried on", pending: "Plan · needs you", approved: "Plan approved", changes: "Plan sent back",
+  rejected: "Plan rejected", superseded: "Replaced by a newer version",
 };
 
 export function PlanCard({ id }: { id: string }) {
@@ -30,7 +33,8 @@ export function PlanCard({ id }: { id: string }) {
     try { setP(await api.decidePlan(p.id, verdict, note)); setMode(null); setNote(""); } catch (e: any) { setError(e.message); }
     setBusy(false);
   };
-  const pending = p.status === "pending";
+  const shared = p.status === "shared";
+  const pending = p.status === "pending" || shared;
   return (
     <div className={`approval-card plan-card pl-${p.status}`} aria-label={`Plan: ${p.title}`}>
       <div className="approval-head">
@@ -60,7 +64,15 @@ export function PlanCard({ id }: { id: string }) {
       )}
       {p.feedback && !pending && <p className="hint">{p.status === "approved" ? "Your note" : "Your feedback"}: {p.feedback}</p>}
       {error && <div className="error-box">{error}</div>}
-      {pending && !mode && (
+      {shared && !mode && (
+        <div className="approval-actions">
+          <button className="btn sm" disabled={busy} onClick={() => decide("approve")}><Icon name="check" size={14} />Looks good</button>
+          <button className="btn sm ghost" disabled={busy} onClick={() => setMode("changes")}>Redirect…</button>
+          <button className="btn sm ghost" disabled={busy} onClick={() => setMode("reject")}>Stop…</button>
+          <span className="hint">Nothing waits on you; use these only to change course.</span>
+        </div>
+      )}
+      {pending && !shared && !mode && (
         <div className="approval-actions">
           <button className="btn sm primary" disabled={busy} onClick={() => decide("approve")}><Icon name="check" size={14} />Approve</button>
           <button className="btn sm" disabled={busy} onClick={() => setMode("changes")}>Request changes</button>
@@ -71,10 +83,10 @@ export function PlanCard({ id }: { id: string }) {
       {pending && mode && (
         <div className="sr-reject">
           <textarea className="text" autoFocus rows={2} value={note} maxLength={4000} onChange={(e) => setNote(e.target.value)}
-            placeholder={mode === "changes" ? "What should change? e.g. keep logging in-process, no new service" : mode === "reject" ? "Why (optional)" : "Note for the agent (optional)"}
+            placeholder={mode === "changes" ? (shared ? "Which direction instead? e.g. keep logging in-process, no new service" : "What should change? e.g. keep logging in-process, no new service") : mode === "reject" ? "Why (optional)" : "Note for the agent (optional)"}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) decide(mode); if (e.key === "Escape") setMode(null); }} />
           <button className={`btn sm ${mode === "reject" ? "danger" : "primary"}`} disabled={busy || (mode === "changes" && !note.trim())} onClick={() => decide(mode)}>
-            {mode === "changes" ? "Send back" : mode === "reject" ? "Reject" : "Approve"}
+            {mode === "changes" ? (shared ? "Redirect" : "Send back") : mode === "reject" ? (shared ? "Stop the work" : "Reject") : "Approve"}
           </button>
           <button className="btn sm ghost" onClick={() => setMode(null)}>Cancel</button>
         </div>

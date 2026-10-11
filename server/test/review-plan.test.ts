@@ -132,12 +132,40 @@ test("plans: a simple before/after passes; too big, unrelated boxes, no change a
 });
 
 // --- submitting and deciding ---------------------------------------------------------------------------
-test("plans: submit_plan posts a card and a needs-you item; a new version replaces a pending one", async () => {
-  const t = task(coder.id, "Logging");
+test("plans: by default a plan is shared and the agent carries on (no needs-you); a redirect reaches it", async () => {
+  const t = task(coder.id, "Shared");
   const tools = TM.teamTools(t, fakeTask(t.id));
   const r = await call(tools, "submit_plan", LOGGER);
   assert.ok(!r.isError, r.content[0].text);
-  assert.match(r.content[0].text, /End your turn/);
+  assert.match(r.content[0].text, /shared with the owner\. Carry on/);
+  const [p] = P.plansOf(t.id);
+  assert.equal(p.status, "shared");
+  assert.equal(p.attention_id, null, "nothing for the owner to answer");
+  assert.ok(get<any>(`SELECT 1 AS x FROM messages WHERE author = 'plan' AND content = ?`, p.id), "still a card to look at");
+  assert.equal(P.planNote(t), "", "no plan section without the gate");
+  // "Looks good" without a note: no turn (the agent never waited).
+  const before = queued(t.id).length;
+  P.decidePlan(p.id, "approve", "");
+  assert.equal(queued(t.id).length, before);
+  // A later shared plan can be redirected: the agent adjusts the work under way.
+  await call(tools, "submit_plan", { ...LOGGER, title: "Logger v2" });
+  const p2 = P.plansOf(t.id)[0];
+  P.decidePlan(p2.id, "changes", "No new service; log in-process");
+  assert.match(queued(t.id).at(-1).prompt, /plan you shared.*different approach: No new service.*Don't wait for approval/s);
+  // Asked in words: it waits.
+  await call(tools, "submit_plan", { ...LOGGER, title: "Logger v3", wait_for_owner: true });
+  const p3 = P.plansOf(t.id)[0];
+  assert.equal(p3.status, "pending");
+  assert.ok(p3.attention_id);
+});
+
+test("plans: behind the gate a plan posts a card and a needs-you item; a new version replaces a pending one", async () => {
+  const t = task(coder.id, "Logging");
+  P.setGate(t.id, true);
+  const tools = TM.teamTools(t, fakeTask(t.id));
+  const r = await call(tools, "submit_plan", LOGGER);
+  assert.ok(!r.isError, r.content[0].text);
+  assert.match(r.content[0].text, /for approval.*End your turn/s);
   const [p1] = P.plansOf(t.id);
   assert.equal(p1.status, "pending");
   assert.equal(p1.version, 1);
@@ -163,6 +191,7 @@ test("plans: submit_plan posts a card and a needs-you item; a new version replac
 
 test("plans: approve / changes / reject call the agent back; decided plans can't be decided again", async () => {
   const t = task(coder.id, "Decide");
+  P.setGate(t.id, true);
   const tools = TM.teamTools(t, fakeTask(t.id));
   await call(tools, "submit_plan", LOGGER);
   let p = P.plansOf(t.id)[0];
@@ -186,6 +215,7 @@ test("plans: approve / changes / reject call the agent back; decided plans can't
 
   // A closed task is reopened to hear the decision.
   const t2 = task(coder.id, "Closed later");
+  P.setGate(t2.id, true);
   await call(TM.teamTools(t2, fakeTask(t2.id)), "submit_plan", LOGGER);
   run(`UPDATE agents SET retired_at = ? WHERE id = ?`, now(), t2.id);
   P.decidePlan(P.plansOf(t2.id)[0].id, "reject", "Not now");
@@ -306,6 +336,7 @@ test("routes: the owner decides and reviews; the local token can't", async () =>
   const app = Fastify();
   registerReviewRoutes(app);
   const t = task(coder.id, "Routes");
+  P.setGate(t.id, true);
   await call(TM.teamTools(t, fakeTask(t.id)), "submit_plan", LOGGER);
   const p = P.plansOf(t.id)[0];
   const local = { "x-agentbox-local-token": "t" };
@@ -315,7 +346,7 @@ test("routes: the owner decides and reviews; the local token can't", async () =>
   assert.equal(r.statusCode, 403);
   r = await app.inject({ method: "GET", url: `/api/agents/${t.id}/plans` });
   assert.equal(r.json().plans[0].id, p.id);
-  assert.deepEqual(r.json().gate, { required: false, approved: null });
+  assert.deepEqual(r.json().gate, { required: true, approved: null });
   r = await app.inject({ method: "POST", url: `/api/agents/${t.id}/plan-gate`, payload: { required: true } });
   assert.equal(r.json().required, true);
   r = await app.inject({ method: "POST", url: `/api/plans/${p.id}/decide`, payload: { verdict: "approve", note: "go" } });

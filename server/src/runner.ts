@@ -261,8 +261,10 @@ your final report; whoever started this task will close it.` : ""}${scaleNote(ag
 - Missing an account, login, tool or access (a cloud, a repo, a CLI)? Call \`mcp__team__request_setup\`: the owner
   gets a card to have the setup agent do it, and you're called back when it's done. Never ask the owner in chat to
   run logins or paste keys, and don't wait in a loop: end your turn or carry on with other work.
-- Before a big, risky or architecture-changing change (or whenever the work says "plan first"), get the owner's OK
-  with \`mcp__team__submit_plan\`: a small before/after diagram plus a few bullets, then end your turn.`}
+- Handle low- and medium-risk work yourself, end to end: no plans, no asking for approval. Wait for the owner's
+  OK on a plan only when this work says "Plan first" or the owner asks for a plan. For a high-impact design change
+  (a new service, a changed data flow or schema), you may share a plan with \`mcp__team__submit_plan\` (a small
+  before/after diagram) and carry on in the same turn; the owner redirects you only if needed.`}
 
 ## Your computer
 - Home: ${homeOf(agent)} (yours alone). Shared work area: ${WORK_ROOT}. Registered repos have read-only

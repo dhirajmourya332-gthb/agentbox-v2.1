@@ -269,7 +269,7 @@ export type SetupRequest = {
 export type PlanGraph = { nodes: { id: string; label: string; change?: string }[]; edges: { from: string; to: string; label?: string }[] };
 export type Plan = {
   id: string; root_id: string; instance_id: string; instance_name: string | null; task_id: string | null; thread_id: string | null;
-  version: number; status: "pending" | "approved" | "changes" | "rejected" | "superseded"; title: string;
+  version: number; status: "shared" | "pending" | "approved" | "changes" | "rejected" | "superseded"; title: string;
   body: { title: string; summary: string; diagram: { before: PlanGraph; after: PlanGraph }; changes: string[]; checks: string[]; risks: string[]; details: string };
   feedback: string | null; created_at: string; decided_at: string | null;
 };
