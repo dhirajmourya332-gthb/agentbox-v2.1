@@ -3,39 +3,55 @@ import { z } from "zod";
 import { get } from "./db.ts";
 import { getAgent, type Agent } from "./agents.ts";
 import {
-  integrationAction, integrationStatus, listIntegrations, rolesFor, saveSettings, type Integration,
+  integrationAction, integrationStatus, listIntegrations, rolesFor, saveSettings, settingText, type Integration,
 } from "./integrations.ts";
 import { proposeMapping, proposeTeamRule } from "./approvals.ts";
 import { isSetupAgent, postIntegrationCard } from "./setup.ts";
 
 /**
  * The setup agent's MCP tools ("setup", §10.4). Attached only for the setup role (runner.ts); each
- * handler checks that too. They call `agentbox integration … --json` through integrations.ts.
+ * handler checks that too. They call `agentbox integration …` through integrations.ts; the writes
+ * (connect, verify, disconnect, settings) run as root through the setup turn's temporary sudo.
  */
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const refuse = (t: string) => ({ content: [{ type: "text" as const, text: t }], isError: true });
 
-const ICON: Record<string, string> = { pending: "○", running: "●", human: "⏸", done: "✔", failed: "✖", disabled: "─" };
+const ICON: Record<string, string> = { pending: "○", running: "●", human: "⏸", done: "✔", failed: "✖", skipped: "─" };
 
 export function describeStatus(it: Integration) {
   const roles = rolesFor(it.id).map((id) => getAgent(id)?.name ?? id);
+  if (!it.available) return `${it.title} (${it.id}) · ${it.category} · coming soon: it can't be connected yet.`;
   const lines = [
-    `${it.title} (${it.id}) · ${it.category} · state: ${it.state}${it.account ? ` · account: ${it.account}` : ""}${it.available ? "" : " · coming soon"}`,
+    `${it.title} (${it.id}) · ${it.category} · state: ${it.state}${it.account ? ` · account: ${it.account}` : ""}${it.enabled ? "" : " · not enabled"}`,
     `Mapped to: ${roles.join(", ") || "no agents yet"}${it.default_roles.length ? ` (defaults: ${it.default_roles.join(", ")})` : ""}`,
   ];
+  if (it.depends.length) lines.push(`Needs: ${it.depends.join(", ")}`);
   if (it.settings.length) {
-    lines.push("Settings:");
-    for (const s of it.settings) lines.push(`  - ${s.key}${s.required ? " (required)" : ""}: ${s.value ?? "(not set)"} · ${s.prompt}`);
+    lines.push(`Settings${it.settings_saved ? "" : " (never saved)"}:`);
+    for (const x of it.settings) {
+      const kind = x.type === "enum" && x.options ? `one of ${x.options.join("|")}` : x.type;
+      const val = x.value !== null ? settingText(x.value) : x.default !== null ? `(default: ${settingText(x.default)})` : "(not set)";
+      lines.push(`  - ${x.key} [${kind}${x.required ? ", required" : ""}]: ${val} · ${x.prompt}${x.example ? ` (e.g. ${x.example})` : ""}${x.error ? ` · INVALID: ${x.error}` : ""}`);
+    }
   }
   if (it.steps.length) {
     lines.push("Steps:");
-    for (const s of it.steps) {
-      lines.push(`  ${ICON[s.state] ?? "?"} ${s.id}: ${s.title} [${s.state}]${s.human ? " (human gate)" : ""}`);
-      if (s.last_error) lines.push(`      last error: ${s.last_error.split("\n").slice(-3).join(" | ")}`);
+    for (const x of it.steps) {
+      lines.push(`  ${ICON[x.state] ?? "?"} ${x.id}: ${x.title} [${x.state}]${x.human ? " (human gate)" : ""}`);
+      if (x.last_error) lines.push(`      check failed: ${x.last_error.split("\n").slice(-3).join(" | ")}`);
     }
   }
-  if (it.skills.length) lines.push(`Skills while connected: ${it.skills.join(", ")}`);
+  if (it.gates.length) {
+    lines.push("Waiting for the owner:");
+    for (const g of it.gates) {
+      if (g.kind === "setting") lines.push(`  - setting ${g.key}: ${g.title} (ask the owner, then save_settings)`);
+      else lines.push(`  - ${g.title}: ${(g.instructions ?? "").replace(/\s*\n\s*/g, " ")}${g.copy ? ` [copy: ${g.copy}]` : ""}`);
+    }
+  }
+  if (it.last) lines.push(`Last ${it.last.action}: ${it.last.ok === true ? "ok" : it.last.ok === false ? `failed${it.last.error ? ` (${it.last.error.split("\n").slice(-2).join(" | ")})` : ""}` : "running or interrupted"}${it.last.at ? ` at ${it.last.at}` : ""}`);
+  if (it.skills.length) lines.push(`Skills while connected and mapped: ${it.skills.join(", ")}`);
+  if (it.revoke) lines.push(`To revoke its credentials (tell the owner on disconnect): ${it.revoke.replace(/\s*\n\s*/g, " ")}`);
   return lines.join("\n");
 }
 
@@ -106,14 +122,15 @@ export function setupTools(agent: Agent, taskId: string) {
       tool("save_settings", "Save settings the owner gave you for an integration. Validated against its schema. Never secrets.",
         {
           id: z.string().describe("integration id"),
-          values: z.record(z.string(), z.string()).describe("setting key → value, e.g. {\"default_repo\": \"acme/web\"}"),
+          values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]))
+            .describe("setting key → value, e.g. {\"default_repo\": \"acme/web\", \"labels\": [\"bug\", \"feature\"]}; null or \"\" clears one"),
         },
         async ({ id, values }) => {
           const no = guard();
           if (no) return no;
           try {
-            const saved = await saveSettings(id, values);
-            return text(`Saved ${Object.keys(saved).join(", ")} for ${id}.`);
+            const r = await saveSettings(id, values);
+            return text(`Saved ${r.saved.join(", ")} for ${id}.${r.missing.length ? ` Still missing (required): ${r.missing.join(", ")}.` : " Nothing required is missing."}`);
           } catch (e: any) {
             return refuse(e.message);
           }

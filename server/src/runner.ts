@@ -14,7 +14,7 @@ import { displayState, releaseDisplay, setPaused, useDisplay, whenRunning } from
 import { heartbeat } from "./progress.ts";
 import { config, enabled, paths } from "./config.ts";
 import fs from "node:fs";
-import { integrationSkills, integrationsLayer, refreshIntegrations } from "./integrations.ts";
+import { effectiveSkills, integrationsForTurn, integrationsLayer } from "./integrations.ts";
 import { isSetupAgent } from "./setup.ts";
 import { setupServer } from "./setupTools.ts";
 import { grantSetupSudo, releaseSetupSudo, sudoActive } from "./sudo.ts";
@@ -500,9 +500,11 @@ async function runTask(taskId: string) {
     return undefined;
   };
 
-  // Integrations: fresh enough state for this turn's layer and skills (cached; never blocks long).
-  await refreshIntegrations(60_000);
-  const skills = [...new Set([...skillsOf(agent.id), ...integrationSkills(agent)])].filter(skillExists).sort();
+  // Integrations: fresh enough state for this turn's layer and skills. Waits for the CLI only when
+  // nothing is known yet or modules.* changed in config.yaml; otherwise the cache refreshes behind.
+  await integrationsForTurn(60_000);
+  // Assigned skills plus the visible integrations' skills, minus those of integrations it can't see.
+  const skills = effectiveSkills(agent, skillsOf(agent.id)).filter(skillExists);
   try { syncLinks(agent, skills); } catch (e) { console.error("skills: link sync failed", e); }
   const setup = isSetupAgent(agent);
   let sudo: SudoGrant | undefined;

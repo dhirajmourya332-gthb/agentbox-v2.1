@@ -134,9 +134,39 @@ if on mobile; then
   systemctl is-active --quiet agentbox-tailnet-guard-watch.timer && pass "tailnet firewall watch timer active" || fail "tailnet firewall watch timer not active"
 fi
 
-# 8. Passwordless sudo for the agent user (audit H3): a warning for now.
-if sudo -l -U "$USER_" 2>/dev/null | grep -q NOPASSWD; then
-  warn "$USER_ has passwordless sudo (agent_sudo: $(cfg agent_sudo)); agents can do anything on this VM (audit H3)"
+# 8. Passwordless sudo for the agent user (audit H3): a warning for now. The narrow rule that lets
+#    the portal run its setup helper (core: /etc/sudoers.d/agentbox-setup-helper, NOPASSWD for
+#    /usr/local/sbin/agentbox-setup-sudo only) is expected; blanket NOPASSWD (ALL) is what we warn
+#    about. The temporary grants (agentbox-setup while a setup-agent turn runs, agentbox-guide while
+#    the guide runs) are blanket too, but only for that time.
+HELPER=/usr/local/sbin/agentbox-setup-sudo
+nopw="$(sudo -l -U "$USER_" 2>/dev/null | grep 'NOPASSWD' || true)"
+# One command per line: "(root) NOPASSWD: /a, /b" → "/a" and "/b".
+cmds="$(sed -E 's/.*NOPASSWD:[[:space:]]*//' <<<"$nopw" | tr ',' '\n' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | grep -v '^$' || true)"
+blanket=false; other=""
+while read -r c; do
+  [ -n "$c" ] || continue
+  case "$c" in
+    ALL) blanket=true ;;
+    "$HELPER"|"$HELPER "*) ;;
+    *) other="$other $c" ;;
+  esac
+done <<<"$cmds"
+temp=""
+[ -e /etc/sudoers.d/agentbox-setup ] && temp="the setup agent's temporary grant (/etc/sudoers.d/agentbox-setup)"
+[ -e /etc/sudoers.d/agentbox-guide ] && temp="${temp:+$temp and }the guide's grant (/etc/sudoers.d/agentbox-guide)"
+if $blanket; then
+  if [ "$(cfg agent_sudo)" = true ]; then
+    warn "$USER_ has passwordless sudo (agent_sudo: true); agents can do anything on this VM (audit H3)"
+  elif [ -n "$temp" ]; then
+    note "$USER_ has passwordless sudo right now from $temp; it goes away when that turn or the guide ends"
+  else
+    warn "$USER_ has passwordless sudo from a sudoers entry agentbox didn't make (agent_sudo: false); agents can do anything on this VM (audit H3)"
+  fi
+elif [ -n "$other" ]; then
+  warn "$USER_ may run without a password:$other (check that none of them gives root)"
+elif grep -q "$HELPER" <<<"$cmds"; then
+  pass "$USER_ has no passwordless sudo (only the setup helper, which grants sudo only while a setup-agent turn runs)"
 else pass "$USER_ has no passwordless sudo"; fi
 
 # 9. Cloud: what the VM can't see.

@@ -30,6 +30,7 @@ export type BusEvent =
   | { type: "routine-run.updated"; run: any } // routineRuns.ts: a routine run started, changed or finished
   | { type: "integration.output"; integrationId: string; taskId: string | null; line: string } // integrations.ts: CLI output
   | { type: "integration.updated"; integrationId: string } // its state may have changed: refetch
+  | { type: "integration.job"; integrationId: string; job: any } // a connect / verify / disconnect started or ended
   | { type: "integration.mapping"; integrationId: string; roles: string[] } // role ↔ integration mapping changed
   | { type: "approval.updated"; approval: any }; // approvals.ts: a proposal was made or decided
 

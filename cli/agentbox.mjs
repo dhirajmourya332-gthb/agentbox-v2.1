@@ -99,7 +99,11 @@ function asRoot(args) {
   const env = [`AGENTBOX_CONFIG=${CONFIG}`];
   if (process.env.AGENTBOX_SRC) env.push(`AGENTBOX_SRC=${process.env.AGENTBOX_SRC}`);
   if (process.env.AGENTBOX_INTEGRATIONS_DIR) env.push(`AGENTBOX_INTEGRATIONS_DIR=${process.env.AGENTBOX_INTEGRATIONS_DIR}`);
-  const r = spawnSync("sudo", ["env", ...env, process.execPath, SELF, ...args], { stdio: "inherit" });
+  // Not interactive (the portal's setup agent, scripts): `sudo -n`, so a missing grant fails at once
+  // ("a password is required") instead of waiting for a password nobody can type. The portal runs
+  // these only while the setup agent holds its temporary grant (server/src/sudo.ts).
+  const nonInteractive = !process.stdin.isTTY ? ["-n"] : [];
+  const r = spawnSync("sudo", [...nonInteractive, "env", ...env, process.execPath, SELF, ...args], { stdio: "inherit" });
   process.exit(r.status ?? 1);
 }
 const agentUser = (conf) => conf.user || "agentbox";

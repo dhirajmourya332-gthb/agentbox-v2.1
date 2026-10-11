@@ -17,7 +17,7 @@ import { allDocuments, allowed, contentType, documentsForWork, listDocuments } f
 import { finishTree, roomDocuments, roomView, workList } from "./work.ts";
 import { migrateToInstances } from "./migrate.ts";
 import { openTasksOf, pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
-import { CORE_QUESTIONS, TEMPLATES, draft, followUps } from "./interview.ts";
+import { TEMPLATES, coreQuestions, draft, followUps } from "./interview.ts";
 import {
   compactRoutine, createRoutine, deleteRoutine, describeCron, freshRoutine, forgetAgentRoutines, getRoutine, listRoutines, routineRuns, runRoutine, startRoutines,
   updateRoutine, validateCron,
@@ -134,7 +134,11 @@ app.get("/api/activity", async (req) => {
 app.get("/api/graph", async (req) => graph(String((req.query as any).since ?? "")));
 
 // --- creating agents (the interview) ------------------------------------------
-app.get("/api/interview", async () => ({ questions: CORE_QUESTIONS, templates: TEMPLATES }));
+app.get("/api/interview", async () => {
+  // The tools question lists the integrations catalog (connected first).
+  await refreshIntegrations(60_000);
+  return { questions: coreQuestions(), templates: TEMPLATES };
+});
 app.post("/api/interview/follow-ups", async (req) => followUps((req.body as any).answers ?? {}));
 app.post("/api/interview/draft", async (req) => {
   const body = req.body as any;

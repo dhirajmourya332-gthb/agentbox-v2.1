@@ -64,3 +64,22 @@ an agent.
 9. **Keep the VM patched** (`unattended-upgrades`) and agentbox updated (`agentbox update`).
 10. **Rotate credentials** you gave the agents if you suspect an injection, and review the
     Activity feed and GitHub audit log.
+
+## Known limitations
+
+- **The terminal's credential is visible in the process list.** ttyd accepts its Basic-auth
+  credential only on its command line (`-c user:password`; it has no credential-file or
+  environment-variable option), so any local process can read it from `ps` or
+  `/proc/<pid>/cmdline`. This is accepted: ttyd listens on `127.0.0.1` only and checks Origin
+  (`-O`); browsers never see the credential, because the portal's `/term/` proxy adds it; and the
+  only local users are the agent user (who owns `/etc/agentbox/ttyd.credential` and already has a
+  shell) and root. The credential is there to stop browsers and other loopback clients (a local
+  web page, DNS rebinding), not local processes. If you add other local users to the VM, mount
+  `/proc` with `hidepid=invisible` or keep them off it.
+- **The setup agent's temporary sudo is per unix user, not per agent.** While a setup-agent turn
+  runs, `/etc/sudoers.d/agentbox-setup` gives the agent user passwordless sudo, and every agent runs
+  as that user. The portal refuses other agents' `sudo` commands during that time, but a process
+  started earlier could still use the grant. The narrow rule that lets the portal create the grant
+  (`/etc/sudoers.d/agentbox-setup-helper`: only `/usr/local/sbin/agentbox-setup-sudo`) grants
+  nothing unless the portal confirms a setup turn is running; `agentbox selftest` treats it as
+  expected and warns only about blanket passwordless sudo.

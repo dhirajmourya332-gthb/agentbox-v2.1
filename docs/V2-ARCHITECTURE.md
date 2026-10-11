@@ -349,3 +349,25 @@ Details in docs/MODULES.md (format, CLI, the `status --json` shape) and docs/GUI
 - **Guide:** loads `kind: base` only; the profile step is the access choice (`POST /api/profile
   {"access": …}`); the setup agent's hook also refuses `glab`/`gcloud`/`az` logins and `agentbox
   integration connect|disconnect`.
+
+## Changes (reconcile: portal ↔ integrations CLI)
+- **The portal reads the real CLI.** `adaptIntegration` (server/src/integrations.ts) follows
+  `integration status --json` exactly (steps with `check`, `gates`, `settings.{schema,values,missing,errors}`,
+  `revoke`, `last`; `available: false` → `unavailable`, shown as "coming soon"). The catalog comes from
+  `status --json` (with checks; `list --json` has no state). connect / verify / disconnect have no JSON:
+  their exit code and streamed output are the result. Settings are saved with
+  `settings <id> --values '<json>' --json`, so the CLI's validation (types, patterns, token-like values) applies.
+- **Sudo for the CLI's writes:** the CLI re-runs itself through `sudo -n` when not interactive. The
+  portal runs connect / verify / disconnect / settings only while the setup agent holds its temporary
+  grant (or with `agent_sudo`, or as root); otherwise it refuses with a clear message.
+- **`modules.*` live:** config.ts re-reads `modules.*` when config.yaml changes (an mtime check, at
+  most once a second, on every feature check, status call and turn). Other keys still need a restart.
+  New ids: `gitlab`, `bitbucket`, `gcp`, `azure`, `teams`, `slack`; integrations default off.
+- **Connected (portal)** = `modules.<id>` on (fresh) AND the CLI's last state `connected`. Layer 2 is
+  the rendered `<id>.summary.md` plus the detailed file only if it exists. Integration skills apply only
+  while connected and mapped; a role's directly assigned skill that belongs to an integration it can't
+  see is withheld too.
+- **Interview:** the tools question and the context come from the catalog (connected first);
+  `/team/integrations/github.md` is mentioned only when GitHub is connected.
+- **Selftest § 8:** the setup helper's narrow NOPASSWD rule passes; only blanket NOPASSWD warns
+  (a running setup turn or the guide is a note).

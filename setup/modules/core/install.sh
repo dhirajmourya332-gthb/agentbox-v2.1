@@ -46,8 +46,9 @@ if [ "$(cfg agent_sudo)" = "true" ]; then
   chmod 0440 "$SUDOERS.tmp" && visudo -cf "$SUDOERS.tmp" >/dev/null && mv "$SUDOERS.tmp" "$SUDOERS"
 else
   rm -f "$SUDOERS"
-  # Other grants (e.g. Lima's own sudoers entry for the login user) aren't ours to remove.
-  if sudo -l -U "$AGENT_USER" 2>/dev/null | grep -q NOPASSWD; then
+  # Other grants (e.g. Lima's own sudoers entry for the login user) aren't ours to remove. Only
+  # blanket NOPASSWD counts: the setup helper's narrow rule below is expected (selftest § 8).
+  if sudo -l -U "$AGENT_USER" 2>/dev/null | grep -Eq 'NOPASSWD:[[:space:]]*ALL[[:space:]]*$'; then
     warn "$AGENT_USER still has passwordless sudo from another sudoers entry"
   fi
 fi

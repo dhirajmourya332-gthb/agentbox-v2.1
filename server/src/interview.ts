@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { listAgents } from "./agents.ts";
+import { enabled } from "./config.ts";
+import { cachedIntegrations, isConnected, type Integration } from "./integrations.ts";
 
 /**
  * Creating an agent is an interview, like hiring: you answer the core questions, Claude asks
@@ -15,8 +17,8 @@ export const CORE_QUESTIONS = [
   { id: "job", question: "What is the one main job you're giving it?", hint: "One or two sentences. Focused agents get better over time.", kind: "long" },
   { id: "where", question: "Where does it work?", hint: "Repos, services, environments, Teams channels — whatever it should look after.", kind: "long" },
   { id: "done", question: "What does great work look like?", hint: "What it delivers and how you'll judge it: a merged PR, a test report, a deploy note…", kind: "long" },
-  { id: "tools", question: "Which tools should it use?", hint: "Pick all that apply.", kind: "multi",
-    options: ["GitHub (gh)", "AWS (aws)", "Microsoft Teams (browser)", "Web browser", "Docker", "Shell & code editing"] },
+  { id: "tools", question: "Which tools should it use?", hint: "Pick all that apply. Connected integrations come first; the others can be connected later on the Integrations page.", kind: "multi",
+    options: ["Shell & code editing"] as string[] },
   { id: "boundaries", question: "What must it never do without asking you first?", hint: "e.g. merge to main, touch production, delete data, message customers.", kind: "long" },
   { id: "reporting", question: "How and when should it report back?", hint: "e.g. short summary with PR links when done; ping me only if blocked.", kind: "long" },
 ] as const;
@@ -37,6 +39,30 @@ export const TEMPLATES = [
 ] as const;
 
 export type Answers = Record<string, string | string[]>;
+
+const NOT_CONNECTED = " (not connected yet)";
+/** The integrations catalog (connected first), for the tools question and the interview's context. */
+function catalog(): { connected: Integration[]; other: Integration[] } {
+  const list = (cachedIntegrations() ?? []).filter((x) => x.available);
+  const byTitle = (a: Integration, b: Integration) => a.title.localeCompare(b.title);
+  return { connected: list.filter((x) => isConnected(x.id)).sort(byTitle), other: list.filter((x) => !isConnected(x.id)).sort(byTitle) };
+}
+
+/** The tools question's options: connected integrations, then the others, then the basics. */
+export function toolOptions(): string[] {
+  const { connected, other } = catalog();
+  return [
+    ...connected.map((x) => x.title),
+    ...other.map((x) => `${x.title}${NOT_CONNECTED}`),
+    ...(enabled("display") ? ["Web browser"] : []),
+    "Shell & code editing",
+  ];
+}
+
+/** CORE_QUESTIONS with the tools options from the integrations catalog (GET /api/interview). */
+export function coreQuestions() {
+  return CORE_QUESTIONS.map((q) => (q.id === "tools" ? { ...q, options: toolOptions() } : q));
+}
 
 const FOLLOWUP_SCHEMA = {
   type: "object",
@@ -117,30 +143,38 @@ function context() {
   const team = roster.length
     ? roster.map((a) => `- ${a.name} — ${a.title}: ${a.summary}`).join("\n")
     : "- (none yet; this is the first agent)";
+  return `${intro()}The team today:
+${team}`;
+}
+
+function intro() {
+  const { connected, other } = catalog();
+  const github = connected.some((x) => x.id === "github");
+  const tools = connected.length ? connected.map((x) => x.title).join(", ") : "none yet";
   return `You are helping the owner of "agentbox" set up a new AI agent teammate. agentbox runs a
-team of Claude agents that share one Linux VM with the owner's GitHub (gh), AWS CLI, a shared
-Chromium signed into Microsoft Teams and other web apps, docker and a shell. The team's purpose
-is to automate the software development process.
+team of Claude agents that share one Linux VM with a shell${enabled("display") ? " and a shared Chromium signed into the owner's web apps" : ""}. The team's
+purpose is to automate the software development process.
+
+Integrations (services the computer is connected to; an agent uses one only if the owner maps it
+to that agent): connected: ${tools}.${other.length ? ` Not connected yet (they can be connected later, on
+the Integrations page): ${other.map((x) => x.title).join(", ")}.` : ""} An answer that names one "${NOT_CONNECTED.trim()}" means
+the owner wants it once it's connected.
 
 How agents communicate (facts, do not contradict them):
 - Agent to agent: agentbox's built-in team tools. An agent delegates a task to a named teammate,
   the task joins that teammate's queue, and the result comes back to the delegator
   automatically. Agents can also message each other and talk in group chats with @mentions.
-  Every handoff is tracked on agentbox's task board. Agents never use Teams, email or GitHub
-  comments to talk to each other.
-- Records of the work itself live where engineers expect them: GitHub issues, PRs and reviews.
-- Microsoft Teams is only for people: status updates, release notes, and questions for the
-  owner's colleagues.
+  Every handoff is tracked on agentbox's task board. Agents never use chat apps, email or
+  issue comments to talk to each other.
+- Records of the work itself live where engineers expect them (issues, PRs and reviews in the
+  code host).
 - Team-wide rules live in /team/ and every agent already gets them, so job descriptions should
-  point to them rather than restate them. GitHub work (the default repo, issue rules: assignee,
-  project board, sprint, labels; and branching) follows /team/github.md. The default flow: big
-  work is an epic (parent issue + sub-issues, epic/<parent#>-<slug> branch off main, sub-issue
-  branches off the epic with PRs into it, final epic → main); small work is feature/ fix/
-  hotfix/ chore/ <issue#>-<slug> off main; one git worktree per issue. Job descriptions should
-  point to /team/github.md, not restate a different convention.
+  point to them rather than restate them.${github ? ` GitHub work (the default repo, issue rules:
+  assignee, project board, sprint, labels; and branching) follows /team/integrations/github.md,
+  which agents mapped to GitHub get. Job descriptions should point to it, not restate a different
+  convention.` : ""}
 
-The team today:
-${team}`;
+`;
 }
 
 export async function followUps(answers: Answers) {

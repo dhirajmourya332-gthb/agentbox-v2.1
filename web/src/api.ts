@@ -33,18 +33,43 @@ export type Agent = {
   /** Roles: ids of the integrations mapped to them. */
   integrations?: string[];
 };
-export type StepState = "pending" | "running" | "human" | "done" | "failed" | "disabled";
-export type IntegrationState = "available" | "connecting" | "connected" | "error" | "disconnected";
-/** server/src/integrations.ts › Integration (adapted from `agentbox integration … --json`). */
+export type StepState = "pending" | "running" | "human" | "done" | "failed" | "skipped";
+export type IntegrationState = "available" | "connecting" | "connected" | "error" | "disconnected" | "unavailable";
+export type SettingValue = string | number | boolean | string[];
+export type IntegrationGate =
+  | { kind: "setting"; key: string; title: string; command: string }
+  | { kind: "step"; id: string; title: string; instructions: string | null; copy: string | null };
+/** The last (or running) connect / verify / disconnect, for the steps card's live progress. */
+export type IntegrationJob = {
+  action: "connect" | "verify" | "disconnect"; running: boolean; started_at: string; ended_at: string | null;
+  last_output_at: string; ok: boolean | null; code: number | null; timed_out: boolean;
+};
+/** server/src/integrations.ts › Integration (adapted from `agentbox integration status --json`). */
 export type Integration = {
-  id: string; title: string; category: string; kind: string; description: string; state: IntegrationState;
-  available: boolean; account: string | null;
-  settings: { key: string; prompt: string; required: boolean; value: string | null }[];
-  steps: { id: string; title: string; human: boolean; instructions: string | null; copy: string | null; state: StepState; last_error: string | null }[];
+  id: string; title: string; description: string; category: string; state: IntegrationState;
+  /** False: "coming soon" (state "unavailable"). */
+  available: boolean; enabled: boolean; account: string | null; depends: string[];
+  settings: {
+    key: string; prompt: string; type: "string" | "boolean" | "list" | "enum" | "number"; required: boolean;
+    default: SettingValue | null; options: string[] | null; pattern: string | null; example: string | null;
+    value: SettingValue | null; missing: boolean; error: string | null;
+  }[];
+  settings_saved: boolean; missing: string[];
+  steps: {
+    id: string; title: string; human: boolean; instructions: string | null; copy: string | null; state: StepState;
+    check: { ok: boolean; code: number | null; output: string | null; timed_out: boolean } | null; last_error: string | null;
+  }[];
+  gates: IntegrationGate[];
+  revoke: string | null;
   default_roles: string[]; skills: string[];
+  last: { action: string; ok: boolean | null; error: string | null; at: string | null } | null;
   /** Mapped role ids. */
   roles: string[];
+  // GET /api/integrations/:id only:
   output?: { line: string; at: string }[];
+  job?: IntegrationJob | null;
+  /** The server's clock when it answered (elapsed times don't depend on the browser's). */
+  now?: string;
 };
 export type Approval = {
   id: string; kind: "mapping" | "team_rule"; status: "pending" | "approved" | "rejected" | "failed";

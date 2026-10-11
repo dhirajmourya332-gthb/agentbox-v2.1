@@ -809,3 +809,23 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .term-panel-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); min-height: 48px; }
 .term-panel iframe { flex: 1; width: 100%; border: 0; background: #000; }
 @media (max-width: 1100px) { .term-panel { width: min(640px, 92vw); } }
+
+/* Setup chat: live progress of a connect / verify / disconnect (the guide's look, guide/web) */
+.st-skipped > .sc-line .sc-icon, .sc-card.st-skipped > .sc-head .sc-icon, .int-state.st-skipped .sc-icon { color: var(--line-strong); }
+.sc-step.st-skipped .sc-title { color: var(--muted); }
+.sc-progress { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--raised); border: 1px solid var(--line); min-width: 0; }
+.sc-pg-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.sc-spinner {
+  width: 12px; height: 12px; flex: none; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+  animation: spin .9s linear infinite;
+}
+.sc-progress .sc-output { max-height: calc(12 * 1.45em + 12px); overflow: auto; margin: 0; }
+.sc-heartbeat { font-size: 12px; color: var(--muted); font-style: italic; }
+.sc-wait { font-size: 12.5px; }
+.sc-revoke {
+  display: grid; gap: 4px; padding: 8px 10px; border-radius: var(--r-ctl); font-size: 13px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+}
+.sc-revoke .prose p { margin: 0; }
+.integration-card.unavailable { opacity: .75; }
