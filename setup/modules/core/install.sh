@@ -9,6 +9,7 @@ apt_ensure git jq curl wget unzip rsync ca-certificates gnupg build-essential py
 
 log "node 22"
 if ! have node || [[ "$(node -v)" != v22.* ]]; then
+  wait_for_apt # the NodeSource script runs apt-get itself
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
   apt_install nodejs
 fi

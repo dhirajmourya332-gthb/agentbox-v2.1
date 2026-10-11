@@ -15,6 +15,7 @@ if ! have session-manager-plugin; then
   case "$(uname -m)" in x86_64) arch=ubuntu_64bit ;; aarch64) arch=ubuntu_arm64 ;; *) die "unsupported arch $(uname -m)" ;; esac
   tmp="$(mktemp -d)"
   curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/$arch/session-manager-plugin.deb" -o "$tmp/ssm.deb"
+  wait_for_apt
   dpkg -i "$tmp/ssm.deb" >/dev/null
   rm -rf "$tmp"
 fi

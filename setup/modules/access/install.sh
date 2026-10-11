@@ -4,6 +4,8 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/lib.sh"
+# shellcheck source=setup/lib/apt-wait.sh
+. "$here/../../lib/apt-wait.sh"
 need_root
 
 . /etc/os-release
@@ -19,7 +21,9 @@ case "$(mode)" in
     curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${codename}.tailscale-keyring.list" -o /etc/apt/sources.list.d/tailscale.list
     grep -q 'signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg' /etc/apt/sources.list.d/tailscale.list \
       || die "Unexpected tailscale.list contents; refusing to continue"
+    wait_for_apt
     apt-get update -qq
+    wait_for_apt
     apt-get install -y -qq tailscale
     systemctl enable --now tailscaled
     ok "tailscale installed ($(tailscale version | head -1))"
@@ -30,7 +34,9 @@ case "$(mode)" in
     curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
     echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
       > /etc/apt/sources.list.d/cloudflared.list
+    wait_for_apt
     apt-get update -qq
+    wait_for_apt
     apt-get install -y -qq cloudflared
     ok "cloudflared installed ($(cloudflared --version 2>&1 | head -1))"
     ;;

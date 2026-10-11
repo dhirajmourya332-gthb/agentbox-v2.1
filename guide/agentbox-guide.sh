@@ -3,6 +3,8 @@
 #   agentbox guide [--port N] [--tunnel]   start the guide (if needed) and print a one-time link
 #   agentbox guide link [--port N]         just a new one-time link (the guide must be running)
 #   agentbox guide stop                    stop it: every link and session stops working
+#   agentbox guide restart                 update it from the source tree (sync, build) and restart it;
+#                                          sessions, the roadmap and the setup agent carry on
 #   agentbox guide status
 # --port N: the port you reach the guide on from your computer (Lima: the Mac port, e.g. 8699),
 #           used only to print the link. --tunnel: the port-forward commands for cloud VMs.
@@ -14,10 +16,10 @@ die() { printf 'agentbox guide: %s\n' "$*" >&2; exit 1; }
 CMD=start LOCAL_PORT="" TUNNEL=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    start|link|stop|status) CMD="$1"; shift ;;
+    start|link|stop|restart|status) CMD="$1"; shift ;;
     --port) LOCAL_PORT="${2:?--port N}"; shift 2 ;;
     --tunnel) TUNNEL=1; shift ;;
-    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see agentbox guide --help)" ;;
   esac
 done
@@ -35,12 +37,23 @@ HOST="$(cfg host)" ACCESS="$(cfg access)" AGENT_USER="$(cfg user)"
 DATA="$(cfg paths.data)"; DATA="${DATA:-/opt/agentbox/data}"
 PORT="$(cfg ports.guide)"; PORT="${PORT:-7699}"
 TOKENS="$DATA/guide/tokens"
+SESSIONS="$DATA/guide/sessions.json"
 
 running() { systemctl is-active --quiet agentbox-guide; }
 
 case "$CMD" in
   stop)
     if running; then systemctl stop agentbox-guide; echo "guide stopped; its links no longer work"; else echo "the guide isn't running"; fi
+    # Sessions survive restarts (crash, `agentbox guide restart`), not a stop.
+    rm -f "$SESSIONS"
+    exit 0 ;;
+  restart)
+    SRC="$(cfg paths.src)"
+    [ -f "$SRC/guide/install.sh" ] || die "no guide/ under $SRC (paths.src)"
+    was=0; running && was=1
+    AGENTBOX_CONFIG="$CONFIG" AGENTBOX_SRC="$SRC" bash "$SRC/guide/install.sh" # restarts a running guide
+    if [ "$was" = 0 ]; then systemctl start agentbox-guide; fi
+    echo "guide restarted: open pages reconnect by themselves; the setup agent resumes if it was working"
     exit 0 ;;
   status)
     if running; then echo "running on 127.0.0.1:$PORT"; else echo "stopped"; fi

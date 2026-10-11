@@ -9,7 +9,7 @@ if ! have gh; then
   chmod 0644 /usr/share/keyrings/githubcli-archive-keyring.gpg
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
     > /etc/apt/sources.list.d/github-cli.list
-  apt-get update -qq && apt_install gh
+  wait_for_apt && apt-get update -qq && apt_install gh
 fi
 # git uses gh's login for HTTPS remotes.
 as_user 'gh auth status >/dev/null 2>&1 && gh auth setup-git || true'

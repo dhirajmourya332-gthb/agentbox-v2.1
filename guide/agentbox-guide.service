@@ -17,5 +17,9 @@ ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --import tsx serve
 ExecStopPost=+/bin/sh -c 'rm -f /etc/sudoers.d/agentbox-guide /etc/sudoers.d/agentbox-guide.tmp @DATA@/guide/proxy-token; rm -rf @DATA@/guide/tokens; install -d -m 0700 -o @USER@ -g @USER@ @DATA@/guide/tokens'
 Restart=on-failure
 RestartSec=2
+# SIGTERM to the guide alone first: it records what the setup agent was doing (to resume it after a
+# restart) before the rest of the unit (the agent's Claude Code process, the terminal) is killed.
+KillMode=mixed
+TimeoutStopSec=15
 
 # Not enabled at boot: `agentbox guide` starts it when you need it.
