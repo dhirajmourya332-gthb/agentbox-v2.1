@@ -1,8 +1,14 @@
 id: voice
+kind: integration
+category: extras
 title: Voice input cleanup
 description: Tidies up dictated text with a GLM model (Z.ai); the key lives in <secrets>/zai.env
 optional: true
 depends: [core]
+skills: []
+default_roles: []
+revoke: |
+  Delete `$(agentbox config get paths.secrets)/zai.env` and revoke the key at https://z.ai.
 steps:
   - id: key
     title: Add your Z.ai API key

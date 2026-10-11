@@ -81,7 +81,7 @@ describe("roadmap states", () => {
     assert.deepEqual(r.modules.find((m) => m.id === "access")!.steps.map((s) => s.id), ["ts", "verify"]);
     const keys = checksToRun(MODS, conf).map((c) => c.key);
     assert.ok(keys.includes("access.ts") && !keys.includes("access.cf"));
-    assert.ok(!checksToRun(MODS, { access: "tailscale", modules: {} }).some((c) => c.key.startsWith("github.")));
+    assert.ok(!checksToRun(MODS, { access: "tailscale", modules: { github: false } }).some((c) => c.key.startsWith("github.")));
   });
   test("allDone, nextHuman and counts", () => {
     const all = { "core.install": ok(), "core.app": ok(), "claude.login": ok(), "access.ts": ok(), "access.verify": ok(), "github.install": ok(), "github.login": ok(), "github.verify": ok() };

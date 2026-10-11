@@ -115,7 +115,9 @@ describe("setup agent", () => {
 
   test("the guard refuses logins, secrets and Docker", () => {
     for (const c of ["gh auth login", "sudo docker run x", "tailscale up --ssh", "claude /login", "aws configure sso", "eas login",
-      "agentbox secret set zai.env", "cat /secrets/zai.env", "cat ~/.claude/.credentials.json", "cat /opt/agentbox/data/local-token"]) {
+      "agentbox secret set zai.env", "cat /secrets/zai.env", "cat ~/.claude/.credentials.json", "cat /opt/agentbox/data/local-token",
+      "glab auth login", "gcloud auth login --no-launch-browser", "az login --use-device-code",
+      "sudo agentbox integration connect github"]) {
       assert.ok(forbiddenReason(c), c);
     }
     for (const c of ["sudo agentbox module install github", "agentbox module check github", "gh auth status", "systemctl status agentbox-web", "journalctl -u agentbox-web -n 50", "ls -ld /secrets"]) {
@@ -130,5 +132,7 @@ describe("setup agent", () => {
     assert.match(p, /HUMAN GATE/);
     assert.match(p, /gh auth login/);
     assert.match(p, /Don't run Docker/);
+    assert.match(p, /BASE only/);
+    assert.match(p, /Never run `agentbox integration connect`/);
   });
 });

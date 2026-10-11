@@ -1,4 +1,5 @@
 id: access
+kind: base                 # the first run sets up every base module (docs/MODULES.md)
 title: Access
 description: >-
   How you reach the portal without opening any inbound port, plus the portal login.

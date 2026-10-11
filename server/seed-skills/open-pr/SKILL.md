@@ -5,12 +5,12 @@ description: Implement an issue or sub-issue on the right branch (epic sub-branc
 
 # Implement and open a pull request
 
-Branching rules: `/team/github.md` (Branching and Pull requests). This skill is the procedure.
+Branching rules: `/team/integrations/github.md` (Branching and Pull requests). This skill is the procedure.
 
 ## 1. Know your base before you branch
 
 From the handoff or the issue, you need: the repo (`owner/name`; the Default repo in
-`/team/github.md` unless the task names another), the issue number, whether it's a **sub-issue of an
+`/team/integrations/github.md` unless the task names another), the issue number, whether it's a **sub-issue of an
 epic** (then the base is `epic/<parent#>-<slug>`) or **standalone** (base `main`), and the branch
 prefix (`feature/`, `fix/`, `hotfix/`, `chore/`, `refactor/`, `docs/`, `test/`). If any of that is
 missing, ask whoever handed you the work before creating anything.

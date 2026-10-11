@@ -1,0 +1,9 @@
+id: slack
+kind: integration
+category: chat
+title: Slack
+description: Agents read and post in your Slack channels (coming soon)
+available: false            # a catalog entry only: shown as "coming soon", can't be connected yet
+optional: true
+depends: [core]
+steps: []

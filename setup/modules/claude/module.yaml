@@ -1,4 +1,5 @@
 id: claude
+kind: base                 # the first run sets up every base module (docs/MODULES.md)
 title: Claude Code
 description: The Claude Code CLI for the agent user (agents run through the Agent SDK, which uses its login)
 optional: false

@@ -1,8 +1,19 @@
 id: env-files
+kind: integration
+category: extras
 title: Environment files
 description: Per-repo .env files for agents, kept in <secrets>/<repo>/ (0600), never in the repos
 optional: true
 depends: [core]
+instructions:
+  summary: |
+    Environment files: each repo's `.env` lives in {{paths.secrets}}/<repo>/.env; symlink it into your worktree, never print or commit it.
+    Rules: /team/integrations/env-files.md
+  file: instructions.md
+skills: []
+default_roles: [coder, tester]
+revoke: |
+  Delete the files under `$(agentbox config get paths.secrets)/<repo>/.env`, and rotate any credentials they held.
 steps:
   - id: files
     title: Add your .env files

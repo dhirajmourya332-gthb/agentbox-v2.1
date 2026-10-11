@@ -1,15 +1,22 @@
 # The setup guide
 
-A small web app on the VM that walks you through setup: a **terminal** on the left, a **roadmap**
-on the right that ticks itself off as each step's check passes, and a **setup agent** (Claude Code)
-that does the installing while you do the logins. Code: `guide/`. Design: docs/SETUP-PLAN.md § 3–4,
-docs/V2-ARCHITECTURE.md § 8.
+A small web app on the VM that walks you through the **first run**: a **terminal** on the left, a
+**roadmap** on the right that ticks itself off as each step's check passes, and a **setup agent**
+(Claude Code) that does the installing while you do the logins. Code: `guide/`. Design:
+docs/SETUP-PLAN.md § 3–4, docs/V2-ARCHITECTURE.md § 8 and § 10.1.
+
+The first run is the same for everyone and sets up only the **base**: `core`, `claude` (your
+login), `access` (how you reach the portal), `display` and `terminal`, then the security
+self-test. There is no module picking. **Integrations** (GitHub, GitLab, Bitbucket, AWS, Google
+Cloud, Azure, Kubernetes, database tunnels, the phone app…) come after Finish, from the portal's
+**Setup agent** or **Integrations** page (or `agentbox integration connect <id>`; see
+docs/MODULES.md).
 
 ## Opening it
 
 `setup/bootstrap.sh` installs the guide and runs `agentbox guide`, which starts it and prints a
-**one-time link**. Run `agentbox guide` again any time for a new link (for example to add a module
-later; the same page doubles as the module settings).
+**one-time link**. Run `agentbox guide` again any time for a new link (for example to repair the
+base later).
 
 | Where | How you open it |
 |---|---|
@@ -37,11 +44,14 @@ agentbox guide status
   output. While it works, a strip on top shows the command it is running and for how long, and a
   heartbeat when nothing has happened for 20 s (see Live progress).
 - **Right: the roadmap.**
-  - *Start here:* **Log in to Claude** (the `claude` module's login gate), **Choose your modules**
-    (the profile), **Setup agent** (Start / Pause / Resume).
-  - *Modules:* the profile in dependency order, each with its steps. Modules that are off are listed
-    at the end (─).
-  - *Finish:* the **security self-test**, then the portal's URL and **Finish**.
+  - *Start here:* **Log in to Claude** (the `claude` module's login gate), **Choose how you'll reach
+    agentbox** (the profile step: Tailscale, Cloudflare Tunnel + Access, or an SSH tunnel),
+    **Setup agent** (Start / Pause / Resume).
+  - *Base:* the base modules in dependency order, each with its steps. A base module the config
+    turns off (`modules.display: false`) is listed at the end (─). Integrations never appear here.
+  - *Finish:* the **security self-test**, then the portal's URL, **"Next: open the portal → Setup
+    agent (or Integrations) to connect GitHub/GitLab/Bitbucket, AWS/GCP/Azure, Kubernetes…"**, and
+    **Finish**.
   - "Your turn" cards render the step's `instructions` (markdown) and its `copy` command with
     **Copy** and **Paste in terminal** (types it; you press Enter). Failed steps show the reason and
     **Retry** (re-runs `agentbox module install <id>`). **Re-check all** re-runs every check now.
@@ -107,33 +117,36 @@ without losing the owner or the setup agent:
 | ⏸ | your turn | A human gate whose earlier steps are done and whose check isn't green yet |
 | ✔ | done | **Its check passed.** Nothing else ever marks a step done. |
 | ✖ | failed | An install / verify of the module finished and this step's check still fails |
-| ─ | off | The module isn't in the profile |
+| ─ | off | The base module is turned off in the config |
 
 A step is shown only when its `when:` condition holds (e.g. the `cloudflare-*` steps only with
 `access: cloudflare`); hidden steps' checks don't run.
 
 ## How it works
 
-- **Roadmap state** (`guide/src/roadmap.ts`, pure): the manifests (`<paths.src>/setup/modules/*/module.yaml`),
-  the config, the latest check results, and which modules are being worked on. The **profile** is
-  the enabled modules (core, claude and access always) plus everything they depend on, in
-  dependency order (`guide/src/manifest.ts`).
+- **Roadmap state** (`guide/src/roadmap.ts`, pure): the base modules' manifests
+  (`<paths.src>/setup/modules/*/module.yaml` with `kind: base`; integrations are skipped), the
+  config, the latest check results, and which modules are being worked on. The **profile** is every
+  base module (core, claude and access always; display and terminal unless the config says `false`)
+  in dependency order (`guide/src/manifest.ts`).
 - **Checks** (`guide/src/checks.ts`): each applicable step's `check` runs as the agent user
   (`bash -lc`), with a 10 s timeout that kills its whole process group, at most 4 at a time and never
   overlapping itself. Steps that aren't green are re-checked every 3 s; green ones every 30 s (so a
   regression shows). Changes are pushed to the page over a WebSocket (`/ws/state`).
 - **The config** is re-read when the file changes, so `agentbox config set …` in the terminal (e.g.
   choosing the access mode) updates the roadmap within a second.
-- **The profile step** writes the config through the CLI: switching a module on runs
-  `agentbox config set modules.<id> true` (dependencies too; the setup agent installs it in order),
-  switching one off runs `agentbox module disable <id>` (dependents too; units are removed). Saving
-  marks the step (`<data>/guide/profile-confirmed`).
+- **The profile step** is the access choice (`guide/src/profile.ts`, shared with the page): `POST
+  /api/profile {"access": "tailscale"|"cloudflare"|"ssh-tunnel"}` runs `agentbox config set access
+  <mode>` (when it changes) and marks the step (`<data>/guide/profile-confirmed`). The `access`
+  module's steps for that mode then appear on the roadmap.
 - **The setup agent** (`guide/src/agent.ts`) is a Claude Code session through the Agent SDK
   (`query()`, like `server/src/runner.ts`), with Claude Code's system prompt plus the profile, the
-  manifests and the rules: install / verify with `agentbox module install|verify <id>`; never log in
-  or handle secrets; at a human gate say exactly what to run and end the turn; no Docker. A
-  `PreToolUse` hook refuses login commands, `agentbox secret set`, reading secrets or credentials,
-  and Docker. It starts only once the Claude login check **and** the profile are green.
+  manifests and the rules: set up the base only; install / verify with `agentbox module
+  install|verify <id>`; never log in or handle secrets; at a human gate say exactly what to run and
+  end the turn; no Docker. A `PreToolUse` hook refuses login commands (`gh`, `glab`, `gcloud`, `az`,
+  `aws`, `tailscale`, `cloudflared`, `eas`, `claude`), `agentbox secret set`, `agentbox integration
+  connect|disconnect` (integrations are the portal's job), reading secrets or credentials, and
+  Docker. It starts only once the Claude login check **and** the access choice are green.
   - The roadmap follows it: an `agentbox module install|verify|enable <id>` command marks that
     module ● while it runs and records the outcome (✖ with the output's tail on failure).
   - When a turn ends with a gate open, the agent is *waiting*; when that gate's check turns green the
@@ -142,8 +155,9 @@ A step is shown only when its `when:` condition holds (e.g. the `cloudflare-*` s
   - The session id is kept in `<data>/guide/state.json`, so it resumes after a guide restart (a
     session that can't be resumed starts fresh).
 - **Finish:** when every step is ✔ the guide runs `agentbox selftest` and shows the result. On a
-  pass it shows the portal's URL; **Finish** ends every session, deletes unused links and the
-  portal-proxy secret, and stops the `agentbox-guide` unit.
+  pass it shows the portal's URL and points to the next step (connect integrations from the
+  portal); **Finish** ends every session, deletes unused links and the portal-proxy secret, and
+  stops the `agentbox-guide` unit.
 
 ## Security
 
@@ -183,7 +197,7 @@ is guarded like the terminal.
 | | |
 |---|---|
 | `guide/server.ts` | entry (the unit runs `node --import tsx server.ts` as the agent user) |
-| `guide/src/app.ts` | HTTP + WebSockets, state, profile, retry, self-test, Finish |
+| `guide/src/app.ts` | HTTP + WebSockets, state, the access choice, retry, self-test, Finish |
 | `guide/src/{manifest,profile,roadmap,checks,auth,terminal,agent}.ts` | the pieces above |
 | `guide/web/` | the page (React, xterm.js; built to `guide/dist/`) |
 | `guide/install.sh` | run by bootstrap: build tools for node-pty, `<paths.app>/guide`, npm packages, the page, the unit |
@@ -194,7 +208,8 @@ is guarded like the terminal.
 | `setup/lib/apt-wait.sh` | `wait_for_apt` (sourced by `common.sh`, bootstrap, `guide/install.sh`, the access module) |
 | `<paths.data>/guide/` | `state.json` (agent session and status, attempts, log, self-test), `sessions.json`, `runs/<module>.log`, `tokens/`, `proxy-token`, `profile-confirmed` |
 
-Tests: `cd guide && npm test` (the state machine, `when:`, profile resolution, the check runner with
+Tests: `cd guide && npm test` (the state machine, `when:`, base-only profile resolution, the access
+choice, the check runner with
 timeouts, the token / session / proxy auth over HTTP and WebSockets, the setup agent's wiring with a
 fake SDK, live progress, restarts: sessions, agent resume, Retry and agent output; `wait_for_apt`
 against a test lock holder and deploy-app.sh leaving a running guide alone, in bash). The portal's `/setup/` proxy is covered by `cd server && npm run test:access`.

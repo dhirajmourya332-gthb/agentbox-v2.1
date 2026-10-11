@@ -1,0 +1,44 @@
+id: gcp
+kind: integration
+category: cloud
+title: Google Cloud
+description: The gcloud CLI from Google's official apt repository; credentials from the VM's service account (on GCE) or your gcloud login
+optional: true
+depends: [core]
+settings:
+  - { key: project, prompt: "Google Cloud project ID", required: true, pattern: '^[a-z][a-z0-9-]{4,28}[a-z0-9]$', example: acme-prod-123 }
+  - { key: region, prompt: "Default region (empty: none)", pattern: '^[a-z]+-[a-z]+[0-9]+$', example: europe-west1 }
+  - { key: zone, prompt: "Default zone (empty: none)", pattern: '^[a-z]+-[a-z]+[0-9]+-[a-z]$', example: europe-west1-b }
+  - { key: access, prompt: "What agents may do in the project", options: [read-only, non-production, full], default: read-only }
+  - { key: protected, type: list, prompt: "Resources that always need your OK first (comma-separated names)" }
+instructions:
+  summary: |
+    Google Cloud: use `gcloud` (project {{project}}{{#region}}, region {{region}}{{/region}}); access: {{access}}. Never print keys or secrets.
+    Read /team/integrations/gcp.md before you change anything in the project.
+  file: instructions.md
+skills: []
+default_roles: [devops]
+account: "gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1"
+revoke: |
+  On the VM: `gcloud auth revoke --all` (and `gcloud auth application-default revoke` if you created those). On GCE, remove roles from the VM's service account in IAM instead.
+steps:
+  - id: install
+    title: Install the gcloud CLI
+    run: install.sh
+    check: "command -v gcloud"
+  - id: login
+    title: Give the VM Google Cloud credentials
+    human: true
+    instructions: |
+      On a GCE VM with a service account that has the right (least) roles: nothing to do here.
+      Otherwise, in the terminal run `gcloud auth login --no-launch-browser`, open the URL it
+      prints, sign in, and paste the code back. Then set the project:
+        `gcloud config set project {{project}}`
+      If agents use Google client libraries too, also run `gcloud auth application-default login --no-launch-browser`.
+      Never paste service-account key files into the chat.
+    copy: "gcloud auth login --no-launch-browser"
+    check: "gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q ."
+  - id: project
+    title: The project is set and visible
+    run: verify.sh
+    check: "p=\"$(gcloud config get-value project 2>/dev/null)\" && test -n \"$p\" && gcloud projects describe \"$p\" --format='value(projectId)' >/dev/null"

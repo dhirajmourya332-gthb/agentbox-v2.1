@@ -1,8 +1,14 @@
 id: mobile
+kind: integration
+category: extras
 title: Phone gateway
 description: The signed-request gateway for the phone app (127.0.0.1:<ports.gateway>), served tailnet-only on https://<node>.ts.net:<mobile.serve_port>, plus the tailnet firewall
 optional: true
 depends: [core, access]
+skills: []
+default_roles: []
+revoke: |
+  Unpair your phones in the portal (Computer → Devices).
 units: [agentbox-tailnet-guard.service, agentbox-tailnet-guard-watch.timer]
 steps:
   - id: install

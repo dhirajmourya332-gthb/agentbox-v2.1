@@ -1,8 +1,26 @@
 id: aws
+kind: integration
+category: cloud
 title: AWS
 description: AWS CLI v2 and the Session Manager plugin; credentials from an instance role (recommended) or SSO
 optional: true
 depends: [core]
+settings:
+  - { key: region, prompt: "Default region", default: us-east-1, pattern: '^[a-z]{2}(-[a-z]+)+-[0-9]$', example: eu-west-1 }
+  - { key: profile, prompt: "AWS CLI profile agents use (empty: the default credentials)", pattern: '^[A-Za-z0-9_.-]+$' }
+  - { key: account_id, prompt: "The AWS account ID agents work in (12 digits; a guard against the wrong account)", pattern: '^[0-9]{12}$' }
+  - { key: access, prompt: "What agents may do in the account", options: [read-only, non-production, full], default: read-only }
+  - { key: protected, type: list, prompt: "Resources that always need your OK first (comma-separated names)" }
+instructions:
+  summary: |
+    AWS: use the `aws` CLI (region {{region}}{{#profile}}, profile {{profile}}{{/profile}}{{#account_id}}, account {{account_id}}{{/account_id}}); access: {{access}}. Never print keys or secrets.
+    Read /team/integrations/aws.md before you change anything in the account.
+  file: instructions.md
+skills: []
+default_roles: [devops]
+account: "aws sts get-caller-identity --query Arn --output text"
+revoke: |
+  Instance role: detach or trim its policies in IAM. SSO: `aws sso logout`. Static keys (not recommended): delete them in IAM and remove ~/.aws/credentials on the VM.
 steps:
   - id: install
     title: Install the AWS CLI and the Session Manager plugin
@@ -13,11 +31,12 @@ steps:
     human: true
     instructions: |
       Recommended on EC2: attach an instance role with least privilege (nothing to do here).
-      Otherwise run in the terminal: `aws configure sso` (or `aws sso login` when it expires).
-      Never paste long-lived access keys into chat.
-    copy: "aws configure sso"
-    check: "aws sts get-caller-identity"
+      Otherwise run in the terminal: `aws configure sso{{#profile}} --profile {{profile}}{{/profile}}` (or
+      `aws sso login{{#profile}} --profile {{profile}}{{/profile}}` when it expires).
+      Never paste long-lived access keys into the chat.
+    copy: "aws configure sso{{#profile}} --profile {{profile}}{{/profile}}"
+    check: "p=\"$(agentbox integration settings aws --get profile)\"; if [ -n \"$p\" ]; then export AWS_PROFILE=\"$p\"; fi; aws sts get-caller-identity"
   - id: verify
-    title: Verify
+    title: The credentials work (in the right account)
     run: verify.sh
-    check: "aws sts get-caller-identity"
+    check: "bash \"$(agentbox config get paths.src)/setup/modules/aws/verify.sh\" >/dev/null"

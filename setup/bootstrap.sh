@@ -147,10 +147,10 @@ if [ "$GUIDE" = 1 ]; then
 else
   cat <<EOF
 The setup guide isn't in this tree yet. Next steps, by hand (as $AGENT_USER or with sudo):
-  agentbox module list                          what's on and off
-  sudo agentbox config set modules.<id> true    choose modules
+  agentbox module list                          the base modules
   sudo agentbox module install --enabled        install them in order (prints YOUR TURN steps)
   agentbox status                               checks, services, listeners
   sudo agentbox selftest                        the security self-test
+Later, integrations (GitHub, AWS, Kubernetes…): agentbox integration list / connect <id>
 EOF
 fi

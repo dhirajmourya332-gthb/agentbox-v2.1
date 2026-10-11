@@ -1,21 +1,21 @@
 ---
 name: file-github-issue
-description: Create a GitHub issue (Bug, Feature, Task sub-issue, …) that follows the team's issue rules in /team/github.md — type, title, labels, parent link, assignee, on the project board, in the current sprint. Use whenever you open a new issue.
+description: Create a GitHub issue (Bug, Feature, Task sub-issue, …) that follows the team's issue rules in /team/integrations/github.md — type, title, labels, parent link, assignee, on the project board, in the current sprint. Use whenever you open a new issue.
 ---
 
 # File a GitHub issue the team's way
 
-The rules live in `/team/github.md`. Read it before your first issue in a task. This skill is the
+The rules live in `/team/integrations/github.md`. Read it before your first issue in a task. This skill is the
 checklist and the commands; the values in `<angle brackets>` come from its **Settings** table:
 
-| Placeholder | Setting in `/team/github.md` |
+| Placeholder | Setting in `/team/integrations/github.md` |
 |---|---|
 | `<repo>` | Default repo, unless the task names another (`owner/name`) |
 | `<assignee>` | Issue assignee |
 | `<project-owner>`, `<project-number>`, `<project-name>` | Project owner, number, name |
 | `<sprint-field>` | Sprint field |
 
-If `/team/github.md` is missing, or a setting you need is empty, skip that part (no assignee, no
+If `/team/integrations/github.md` is missing, or a setting you need is empty, skip that part (no assignee, no
 board, no sprint) and say so in your report. Never guess an org, board or person.
 
 ## 1. Decide the shape

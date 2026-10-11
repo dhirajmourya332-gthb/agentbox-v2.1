@@ -3,13 +3,13 @@
 **A self-hosted team of Claude agents that share one Linux VM.** A tech-lead, coders, a devops
 and a security agent (or whatever roles you hire) work side by side on one machine with a browser,
 a terminal and your dev tools. You talk to them from a web portal, or from an optional Android app.
-They plan, code, review, test and ship through GitHub (and, if you enable them, AWS and
-Kubernetes) under rules you write.
+They plan, code, review, test and ship through the integrations you connect (GitHub, GitLab or
+Bitbucket; AWS, Google Cloud or Azure; Kubernetes…) under rules you write.
 
 > Screenshot: _placeholder (`docs/screenshot.png`, the portal's Overview with a task room open)._
 
 [Features](#features) · [Quickstart](#quickstart) · [Security model](#security-model) ·
-[Requirements](#requirements) · [Modules](#modules) · [FAQ](#faq) · [Docs](#docs)
+[Requirements](#requirements) · [Base and integrations](#base-and-integrations) · [FAQ](#faq) · [Docs](#docs)
 
 ## Features
 
@@ -28,8 +28,10 @@ Kubernetes) under rules you write.
   depth and fan-out limits.
 - **Skills:** shared procedures (`file-github-issue`, `run-epic`, `open-pr`, `review-pr`,
   `fix-vulnerability` are seeded). Agents can propose new ones for your approval.
-- **Team rules** in `/team` that every agent reads, e.g. `/team/github.md`: default repo, project
-  board, sprint field, labels, branching.
+- **Integrations** you connect from the portal: each brings its CLI, a login you do yourself, a few
+  settings (default repo, project board, cloud project, writable namespaces…) and rules rendered
+  from them into `/team/integrations/<id>.md`, given only to the roles you map it to.
+- **Team rules** in `/team/*.md` that you write and every agent reads.
 
 **Working with them**
 - **Task rooms:** a task and everything it starts form one timeline, with a shared folder and
@@ -67,11 +69,17 @@ agentbox runs on **any Ubuntu 24.04 VM**. Everything (agents, services, repos) l
 
 3. Bootstrap installs the basics, starts the **setup guide** on `127.0.0.1:7699` and prints a
    one-time link plus the port-forward command for your provider (`agentbox guide --tunnel` prints
-   them again, with a new link). Forward the port, open the link and follow it. The guide has a terminal on the left and a roadmap on the right: Claude runs the
-   install steps and stops at "your turn" cards for logins (Claude, GitHub, Tailscale…). A step
-   turns green only when its check passes.
+   them again, with a new link). Forward the port, open the link and follow it. The guide has a
+   terminal on the left and a roadmap on the right. You log in to Claude and choose how you'll
+   reach agentbox (Tailscale, Cloudflare or an SSH tunnel); Claude then sets up the **base** (core,
+   access, the shared screen and the terminal) and stops at "your turn" cards for logins. A step
+   turns green only when its check passes. The security self-test closes the first run.
 4. Once the access step is done, the portal is at your private HTTPS address
    (`https://<node>.<tailnet>.ts.net` or `https://agentbox.<your-domain>`), behind a login.
+5. **Then connect what your team uses**, from the portal: **Setup agent** (or **Integrations**) →
+   GitHub, GitLab or Bitbucket; AWS, Google Cloud or Azure; Kubernetes; database tunnels; the phone
+   app… The setup agent installs each one, asks for its settings and walks you through its login.
+   From a shell: `agentbox integration list`, `agentbox integration connect <id>`.
 
 ### 2. A local Lima VM on macOS
 
@@ -120,32 +128,46 @@ agents' reach to what you hand them.
 - An Ubuntu 24.04 VM (in the cloud, or Lima on macOS) with outbound internet access.
 - One way in: a free **Tailscale** account (recommended, and needed for the phone app), or a domain
   on **Cloudflare**.
-- Only for the modules you enable: a GitHub account, an AWS account, a Kubernetes cluster, an Expo
-  account and a Firebase project (phone app and push), a Z.ai key (voice clean-up).
+- Only for the integrations you connect: a GitHub, GitLab or Bitbucket account; an AWS, Google
+  Cloud or Azure account; a Kubernetes cluster; an Expo account and a Firebase project (phone app
+  and push); a Z.ai key (voice clean-up).
 
-## Modules
+## Base and integrations
 
-Everything beyond the core is a module you switch on or off. A disabled module installs nothing,
-asks for nothing, and its features are off.
+The first run is the same for everyone: the **base**. Everything else is an **integration** you
+connect later from the portal (or `agentbox integration connect <id>`). An integration that isn't
+connected installs nothing, asks for nothing, and agents don't hear about it.
 
-| Module | Required | What it adds | Your part |
+**Base** (set up by the guide):
+
+| Module | What it adds | Your part |
+|---|---|---|
+| `core` | the server, portal, database, systemd units | none |
+| `claude` | Claude Code CLI and Agent SDK | `claude` → `/login` |
+| `access` | Tailscale, Cloudflare or SSH-tunnel access, plus the portal login | choose one; sign in to Tailscale or Cloudflare |
+| `display` | virtual display, shared Chromium, screen sharing | none |
+| `terminal` | a terminal in the portal (also where you do the integrations' logins) | none |
+
+**Integrations** (connected from the portal):
+
+| Category | Integration | What it adds | Your part |
 |---|---|---|---|
-| `core` | yes | the server, portal, database, systemd units | none |
-| `claude` | yes | Claude Code CLI and Agent SDK | `claude` → `/login` |
-| `access` | yes | Tailscale, Cloudflare or SSH-tunnel access, plus the portal login | sign in to Tailscale or Cloudflare |
-| `display` | recommended | virtual display, shared Chromium, screen sharing | none |
-| `terminal` | recommended | a terminal in the portal | none |
-| `github` | optional | git, `gh`, `/team/github.md`, the GitHub skills | `gh auth login` |
-| `aws` | optional | AWS CLI and the SSM plugin | `aws configure sso`, or an instance role |
-| `kubernetes` | optional | `kubectl` and a kubeconfig | pick a cluster and an access level |
-| `db-tunnel` | optional | an SSH tunnel to databases through a bastion or SSM | provide the tunnel config and key |
-| `env-files` | optional | per-repo `.env` files in `/secrets` | `agentbox secret set …` |
-| `voice` | optional | LLM clean-up of dictated text | `agentbox secret set zai.env` |
-| `mobile` | optional | the phone gateway and Devices page (needs Tailscale) | apply the tailnet policy |
-| `mobile-app` | optional | build the Android app with EAS | `eas login` |
-| `push` | optional | push notifications (Firebase) | create a Firebase project |
+| code hosting | `github` | git, `gh`, the GitHub skills, rules for issues, boards and branches | `gh auth login` |
+| | `gitlab` | git, `glab` (gitlab.com or self-managed) | `glab auth login` |
+| | `bitbucket` | git, the Bitbucket Cloud REST API through `agentbox-bitbucket` | save an API or access token |
+| cloud | `aws` | AWS CLI and the SSM plugin | an instance role, or `aws configure sso` |
+| | `gcp` | the gcloud CLI (and the GKE auth plugin) | a service account, or `gcloud auth login` |
+| | `azure` | the Azure CLI | a managed identity, or `az login` |
+| cluster | `kubernetes` | `kubectl` and rules for which namespaces agents may change | point kubectl at the cluster |
+| database | `db-tunnel` | SSH / SSM tunnels to private databases | the tunnel config and key |
+| extras | `env-files` | per-repo `.env` files in `/secrets` | `agentbox secret set …` |
+| | `voice` | LLM clean-up of dictated text | `agentbox secret set zai.env` |
+| | `mobile` | the phone gateway and Devices page (needs Tailscale) | apply the tailnet policy |
+| | `mobile-app` | build the Android app with EAS | `eas login` |
+| | `push` | push notifications (Firebase) | create a Firebase project |
+| chat | `teams`, `slack` | coming soon | |
 
-How to write one: [docs/MODULES.md](docs/MODULES.md).
+How they're built, and how to add one: [docs/MODULES.md](docs/MODULES.md).
 
 ## FAQ
 
@@ -163,8 +185,9 @@ agents and credentials.
 
 **Is there an iPhone app?** Not yet: Android only.
 
-**Where do my team's conventions go?** In `/team` on the VM. The `github` module installs an example
-`/team/github.md`; edit it to name your repo, board, sprint field, labels and branching rules.
+**Where do my team's conventions go?** Provider-specific ones are integration **settings** (e.g.
+GitHub's default repo, board, sprint field and labels: `agentbox integration settings github`),
+rendered into `/team/integrations/<id>.md`. Everything else goes in your own `/team/*.md` files.
 Team-specific words for voice recognition go in `/team/glossary.txt`, one per line.
 
 **How do I update?** `agentbox update` pulls, builds and restarts; it waits for busy agents unless
@@ -177,7 +200,7 @@ you pass `--force`.
 | [docs/SETUP-PLAN.md](docs/SETUP-PLAN.md) | The setup design: modules, access modes, the guide |
 | [docs/GUIDE.md](docs/GUIDE.md) | The setup guide: opening it, the roadmap, the setup agent, its security |
 | [docs/V2-ARCHITECTURE.md](docs/V2-ARCHITECTURE.md) | Hosts, config, modules, CLI, access and auth, self-test |
-| [docs/MODULES.md](docs/MODULES.md) | The module format, with an example |
+| [docs/MODULES.md](docs/MODULES.md) | Base modules and integrations: the format, and how to add a provider |
 | [docs/PLAN.md](docs/PLAN.md) | The original architecture |
 | [docs/UI-DESIGN.md](docs/UI-DESIGN.md) | The portal's design |
 | [docs/CONTRACTS-v2.md](docs/CONTRACTS-v2.md) | API contracts: progress, voice, push, the app, routine runs |

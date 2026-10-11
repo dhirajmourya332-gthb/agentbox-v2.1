@@ -1,0 +1,43 @@
+id: azure
+kind: integration
+category: cloud
+title: Microsoft Azure
+description: The Azure CLI (az) from Microsoft's official apt repository; credentials from the VM's managed identity or your az login
+optional: true
+depends: [core]
+settings:
+  - { key: subscription, prompt: "Subscription ID (or exact name)", required: true, pattern: '^[A-Za-z0-9 ._()-]+$', example: 00000000-0000-0000-0000-000000000000 }
+  - { key: tenant, prompt: "Tenant ID or domain (empty: your account's default)", pattern: '^[A-Za-z0-9.-]+$' }
+  - { key: resource_group, prompt: "Default resource group (empty: none)", pattern: '^[A-Za-z0-9._()-]+$' }
+  - { key: location, prompt: "Default location (empty: none)", pattern: '^[a-z0-9]+$', example: westeurope }
+  - { key: access, prompt: "What agents may do in the subscription", options: [read-only, non-production, full], default: read-only }
+  - { key: protected, type: list, prompt: "Resources that always need your OK first (comma-separated names)" }
+instructions:
+  summary: |
+    Azure: use `az` (subscription {{subscription}}{{#resource_group}}, resource group {{resource_group}}{{/resource_group}}); access: {{access}}. Never print keys or secrets.
+    Read /team/integrations/azure.md before you change anything in the subscription.
+  file: instructions.md
+skills: []
+default_roles: [devops]
+account: "az account show --query user.name -o tsv 2>/dev/null"
+revoke: |
+  On the VM: `az logout` (and `az account clear`). For a managed identity, remove its role assignments in the Azure portal instead.
+steps:
+  - id: install
+    title: Install the Azure CLI
+    run: install.sh
+    check: "command -v az"
+  - id: login
+    title: Log the VM in to Azure
+    human: true
+    instructions: |
+      On an Azure VM with a managed identity that has the right (least) roles: run `az login --identity`.
+      Otherwise, in the terminal run `az login --use-device-code{{#tenant}} --tenant {{tenant}}{{/tenant}}`, open
+      https://microsoft.com/devicelogin and enter the code it prints. Then pick the subscription:
+        `az account set --subscription "{{subscription}}"`
+    copy: "az login --use-device-code"
+    check: "az account show --query id -o tsv >/dev/null 2>&1"
+  - id: subscription
+    title: The subscription is selected
+    run: verify.sh
+    check: "want=\"$(agentbox integration settings azure --get subscription)\"; az account show --query '[id,name]' -o tsv 2>/dev/null | tr '\\t' '\\n' | grep -Fxq -- \"$want\""

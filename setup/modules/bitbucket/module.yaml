@@ -1,0 +1,48 @@
+id: bitbucket
+kind: integration
+category: code-hosting
+title: Bitbucket
+description: Bitbucket Cloud through its REST API (agentbox-bitbucket, curl) and git over HTTPS, with an API or access token you save on the VM
+optional: true
+depends: [core]
+settings:
+  - { key: workspace, prompt: "Bitbucket workspace (the slug in bitbucket.org/<workspace>/…)", required: true, pattern: '^[A-Za-z0-9_.-]+$', example: acme }
+  - { key: default_repo, prompt: "Default repository slug in that workspace", pattern: '^[A-Za-z0-9_.-]+$', example: web-app }
+  - { key: other_repos, type: list, prompt: "Other repository slugs agents may work in (comma-separated)", pattern: '^[A-Za-z0-9_.-]+$' }
+  - { key: base_branch, prompt: "The main branch", default: main, pattern: '^[A-Za-z0-9._/-]+$' }
+  - { key: merge_approval, prompt: "Who approves merges to the main branch", default: owner }
+instructions:
+  summary: |
+    Bitbucket (workspace {{workspace}}): use `agentbox-bitbucket api <path>` (REST 2.0) for pull requests, issues and pipelines, and git over HTTPS{{#default_repo}}; default repo {{workspace}}/{{default_repo}}{{/default_repo}}.
+    Read /team/integrations/bitbucket.md before you open a pull request.
+  file: instructions.md
+skills: []
+default_roles: [tech-lead, coder, tester, devops]
+account: "agentbox-bitbucket whoami"
+revoke: |
+  On the VM: `rm "$(agentbox config get paths.secrets)/bitbucket.env"`. In Bitbucket / Atlassian: revoke the token (Atlassian account → Security → API tokens, or the workspace / repository → Access tokens).
+steps:
+  - id: install
+    title: Install git, curl and agentbox-bitbucket
+    run: install.sh
+    check: "command -v agentbox-bitbucket && command -v git && command -v jq"
+  - id: token
+    title: Save a Bitbucket token on the VM
+    human: true
+    instructions: |
+      Create a token with the **least access that works** (read and write for repositories and
+      pull requests; pipelines read if agents should watch CI):
+      - an **Atlassian API token with scopes** (id.atlassian.com → Security → API tokens → Create
+        API token with scopes → Bitbucket), used with your Atlassian account email; or
+      - a **workspace / project / repository access token** (Bitbucket → {{workspace}} → settings →
+        Access tokens), not tied to your personal account.
+      Then save it in the terminal (it's read from stdin; it never goes through the portal):
+        `agentbox secret set bitbucket.env`
+      and type either `BITBUCKET_EMAIL=<your email>` and `BITBUCKET_API_TOKEN=<token>` (two lines),
+      or `BITBUCKET_ACCESS_TOKEN=<token>`, then Ctrl-D.
+    copy: "agentbox secret set bitbucket.env"
+    check: "agentbox-bitbucket check"
+  - id: verify
+    title: The Bitbucket API answers for the workspace
+    run: verify.sh
+    check: "agentbox-bitbucket api \"/repositories/$(agentbox integration settings bitbucket --get workspace)?pagelen=1\" >/dev/null"

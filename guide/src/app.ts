@@ -8,7 +8,8 @@ import fastifyWebsocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import type WebSocket from "ws";
 import { parse } from "yaml";
-import { loadModules, planProfile, REQUIRED, type ModuleDef } from "./manifest.ts";
+import { baseOnly, loadModules, REQUIRED, type ModuleDef } from "./manifest.ts";
+import { ACCESS_MODES, isAccessMode } from "./profile.ts";
 import { checksToRun, computeRoadmap, gatesTurnedGreen, modulesInCommand, stepKey, type Attempt, type Roadmap } from "./roadmap.ts";
 import { CheckRunner, shellRunner, type RunCommand } from "./checks.ts";
 import { createGuideAuth, type GuideAuth } from "./auth.ts";
@@ -17,8 +18,9 @@ import { createSetupAgent, systemPrompt, RESUME_PROMPT, type AgentStatus, type L
 import { addOutput, jobView, newJob, type Job } from "./progress.ts";
 
 /**
- * The setup guide (docs/V2-ARCHITECTURE.md § 8, docs/GUIDE.md): roadmap state from the module
- * manifests and live checks, a terminal, the setup agent, the profile, the self-test and Finish.
+ * The setup guide (docs/V2-ARCHITECTURE.md § 8 and § 10.1, docs/GUIDE.md): roadmap state from the
+ * base modules' manifests and live checks, a terminal, the setup agent, the access choice (the
+ * "profile" step), the self-test and Finish. Integrations are not part of the first run.
  */
 
 export const PROFILE_STEP = "guide.profile";
@@ -99,7 +101,8 @@ export async function createGuide(opts: GuideOptions) {
   let modules: ModuleDef[] = [];
   const reloadModules = () => {
     const errs: string[] = [];
-    modules = loadModules(src, (m) => errs.push(m));
+    // Only the base: integrations are connected later from the portal (§ 10.1).
+    modules = baseOnly(loadModules(src, (m) => errs.push(m)));
     problems.splice(0, problems.length, ...errs);
   };
   reloadModules();
@@ -109,7 +112,7 @@ export async function createGuide(opts: GuideOptions) {
   try { st = { ...st, ...JSON.parse(fs.readFileSync(stateFile, "utf8")) }; } catch { /* first run */ }
   // An attempt that was running when the guide stopped didn't finish.
   for (const a of Object.values(st.attempts)) if (a.status === "running") { a.status = "failed"; a.error = "interrupted (the guide restarted)"; }
-  st.finishedAt = null; // a new run of the guide (e.g. to add a module later)
+  st.finishedAt = null; // a new run of the guide (e.g. to repair the base later)
   // The setup agent was in the middle of a turn when the guide stopped: resume it once the checks are in.
   let resumePending = st.agentStatus === "running" && !!st.sessionId;
   if (st.agentStatus === "running" && !st.sessionId) st.agentStatus = "idle";
@@ -241,7 +244,9 @@ export async function createGuide(opts: GuideOptions) {
         done: !!r?.ok,
         checked: !!r,
         required: REQUIRED,
-        modules: Object.fromEntries(modules.filter((m) => !REQUIRED.includes(m.id)).map((m) => [m.id, conf.modules?.[m.id] === true])),
+        /** The access mode in the config, and the choices. */
+        access: isAccessMode(conf.access) ? conf.access : null,
+        options: ACCESS_MODES,
       },
       claudeReady: claudeReady(),
       agent: { status: agent.status, hasSession: !!st.sessionId, resumePending },
@@ -381,7 +386,7 @@ export async function createGuide(opts: GuideOptions) {
 
   async function startAgent(prompt?: string) {
     if (!claudeReady()) return { ok: false, code: 409, error: "Log in to Claude first (the claude login step must be green)." };
-    if (!profileDone()) return { ok: false, code: 409, error: "Choose your modules first." };
+    if (!profileDone()) return { ok: false, code: 409, error: "Choose how you'll reach agentbox first." };
     if (agent.status === "running") return { ok: false, code: 409, error: "The setup agent is already working." };
     try { queryFn = await loadQuery(); } catch (e: any) { return { ok: false, code: 500, error: `The Agent SDK can't load: ${e.message}` }; }
     void (agent.status === "paused" ? agent.resume(prompt) : agent.start(prompt));
@@ -415,28 +420,26 @@ export async function createGuide(opts: GuideOptions) {
     return { ok: true };
   }
 
-  async function saveProfile(wanted: Record<string, boolean>) {
-    const plan = planProfile(modules, conf, wanted);
-    const out: string[] = [];
-    for (const c of plan.changes) {
-      // Turning a module off removes its units (module disable); on only records it: the setup
-      // agent installs it in order.
-      const args = c.on ? ["config", "set", `modules.${c.id}`, "true"] : ["module", "disable", c.id];
+  /** The profile step: record the access mode (sudo agentbox config set access <mode>). */
+  async function saveProfile(access: string) {
+    if (!isAccessMode(access)) return { ok: false, code: 400, error: `access: one of ${ACCESS_MODES.map((m) => m.id).join(", ")}` };
+    if (conf.access !== access) {
+      const args = ["config", "set", "access", access];
       const r = await runAdmin(args);
-      out.push(`$ agentbox ${args.join(" ")}\n${strip(r.output).trim()}`);
+      const out = `$ agentbox ${args.join(" ")}\n${strip(r.output).trim()}`;
       if (r.code !== 0) {
-        addLog("error", out.join("\n"));
+        addLog("error", out);
         watchConfig();
         return { ok: false, code: 500, error: `agentbox ${args.join(" ")} failed: ${tailLines(r.output, 4) || `exit ${r.code}`}. The guide needs passwordless sudo during setup (agentbox guide sets it up).` };
       }
+      addLog("info", out);
     }
     fs.writeFileSync(markerFile, `${new Date().toISOString()}\n`, { mode: 0o600 });
-    if (out.length) addLog("info", out.join("\n"));
-    addLog("info", "profile saved");
+    addLog("info", `access: ${access}`);
     watchConfig();
     runner.recheck([PROFILE_STEP]);
     push();
-    return { ok: true, changes: plan.changes };
+    return { ok: true, access };
   }
 
   async function runSelftest() {
@@ -484,12 +487,9 @@ export async function createGuide(opts: GuideOptions) {
   app.get("/api/log", async () => ({ log: st.log }));
   app.post("/api/recheck", async () => { runner.recheck(); return { ok: true }; });
   app.post("/api/profile", async (req, reply) => {
-    const body: any = req.body ?? {};
-    const wanted = body.modules;
-    if (!wanted || typeof wanted !== "object" || Array.isArray(wanted)) return reply.code(400).send({ error: "modules: {id: true|false}" });
-    const clean: Record<string, boolean> = {};
-    for (const [k, v] of Object.entries(wanted)) if (/^[a-z0-9-]+$/.test(k) && typeof v === "boolean") clean[k] = v;
-    const r = await saveProfile(clean);
+    const access = (req.body as any)?.access;
+    if (typeof access !== "string") return reply.code(400).send({ error: `access: one of ${ACCESS_MODES.map((m) => m.id).join(", ")}` });
+    const r = await saveProfile(access);
     return r.ok ? r : reply.code(r.code!).send({ error: r.error });
   });
   app.post("/api/retry", async (req, reply) => {

@@ -1,8 +1,35 @@
 id: github
+kind: integration
+category: code-hosting
 title: GitHub
-description: git + gh CLI so agents can work with repos, issues and PRs; team rules for issues and branching
+description: git + the gh CLI so agents can work with repos, issues, projects and pull requests
 optional: true
 depends: [core]
+settings:
+  - { key: default_repo, prompt: "Default repository (owner/name), used when a task doesn't name one", pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$', example: acme/web-app }
+  - { key: other_repos, type: list, prompt: "Other repositories agents may work in (owner/name, comma-separated)", pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' }
+  - { key: issue_assignee, prompt: "GitHub login assigned to every new issue (empty: don't assign)", pattern: '^[A-Za-z0-9-]+$' }
+  - { key: project_owner, prompt: "Org or user that owns the GitHub Project board (empty: no board)", pattern: '^[A-Za-z0-9-]+$' }
+  - { key: project_number, type: number, prompt: "Project number (from github.com/orgs/<owner>/projects/<number>)" }
+  - { key: project_name, prompt: "Project board name (for messages and checks)" }
+  - { key: sprint_field, prompt: "The board's iteration (sprint) field (empty: no sprints)", example: Iteration }
+  - { key: issue_types, type: list, prompt: "Issue types that exist in the org (empty: use labels instead)", default: [Feature, Bug, Task] }
+  - { key: sub_issue_type, prompt: "The type every sub-issue of an epic gets", default: Task }
+  - { key: title_prefixes, type: list, prompt: "Title prefixes for standalone issues, e.g. [BUG] , [FEAT]  (empty: none)" }
+  - { key: labels, type: list, prompt: "Label catalogue: the only labels agents may use" }
+  - { key: required_labels, prompt: "Labels every sub-issue needs", example: "one workstream label + one size: label" }
+  - { key: epic_approval, prompt: "Who approves the final epic → main PR", default: owner }
+  - { key: base_branch, prompt: "The main branch", default: main, pattern: '^[A-Za-z0-9._/-]+$' }
+instructions:
+  summary: |
+    GitHub: use `gh` for issues, PRs, reviews and projects{{#default_repo}} (default repo {{default_repo}}){{/default_repo}}; one git worktree per issue under {{paths.work}}.
+    Read /team/integrations/github.md before you file an issue, cut a branch or open a PR.
+  file: instructions.md
+skills: [review-pr, open-pr, file-github-issue, run-epic, fix-vulnerability]
+default_roles: [tech-lead, coder, tester, devops]
+account: "gh api user -q .login"
+revoke: |
+  On the VM: `gh auth logout`. On GitHub: Settings → Applications → Authorized OAuth Apps → GitHub CLI → Revoke.
 steps:
   - id: install
     title: Install git and gh
@@ -13,11 +40,10 @@ steps:
     human: true
     instructions: |
       In the terminal run: `gh auth login` (GitHub.com, HTTPS, log in with a web browser).
-      Add the project scope if you use GitHub Projects: `gh auth refresh -s project`.
-      Then edit /team/github.md (your org, board, labels) and /team/branching.md to fit your team.
+      {{#project_owner}}You use a GitHub Project board, so also add the project scope: `gh auth refresh -s project`.{{/project_owner}}{{^project_owner}}If you use GitHub Projects, also add the project scope: `gh auth refresh -s project`.{{/project_owner}}
     copy: "gh auth login"
     check: "gh auth status"
   - id: verify
-    title: Verify
+    title: The GitHub API answers
     run: verify.sh
     check: "gh api user -q .login"
