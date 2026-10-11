@@ -3,6 +3,7 @@ import { api, type RepoBinding, type SetupRequest } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
 import { Icon, relTime } from "./ui.tsx";
+import { rememberReturn } from "./returnTo.ts";
 
 /**
  * A setup request in a conversation (author "setup_request"): an agent lacks an account, login,
@@ -32,6 +33,8 @@ export function SetupRequestCard({ id }: { id: string }) {
   const start = () => run(async () => {
     const s = await api.startSetupRequest(r.id);
     setR(s.request);
+    // Come back here when the setup is done (the workspace offers "Back to …" and returns on its own).
+    rememberReturn(s.instance_id, { hash: location.hash || "#/", label: r.requester_name ?? "where you were", request: r.id });
     go({ name: "setup", id: s.instance_id });
   });
   const open = r.status === "pending" || r.status === "in_progress";

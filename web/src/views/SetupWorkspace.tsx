@@ -11,6 +11,7 @@ import { InsertCtx, insertable } from "../components/insert.ts";
 import { TerminalCtx } from "../components/Setup.tsx";
 import { fmtDuration } from "../components/progress.ts";
 import { Composer, FinishButton, TaskTitle, Timeline } from "./AgentChat.tsx";
+import { clearReturn, returnFor, type SetupReturn } from "../components/returnTo.ts";
 
 /**
  * The Setup workspace (#/setup/<session>): the setup agent's own screen, in the spirit of the
@@ -209,6 +210,7 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
               <a className="icon-btn" href={`#/agents/${role.id}`} title="About the setup agent and your notes for it" aria-label="Setup agent settings"><Icon name="agent" /></a>
             </div>
           </header>
+          {agent && <ReturnBar sessionId={agent.id} />}
 
           {narrow && (
             <nav className="tabs ws-tabs" role="tablist" aria-label="Setup panels">
@@ -578,6 +580,62 @@ function CommandRow({ cmd, onInsert, terminalUp }: { cmd: string; onInsert: ((t:
           </button>
         )}
       </span>
+    </div>
+  );
+}
+
+// --- back to where the owner came from ------------------------------------------------------------
+
+const RETURN_AFTER_S = 5;
+type Outcome = "open" | "done" | "stopped";
+
+/**
+ * Opened from an agent's setup-request card: "Back to tech-lead#3" while it runs, and once every
+ * request it was opened for is finished, a short countdown back to that page (or "Stay here").
+ * Finishing while the owner watches returns them; arriving at an already finished one just offers the link.
+ */
+function ReturnBar({ sessionId }: { sessionId: string }) {
+  const { onEvent } = useStore();
+  const [back] = useState<SetupReturn | null>(() => returnFor(sessionId));
+  const [status, setStatus] = useState<Record<string, string>>({});
+  const [seenOpen, setSeenOpen] = useState(false);
+  const [left, setLeft] = useState<number | null>(null);
+  const [stay, setStay] = useState(false);
+
+  useEffect(() => {
+    if (!back) return;
+    for (const id of back.requests) api.setupRequest(id).then((r) => setStatus((s) => ({ ...s, [id]: r.status }))).catch(() => {});
+  }, [back]);
+  useEffect(() => onEvent((e) => {
+    if (e.type === "setup_request.updated" && back?.requests.includes(e.request?.id)) setStatus((s) => ({ ...s, [e.request.id]: e.request.status }));
+  }), [onEvent, back]);
+
+  const states = back ? back.requests.map((id) => status[id]) : [];
+  const known = states.length > 0 && states.every(Boolean);
+  const outcome: Outcome = !known ? "open" : states.some((s) => s === "pending" || s === "in_progress") ? "open"
+    : states.every((s) => s === "done") ? "done" : "stopped";
+  useEffect(() => { if (known && outcome === "open") setSeenOpen(true); }, [known, outcome]);
+
+  const goBack = () => { if (!back) return; clearReturn(sessionId); location.hash = back.hash; };
+  // Count down only when it finished while the owner was here (not on a later visit).
+  useEffect(() => {
+    if (outcome !== "done" || !seenOpen || stay) { setLeft(null); return; }
+    setLeft(RETURN_AFTER_S);
+    const t = setInterval(() => setLeft((n) => (n === null ? null : n - 1)), 1000);
+    return () => clearInterval(t);
+  }, [outcome, seenOpen, stay]);
+  useEffect(() => { if (left !== null && left <= 0) goBack(); }, [left]);
+
+  if (!back) return null;
+  const who = back.label;
+  return (
+    <div className={`ws-return ${outcome}`} role="status">
+      {outcome === "open" && <span>Opened from {who}'s setup request. {who} is called back when it's done.</span>}
+      {outcome === "done" && <span><Icon name="check" size={14} /> Setup done: {who} has been told and is carrying on.{left !== null ? ` Taking you back in ${left}s…` : ""}</span>}
+      {outcome === "stopped" && <span>This setup didn't finish ({states.filter((s) => s !== "done").join(", ")}). {who} has been told.</span>}
+      <span className="grow" />
+      {left !== null && <button className="btn sm ghost" onClick={() => setStay(true)}>Stay here</button>}
+      <button className={`btn sm${outcome === "open" ? " ghost" : " primary"}`} onClick={goBack}><Icon name="back" size={14} />Back to {who}</button>
     </div>
   );
 }
