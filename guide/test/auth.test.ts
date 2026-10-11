@@ -168,3 +168,48 @@ describe("the guide over HTTP", () => {
     await g2.close();
   });
 });
+
+describe("sessions survive a guide restart", () => {
+  const dir = path.join(tmp, "persist");
+  const sessionsFile = path.join(dir, "sessions.json");
+  let now = Date.now();
+  const mk = () => createGuideAuth({ tokensDir: path.join(dir, "tokens"), proxyTokenFile: path.join(dir, "proxy-token"), sessionsFile, now: () => now });
+
+  test("a session from before the restart still works; the file is 0600 and holds no session id", () => {
+    const a = mk();
+    const t = mintToken(path.join(dir, "tokens"), now);
+    const cookie = (a.authorize(req({}), { api: false, token: t }) as any).setCookie.split(";")[0];
+    const id = cookie.split("=")[1];
+    assert.equal(fs.statSync(sessionsFile).mode & 0o777, 0o600);
+    assert.ok(!fs.readFileSync(sessionsFile, "utf8").includes(id), "only hashes are stored");
+    const b = mk(); // the restarted guide
+    assert.equal(b.authorize(req({ cookie }), { api: true }).ok, true);
+    // One-time tokens stay one-time across the restart.
+    assert.equal(b.authorize(req({}), { api: false, token: t }).ok, false);
+    // A forged cookie isn't a session.
+    assert.equal(b.authorize(req({ cookie: `agentbox_guide=${"A".repeat(43)}` }), { api: true }).ok, false);
+  });
+
+  test("expired sessions are dropped on load", () => {
+    const a = mk();
+    const t = mintToken(path.join(dir, "tokens"), now);
+    const cookie = (a.authorize(req({}), { api: false, token: t }) as any).setCookie.split(";")[0];
+    now += 8 * 60 * 60_000 + 1;
+    const b = mk();
+    assert.equal(b.sessions.size, 0);
+    assert.equal(b.authorize(req({ cookie }), { api: true }).ok, false);
+  });
+
+  test("revokeAll (Finish) deletes the sessions file; disableProxy (a stop) keeps it", () => {
+    const a = mk();
+    a.enableProxy();
+    const t = mintToken(path.join(dir, "tokens"), now);
+    const cookie = (a.authorize(req({}), { api: false, token: t }) as any).setCookie.split(";")[0];
+    a.disableProxy();
+    assert.equal(fs.existsSync(path.join(dir, "proxy-token")), false);
+    assert.equal(mk().authorize(req({ cookie }), { api: true }).ok, true);
+    a.revokeAll();
+    assert.equal(fs.existsSync(sessionsFile), false);
+    assert.equal(mk().authorize(req({ cookie }), { api: true }).ok, false);
+  });
+});

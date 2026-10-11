@@ -21,6 +21,10 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
  *    `X-Agentbox-Guide-Proxy: <secret>`. The guide writes the secret to `<data>/guide/proxy-token`
  *    (0600, the agent user's) at start and deletes it at stop, so the portal's proxy is dead while
  *    the guide isn't running. The guide trusts that header only from a loopback peer.
+ *
+ * Sessions survive a guide restart (a crash, `agentbox guide restart`): they are kept in
+ * `<data>/guide/sessions.json` (0600) as SHA-256(session id) → expiry, never the ids themselves.
+ * Expired ones are dropped on load. Finish and `agentbox guide stop` delete the file.
  */
 
 export const COOKIE = "agentbox_guide";
@@ -62,12 +66,37 @@ export function mintToken(dir: string, now = Date.now(), ttlMs = TOKEN_TTL_MS) {
   return token;
 }
 
+/** What a page without a (valid) session is told. The page shows the same words. */
+export const EXPIRED = "Your setup link expired or the guide restarted. Run `agentbox guide` in the VM (or `host/lima/guide.sh` on the Mac) for a new link.";
+
 export type Decision = { ok: true; via: "session" | "proxy"; setCookie?: string } | { ok: false; code: number; error: string };
 
-export function createGuideAuth(opts: { tokensDir: string; proxyTokenFile: string; now?: () => number }) {
+export function createGuideAuth(opts: { tokensDir: string; proxyTokenFile: string; sessionsFile?: string; now?: () => number }) {
   const now = opts.now ?? Date.now;
-  const sessions = new Map<string, number>(); // id → expiry
+  const sessions = new Map<string, number>(); // sha256(id) → expiry
   let proxySecret: string | null = null;
+
+  function loadSessions() {
+    if (!opts.sessionsFile) return;
+    let raw: any;
+    try { raw = JSON.parse(fs.readFileSync(opts.sessionsFile, "utf8")); } catch { return; }
+    const t = now();
+    for (const [h, exp] of Object.entries(raw?.sessions ?? {})) {
+      if (/^[0-9a-f]{64}$/.test(h) && typeof exp === "number" && exp > t && exp <= t + SESSION_TTL_MS) sessions.set(h, exp);
+    }
+    while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value!);
+  }
+  function saveSessions() {
+    if (!opts.sessionsFile) return;
+    try {
+      fs.mkdirSync(path.dirname(opts.sessionsFile), { recursive: true, mode: 0o700 });
+      const tmp = `${opts.sessionsFile}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ sessions: Object.fromEntries(sessions) }), { mode: 0o600 });
+      fs.chmodSync(tmp, 0o600);
+      fs.renameSync(tmp, opts.sessionsFile);
+    } catch { /* in memory still works */ }
+  }
+  loadSessions();
 
   /** Exchange a one-time token for a session. The token file is deleted whatever happens next. */
   function consumeToken(token: string): boolean {
@@ -81,18 +110,22 @@ export function createGuideAuth(opts: { tokensDir: string; proxyTokenFile: strin
   }
 
   function newSession() {
+    const t = now();
+    for (const [h, exp] of sessions) if (exp <= t) sessions.delete(h);
     while (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value!);
     const id = randomBytes(32).toString("base64url");
-    sessions.set(id, now() + SESSION_TTL_MS);
+    sessions.set(sha256(id), t + SESSION_TTL_MS);
+    saveSessions();
     return `${COOKIE}=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`;
   }
 
   function sessionOk(req: Req) {
     const id = parseCookies(one(req.headers, "cookie")).get(COOKIE);
-    if (!id) return false;
-    const exp = sessions.get(id);
+    if (!id || !/^[A-Za-z0-9_-]{32,128}$/.test(id)) return false;
+    const h = sha256(id);
+    const exp = sessions.get(h);
     if (!exp) return false;
-    if (exp <= now()) { sessions.delete(id); return false; }
+    if (exp <= now()) { sessions.delete(h); saveSessions(); return false; }
     return true;
   }
 
@@ -141,7 +174,7 @@ export function createGuideAuth(opts: { tokensDir: string; proxyTokenFile: strin
       if (consumeToken(o.token)) return { ok: true, via: "session", setCookie: newSession() };
       return { ok: false, code: 401, error: "This link was already used or has expired. Run `agentbox guide` for a new one." };
     }
-    return { ok: false, code: 401, error: "Open the link printed by `agentbox guide` (it carries a one-time token)." };
+    return { ok: false, code: 401, error: EXPIRED };
   }
 
   /** Write the portal-proxy secret (start). */
@@ -153,9 +186,16 @@ export function createGuideAuth(opts: { tokensDir: string; proxyTokenFile: strin
     fs.renameSync(tmp, opts.proxyTokenFile);
   }
 
+  /** The guide is stopping (or restarting): the portal's proxy stops working; sessions are kept. */
+  function disableProxy() {
+    proxySecret = null;
+    try { fs.rmSync(opts.proxyTokenFile, { force: true }); } catch { /* best effort */ }
+  }
+
   /** Finish / stop: every session, unused token and the proxy secret stop working. */
   function revokeAll() {
     sessions.clear();
+    if (opts.sessionsFile) try { fs.rmSync(opts.sessionsFile, { force: true }); } catch { /* best effort */ }
     proxySecret = null;
     try { fs.rmSync(opts.proxyTokenFile, { force: true }); } catch { /* best effort */ }
     try {
@@ -163,7 +203,7 @@ export function createGuideAuth(opts: { tokensDir: string; proxyTokenFile: strin
     } catch { /* none */ }
   }
 
-  return { authorize, enableProxy, revokeAll, sessions, consumeToken };
+  return { authorize, enableProxy, disableProxy, revokeAll, sessions, consumeToken };
 }
 
 export type GuideAuth = ReturnType<typeof createGuideAuth>;
