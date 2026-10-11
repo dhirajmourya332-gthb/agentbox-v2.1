@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, fileUrl, type Agent, type DocumentInfo } from "../api.ts";
 import { Icon, Markdown, relTime } from "../components/ui.tsx";
+import { DownloadMenu } from "../components/DownloadMenu.tsx";
 
 const CODE = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt", "rb", "php", "sh", "bash", "zsh",
   "sql", "json", "yml", "yaml", "toml", "ini", "cfg", "conf", "env", "xml", "css", "scss", "dockerfile", "tf", "lock", "log", "diff", "patch"];
@@ -110,7 +111,9 @@ export function DocumentReader({ doc, onClose, error: initialError }: { doc: Rea
           </div>
           {doc.modified && <span className="hint" style={{ whiteSpace: "nowrap" }}>{relTime(doc.modified)} · {size(doc.size ?? 0)}</span>}
           {!initialError && <a className="btn sm" href={fileUrl(doc.path)} target="_blank" rel="noopener">Open in new tab</a>}
-          {!initialError && <a className="btn sm" href={fileUrl(doc.path, true)}>Download</a>}
+          {!initialError && (kind === "markdown" || kind === "text" || kind === "html"
+            ? <DownloadMenu path={doc.path} name={name} kind={kind} text={kind === "html" ? null : text} />
+            : <a className="btn sm" href={fileUrl(doc.path, true)}>Download</a>)}
           <button ref={closeRef} className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" /></button>
         </header>
         <div className="reader-body">

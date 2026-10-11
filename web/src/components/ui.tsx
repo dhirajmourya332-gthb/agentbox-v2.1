@@ -149,6 +149,11 @@ function linkPaths(html: string, home?: string) {
   return tpl.innerHTML;
 }
 
+/** Markdown as sanitized HTML (what the reader shows; also what "Download PDF" prints). */
+export const markdownHtml = (text: string) => DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+/** Sanitized HTML of an HTML document, for printing (no scripts, forms or remote frames). */
+export const sanitizeHtml = (html: string) => DOMPurify.sanitize(html, { FORBID_TAGS: ["form", "iframe", "object", "embed"] });
+
 export function Markdown({ text, streaming = false, home }: { text: string; streaming?: boolean; home?: string }) {
   const html = useMemo(
     () => linkPaths(DOMPurify.sanitize(marked.parse(text, { async: false }) as string), home),

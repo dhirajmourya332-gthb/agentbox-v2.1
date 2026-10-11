@@ -1288,3 +1288,15 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .ws-return.done { background: color-mix(in srgb, var(--ok) 10%, var(--surface)); color: var(--text); }
 .ws-return.done svg { color: var(--ok); vertical-align: -2px; }
 .ws-return.stopped { background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--text); }
+
+/* Split download button (components/DownloadMenu.tsx): PDF first, the original in the menu. */
+.split-btn { position: relative; display: inline-flex; align-items: center; }
+.split-btn > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-btn > .split-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 0 8px; }
+.split-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 170px; display: grid; padding: 4px;
+  background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--r-ctl); box-shadow: 0 10px 28px rgb(0 0 0 / .3);
+}
+.split-menu > * { all: unset; box-sizing: border-box; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 4px; font: 13px var(--sans); color: var(--text); }
+.split-menu > *:hover, .split-menu > *:focus-visible { background: var(--surface); }
+.split-error { position: absolute; right: 0; top: calc(100% + 4px); white-space: nowrap; font-size: 12px; color: var(--bad); background: var(--raised); padding: 4px 8px; border-radius: 4px; }

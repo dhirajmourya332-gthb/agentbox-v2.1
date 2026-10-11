@@ -42,6 +42,7 @@ import { startSudoSweeper } from "./sudo.ts";
 import { registerSetupRoutes, startSetupWorkspace } from "./setupRoutes.ts";
 import { registerRepoRoutes } from "./repoRoutes.ts";
 import { registerReviewRoutes } from "./reviewRoutes.ts";
+import { registerPdfRoutes } from "./pdf.ts";
 import { setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
@@ -524,6 +525,7 @@ registerSetupRoutes(app);
 // Repos (per-task worktrees, the Repos page) and setup requests from agents.
 registerRepoRoutes(app);
 registerReviewRoutes(app);
+registerPdfRoutes(app);
 
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 // Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.
