@@ -109,7 +109,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
   const { agents, routines, activeRuns } = useStore();
   const existing = id ? routines.find((r) => r.id === id) : undefined;
   const [form, setForm] = useState<RoutineInput>(() => ({
-    agent_id: existing?.agent_id ?? agentId ?? agents.find((a) => !a.base_agent_id)?.id ?? "",
+    agent_id: existing?.agent_id ?? agentId ?? agents.find((a) => !a.base_agent_id && !a.builtin)?.id ?? "",
     name: existing?.name ?? "",
     cron: existing?.cron ?? "0 */2 * * *",
     timezone: existing?.timezone ?? BROWSER_TZ,
@@ -190,7 +190,7 @@ export function RoutineEditor({ id, agentId }: { id?: string; agentId?: string }
             <label htmlFor="r-agent">Agent</label>
             <select id="r-agent" className="text" value={form.agent_id} disabled={!!existing}
               onChange={(e) => setForm({ ...form, agent_id: e.target.value })}>
-              {agents.filter((a) => !a.base_agent_id || a.id === form.agent_id).map((a) => <option key={a.id} value={a.id}>{a.name} — {a.title}</option>)}
+              {agents.filter((a) => (!a.base_agent_id && !a.builtin) || a.id === form.agent_id).map((a) => <option key={a.id} value={a.id}>{a.name} — {a.title}</option>)}
             </select>
           </div>
           <div className="field">

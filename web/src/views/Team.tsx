@@ -7,7 +7,8 @@ import type { Progress } from "../api.ts";
 export function Team() {
   const { agents, loaded, work, progress } = useStore();
   if (!loaded) return <div className="page" />;
-  const roles = agents.filter((a) => !a.base_agent_id);
+  // The setup agent lives under Configure → Setup, not on the team.
+  const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
   // What each room is doing now: a stall first, else its longest-running turn.
   const nowIn = (rootId: string): Progress | undefined =>
     Object.values(progress).filter((p) => p.root_id === rootId)

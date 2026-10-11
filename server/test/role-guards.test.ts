@@ -122,3 +122,20 @@ test("instructions: orchestrators are told their lane; everyone gets the stay-in
   assert.ok(!/You orchestrate/.test(c));
   assert.match(c, /Stay in your lane/);
 });
+
+test("the setup agent isn't a teammate: not listed, not delegated to (setup requests are the way)", async () => {
+  const TM = await import("../src/team.ts");
+  const { newId, now } = await import("../src/db.ts");
+  S.ensureSetupRole();
+  const t = task(lead, "Needs access");
+  const id = newId();
+  run(`INSERT INTO tasks (id, agent_id, thread_id, source, title, prompt, status, created_at) VALUES (?, ?, ?, 'user', 't', 'p', 'done', ?)`, id, t.id, A.dmThreadOf(t.id), now());
+  const tools = TM.teamTools(t, id);
+  const call = (name: string, args: any) => (tools.find((x: any) => x.name === name) as any).handler(args, {});
+  const list = await call("list_agents", {});
+  assert.ok(!/setup/i.test(list.content[0].text), list.content[0].text);
+  const d = await call("delegate_task", { to: "setup", title: "Connect GCP", instructions: "please" });
+  assert.ok(d.isError);
+  assert.match(d.content[0].text, /request_setup/);
+  assert.ok(!/setup/.test(TM.rosterFor(t)));
+});

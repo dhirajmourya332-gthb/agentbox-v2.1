@@ -9,6 +9,7 @@ import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
+import { isSetupAgent } from "./setup.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
 import { LIMITS as PLAN_LIMITS, submitPlan } from "./plans.ts";
 import { LIMITS as RM_LIMITS, STATUSES as RM_STATUSES, createRoadmap, itemsOf as roadmapItems, updateRoadmap } from "./roadmaps.ts";
@@ -74,7 +75,12 @@ function authorOf(role: Agent, h: Handoff): Agent | undefined {
 /** Checks shared by delegations and messages. Returns an error for the agent, or the target. */
 function check(h: Handoff): string | Agent {
   let target = findAgent(h.to);
-  const names = listAgents().filter((a) => !a.base_agent_id && a.id !== h.from.base_agent_id).map((a) => a.name).join(", ") || "none";
+  const names = listAgents().filter((a) => !a.base_agent_id && !a.builtin && a.id !== h.from.base_agent_id).map((a) => a.name).join(", ") || "none";
+  // The setup agent takes work from the owner only; agents reach it through setup requests.
+  const role = target ? (target.base_agent_id ? getAgent(target.base_agent_id) : target) : undefined;
+  if (target && role?.builtin && !isSetupAgent(h.from)) {
+    return "The setup agent isn't a teammate you hand work to. If you need an account, login, tool or access, call mcp__team__request_setup: the owner gets a card for it and you're called back when it's done.";
+  }
   if (!target) return `No teammate called "${h.to}". Agents: ${names}. (Delegate to an agent to start a fresh task, or to a live instance such as coder#2 for a follow-up.)`;
   // A message to an agent goes to its live instance in your work, if there's exactly one.
   if (h.kind === "message" && !target.base_agent_id) {
@@ -231,7 +237,7 @@ export function teamTools(agent: Agent, taskId: string) {
           const base = pool ? findAgent(pool) : undefined;
           if (pool && !base) return refuse(`No agent called "${pool}".`);
           const roleId = base ? base.base_agent_id ?? base.id : undefined;
-          const roles = listAgents().filter((a) => !a.base_agent_id && (!roleId || a.id === roleId));
+          const roles = listAgents().filter((a) => !a.base_agent_id && !a.builtin && (!roleId || a.id === roleId));
           const rows = roles.map((r) => {
             const live = listAgents().filter((a) => a.base_agent_id === r.id && a.id !== agent.id);
             const lines = live.map((i) => {

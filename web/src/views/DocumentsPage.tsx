@@ -15,12 +15,13 @@ const TYPES: { key: string; label: string; ext: string[] }[] = [
 /** Every document any agent wrote, newest first (backlog #6). */
 export function DocumentsPage() {
   const { agents } = useStore();
-  const roles = agents.filter((a) => !a.base_agent_id);
   const [docs, setDocs] = useState<(DocumentInfo & { role: string })[] | null>(null);
   const [role, setRole] = useState("all");
   const [type, setType] = useState("all");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<DocumentInfo | null>(null);
+  // The setup agent only appears as a filter when it has written something.
+  const roles = agents.filter((a) => !a.base_agent_id && (!a.builtin || docs?.some((d) => d.role === a.id)));
 
   useEffect(() => {
     const load = () => api.allDocuments().then(setDocs).catch(() => setDocs([]));

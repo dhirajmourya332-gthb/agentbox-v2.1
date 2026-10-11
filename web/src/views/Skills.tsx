@@ -6,7 +6,7 @@ import { Avatar, Icon, Markdown, relTime } from "../components/ui.tsx";
 
 /** Pick which agents get a skill. Used by the editor and draft review. */
 export function AgentPicker({ agents: all, value, onChange }: { agents: Agent[]; value: string[]; onChange: (ids: string[]) => void }) {
-  const agents = all.filter((a) => !a.base_agent_id);
+  const agents = all.filter((a) => !a.base_agent_id && !a.builtin);
   if (agents.length === 0) return <span className="hint">No agents yet.</span>;
   return (
     <div className="choices" role="group" aria-label="Agents">

@@ -35,7 +35,7 @@ export function RoutineRulesEditor({ rules, routineRoleId, onChange }: {
   const { agents } = useStore();
   const summary = rulesSummary(rules);
   const [open, setOpen] = useState(summary.length > 0);
-  const roles = agents.filter((a) => !a.base_agent_id && a.id !== routineRoleId);
+  const roles = agents.filter((a) => !a.base_agent_id && !a.builtin && a.id !== routineRoleId);
   const routineRole = agents.find((a) => a.id === routineRoleId);
   const setPerm = <K extends keyof Perms>(k: K, v: Perms[K]) => onChange({ ...rules, perms: { ...rules.perms, [k]: v } });
   const setRole = (id: string, text: string | null) => {

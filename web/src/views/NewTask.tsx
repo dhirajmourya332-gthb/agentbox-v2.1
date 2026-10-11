@@ -9,7 +9,10 @@ import { Avatar, Icon } from "../components/ui.tsx";
 /** Start a task: pick who does it, say what's needed. Every task gets its own conversation. */
 export function NewTask({ roleId }: { roleId?: string }) {
   const { agents, loaded } = useStore();
-  const roles = agents.filter((a) => !a.base_agent_id);
+  // The setup agent starts from Configure → Setup (its own workspace), not here.
+  const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
+  const setupLink = roleId && agents.some((a) => a.id === roleId && a.builtin === "setup");
+  useEffect(() => { if (setupLink) location.replace("#/setup"); }, [setupLink]);
   const lead = roles.find((r) => r.can_scale);
   const [picked, setPicked] = useState<string | null>(roleId ?? null);
   const [text, setText] = useState("");
