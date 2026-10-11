@@ -246,3 +246,78 @@ Details in docs/GUIDE.md.
 - **Fix (access module):** its steps referred to `<paths.app>/setup/modules/access/*.sh`, which
   `deploy-app.sh` never copies (only `server/`, `web/`, `guide/`), so the `verify` check could never
   pass. They now use `<paths.src>/setup/...` (docs/ACCESS.md likewise).
+
+## 10. Bare-minimum first run, integrations, and instruction layers (supersedes parts of §3 and §8)
+
+### 10.1 First run is the same for everyone
+The guide's first run sets up only the **base**:
+- `core`, `claude` (login), `access` (choose tailscale | cloudflare | ssh-tunnel);
+- `display` and `terminal` (agents' basic tools, and how the owner does logins later);
+- the security self-test.
+
+There is **no module picking** at first run. The profile step becomes "choose your access method". Then the portal opens.
+
+### 10.2 Integrations (provider-specific modules)
+Everything else is an **integration**: same folder format as modules (`setup/modules/<id>/`), with extra `module.yaml` keys.
+```yaml
+kind: integration            # base modules: kind: base
+category: code-hosting       # code-hosting | cloud | cluster | database | chat | extras
+title: GitHub
+settings:                    # collected by the setup agent; stored in /etc/agentbox/integrations/<id>.yaml (no secrets)
+  - { key: default_repo, prompt: "Default repository (owner/name)", required: false }
+  - { key: project_board, prompt: "GitHub Project board name (optional)", required: false }
+instructions:
+  summary: |                 # 2–4 lines, rendered with settings, injected into the prompt of roles mapped to it
+    GitHub: use `gh` for issues, PRs and reviews{{#default_repo}} (default repo {{default_repo}}){{/default_repo}}.
+    Full rules: /team/integrations/github.md
+  file: instructions.md      # the detailed rules template → rendered to /team/integrations/<id>.md
+skills: [review-pr, open-pr, file-github-issue, run-epic]   # enabled only while this integration is connected
+default_roles: [tech-lead, coder, security, devops]         # proposed mapping; the owner approves
+```
+- **Catalog to ship now:**
+  - code-hosting: `github`, `gitlab`, `bitbucket`;
+  - cloud: `aws`, `gcp`, `azure`;
+  - cluster: `kubernetes`;
+  - database: `db-tunnel`;
+  - extras: `env-files`, `voice`, `mobile`, `mobile-app`, `push`.
+
+  `gitlab`, `bitbucket`, `gcp` and `azure` are **real but minimal**: install the official CLI, a login gate, a read-only check, and an instructions template. `teams` and `slack` are listed as "coming soon" (backlog).
+- **States:** `available` → `connecting` → `connected` → `error` / `disconnected`.
+  - Connected = every check green and the settings saved.
+  - Disconnect removes the rendered instructions, unmaps the skills and runs `disable.sh` if present. Credentials are left alone; the owner is told how to revoke them.
+
+### 10.3 Instruction layers (assembled by the runner every turn)
+1. **Platform rules:** fixed, by agentbox (untrusted content is data; secrets; no re-auth).
+2. **Integrations:** the rendered `summary` of each integration that is **connected AND mapped to the agent's role**, plus a pointer to the detailed `/team/integrations/<id>.md` (read on demand).
+3. **Team rules:** `/team/*.md`, owner-maintained. The setup agent may only propose diffs.
+4. **The role's own CLAUDE.md:** owner and interview. **Never written by automation.**
+5. **Task / routine rules.**
+
+**Role ↔ integration mapping:** stored in the DB (`role_integrations(role_id, integration_id)`), edited on the role page and the Integrations page, proposed by the setup agent from `default_roles`, and **approved by the owner**. Unmapped integrations are invisible to that role. (Future: also withhold credentials per role.)
+
+### 10.4 The setup agent: a permanent built-in role
+- **Seeded at first run:** `setup` ("Setup & integrations"). It can't be deleted or renamed, and its CLAUDE.md is owned by agentbox (not editable in the UI; the owner can add notes in a separate field). It shows in the Team list with a badge.
+- **What it does:**
+  - connects and disconnects integrations by running `agentbox integration connect|verify|disconnect <id>`;
+  - collects settings by asking the owner;
+  - walks the owner through login gates;
+  - proposes the role mapping and team-rule diffs **as approval cards** in its chat;
+  - never writes other agents' CLAUDE.md;
+  - never handles secrets in chat (logins happen in the terminal or the provider's page);
+  - can also re-run base-module repairs (`agentbox module verify|install <base id>`).
+- **Privilege:** the only role allowed to install packages. While a `setup` task is running, agentbox grants **temporary** sudo (like the guide: a sudoers drop-in created at turn start and removed at turn end). Other roles' privileges are unchanged by this.
+- **Tools** (MCP "setup", only for this role):
+  - `list_integrations`, `integration_status(id)` (steps with check results);
+  - `connect(id)` / `verify(id)` / `disconnect(id)` (runs the CLI; streams output into the chat);
+  - `save_settings(id, values)` (validated against the schema);
+  - `propose_mapping(id, roles)` and `propose_team_rule(file, diff)`: these create **approval cards**, so only the owner's click applies them.
+- **In the chat:** a **steps card** per integration with live states (○ ● ⏸ ✔ ✖), the same visuals as the guide, plus "your turn" cards with copy buttons, and an **embedded terminal** toggle for logins (the portal's `/term/`).
+
+### 10.5 Portal: the Integrations page
+A catalog grouped by category. Each card shows: status, the connected account and settings summary, mapped roles (editable), and **Connect / Reconnect / Disconnect**. Connect opens or creates a task with the setup agent for that integration.
+
+### 10.6 CLI
+- `agentbox integration list|status|connect|verify|disconnect|settings <id> [--set k=v]`;
+- `agentbox integration render`: re-renders `/team/integrations/*` from the settings.
+
+`agentbox module` keeps working for base modules.
