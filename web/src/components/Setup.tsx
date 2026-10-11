@@ -4,6 +4,7 @@ import { fmtDuration, heartbeat, runningLabel, waitNotice } from "./progress.ts"
 import { useStore } from "../store.tsx";
 import { Icon, Markdown, relTime } from "./ui.tsx";
 import { TERMINAL_URL } from "./Controls.tsx";
+import { InsertCtx } from "./insert.ts";
 
 /**
  * The setup agent's chat pieces (docs/V2-ARCHITECTURE.md §10.4): a steps card per integration being
@@ -35,13 +36,16 @@ async function copyText(s: string) {
 export function CopyRow({ text, terminal = true }: { text: string; terminal?: boolean }) {
   const [done, setDone] = useState(false);
   const openTerminal = useContext(TerminalCtx);
+  const insert = useContext(InsertCtx);
   return (
     <div className="sc-copy">
       <code>{text}</code>
       <button className="btn sm" onClick={async () => { if (await copyText(text)) { setDone(true); setTimeout(() => setDone(false), 1500); } }}>
         {done ? "Copied" : "Copy"}
       </button>
-      {terminal && openTerminal && <button className="btn sm" onClick={openTerminal}><Icon name="terminal" size={14} />Terminal</button>}
+      {terminal && insert
+        ? <button className="btn sm primary" title="Type it into your terminal without pressing Enter" onClick={() => insert(text)}><Icon name="insert" size={14} />Insert in terminal</button>
+        : terminal && openTerminal && <button className="btn sm" onClick={openTerminal}><Icon name="terminal" size={14} />Terminal</button>}
     </div>
   );
 }

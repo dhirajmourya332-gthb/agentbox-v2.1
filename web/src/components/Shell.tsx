@@ -73,6 +73,8 @@ function RailLink({ to, current, icon, children, className }: { to: Route; curre
     ? skillsArea.includes(current.name)
     : to.name === "room"
     ? current.name === "room" && current.id === to.id
+    : to.name === "setup"
+    ? current.name === "setup" && (!to.id || to.id === current.id)
     : to.name === current.name && (to.name !== "agent" || (current.name === "agent" && current.id === to.id));
   return (
     <a className={`item${className ? ` ${className}` : ""}`} href={href(to)} aria-current={active ? "page" : undefined}>
@@ -162,13 +164,13 @@ function TeamItem({ role, route }: { role: Agent; route: Route }) {
             <span className={`chev${open ? " open" : ""}`}><Icon name="chevron" size={10} /></span>
           </button>
         ) : <span className="tiny-spacer" />}
-        <RailLink to={{ name: "agent", id: role.id }} current={route} className="work-link" icon={<Avatar name={role.name} color={role.color} size={18} />}>
+        <RailLink to={role.builtin === "setup" ? { name: "setup" } : { name: "agent", id: role.id }} current={route} className="work-link" icon={<Avatar name={role.name} color={role.color} size={18} />}>
           <span className="grow">{role.name}</span>
           <span className="rail-sub">{working ? `${working} working` : live.length ? `${live.length} idle` : role.builtin ? "built-in" : ""}</span>
         </RailLink>
       </div>
       {open && live.map((a) => (
-        <RailLink key={a.id} to={{ name: "agent", id: a.id }} current={route} className="work-child" icon={<StatusGlyph status={a.status} />}>
+        <RailLink key={a.id} to={role.builtin === "setup" ? { name: "setup", id: a.id } : { name: "agent", id: a.id }} current={route} className="work-child" icon={<StatusGlyph status={a.status} />}>
           <span className="grow" title={`${a.label} · ${a.name}`}>{a.label ?? a.name}</span>
           <span className="rail-sub">{a.name}</span>
         </RailLink>
@@ -217,6 +219,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
           </RailLink>
           <RailLink to={{ name: "integrations" }} current={route} icon={<Icon name="plug" />}>Integrations</RailLink>
+          <RailLink to={{ name: "setup" }} current={route} icon={<Icon name="terminal" />}>Setup</RailLink>
         </div>
 
         <Section id="work" label="Work">

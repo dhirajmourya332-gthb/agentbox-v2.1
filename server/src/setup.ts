@@ -85,8 +85,8 @@ export function setupTaskFor(
   if (existing) return { instance: existing, created: false };
   const inst = deps.spawn(role.id, label);
   const prompts = {
-    connect: `Connect the ${it.title} integration (id \`${it.id}\`). Check its status, ask me for any settings it needs, run the steps, stop at the login gates for me, then verify and propose which agents should use it.`,
-    reconnect: `Reconnect the ${it.title} integration (id \`${it.id}\`): check what's failing, repair it (re-run steps, walk me through a new login if needed), and verify.`,
+    connect: `Connect the ${it.title} integration (id \`${it.id}\`). Check its status and put its steps on the checklist (set_plan), ask me for any settings it needs, run your steps, guide me through the logins in my terminal, then verify and propose which agents should use it.`,
+    reconnect: `Reconnect the ${it.title} integration (id \`${it.id}\`): check what's failing, put the repair steps on the checklist (set_plan), repair it (re-run steps, walk me through a new login in my terminal if needed), and verify.`,
     disconnect: `Disconnect the ${it.title} integration (id \`${it.id}\`). Tell me what that removes and how to revoke its credentials, then disconnect it when I confirm.`,
   };
   deps.send(inst.id, prompts[action]);

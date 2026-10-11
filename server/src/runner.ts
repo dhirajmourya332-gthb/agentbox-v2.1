@@ -68,7 +68,7 @@ export const taskRow = (id: string) => get(`SELECT * FROM tasks WHERE id = ?`, i
 export type NewTask = {
   agentId: string;
   threadId: string;
-  source: "user" | "agent" | "message" | "result" | "cron" | "group" | "compact";
+  source: "user" | "agent" | "message" | "result" | "cron" | "group" | "compact" | "setup";
   title: string;
   prompt: string;
   fromAgentId?: string | null;

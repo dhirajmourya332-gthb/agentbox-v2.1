@@ -371,3 +371,37 @@ Details in docs/MODULES.md (format, CLI, the `status --json` shape) and docs/GUI
   `/team/integrations/github.md` is mentioned only when GitHub is connected.
 - **Selftest § 8:** the setup helper's narrow NOPASSWD rule passes; only blanket NOPASSWD warns
   (a running setup turn or the guide is a note).
+
+## Changes (setup workspace)
+The setup agent gets its own screen, in the first-run guide's spirit: chat, the owner's terminal and a
+checklist the agent writes, on one page (`#/setup/<session>`; `#/setup` opens the latest live session
+or a new one). A setup session is a setup task instance.
+- **Entry points:** the sidebar (Setup, and the setup role under Team), the Overview's Team card,
+  Integrations' Connect / Reconnect / Disconnect, the New-task form ("Start with setup"), and any link to a
+  setup instance (`#/agents/<id>` redirects). The role page still holds the owner's notes.
+- **Layout:** checklist and chat on the left, terminal on the right; resizable splits (drag or arrow
+  keys), each panel expands to the full screen (button; Esc restores, except inside the terminal where
+  Esc belongs to the shell); remembered in `localStorage` (`agentbox.setup.layout`). ≤ 900 px: tabs.
+  Every panel stays mounted, so the terminal keeps its connection.
+- **The checklist** (`server/src/setupPlan.ts`, table `setup_plans`, one per session): setup-only MCP
+  tools `set_plan(title, steps[])`, `update_step(id, …)`, `add_steps(steps, after?)`. A step has `id`,
+  `title`, `why`, `instructions` (Markdown), `commands[]` (single lines without control characters, so
+  "Insert in terminal" can never press Enter), `check` (read-only, no sudo), `human`, or
+  `integration` + `integration_step` (checked through `agentbox integration status <id> --json`;
+  `{ integration }` alone expands to all of its steps). Steps that come back unchanged keep their progress.
+- **The checker:** every ~3 s the current step's check runs as the portal's user (`bash -lc`, a minimal
+  environment without the portal's secrets, 10 s timeout with the process group killed, output capped to
+  4 KB and redacted). Pass → done, the pointer moves, and the agent gets one queued note in its thread
+  (task source `setup`, a `system` message), debounced (4 s) and at most once per step. A failing poll
+  stays pending with its last output; the owner's "Check now" that fails shows as failed. Owner
+  buttons: Check now, Mark done, Skip, Reopen (`POST /api/setup/plans/:id/steps/:step`, refused with the
+  local token). Right after `set_plan`, every check runs once and already-done steps are ticked (no note).
+- **The terminal** (`server/src/terminal.ts`): one login shell for the owner in a node-pty inside the
+  portal (node-pty is an optional dependency; without it the panel falls back to ttyd at `/term/`, which
+  the agent can't read). A headless xterm keeps the rendered screen for `read_terminal(lines=200)`
+  (setup role only), whose text is redacted (`server/src/redact.ts`: AWS key ids and secrets, GitHub,
+  GitLab and Slack tokens, JWTs, Authorization headers, private keys, URL passwords, one-time codes,
+  password=…, long credential-like values after token/secret/password/key). The WebSocket
+  `/api/setup/terminal` is behind the portal's auth, needs a browser Origin and refuses the local-token
+  header. There is no tool or API that writes to it; only the owner's page does.
+- **Events:** `setup.plan` (the plan view) and `setup.check` (a check started / ended), both ephemeral.

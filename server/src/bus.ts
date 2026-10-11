@@ -32,7 +32,9 @@ export type BusEvent =
   | { type: "integration.updated"; integrationId: string } // its state may have changed: refetch
   | { type: "integration.job"; integrationId: string; job: any } // a connect / verify / disconnect started or ended
   | { type: "integration.mapping"; integrationId: string; roles: string[] } // role ↔ integration mapping changed
-  | { type: "approval.updated"; approval: any }; // approvals.ts: a proposal was made or decided
+  | { type: "approval.updated"; approval: any } // approvals.ts: a proposal was made or decided
+  | { type: "setup.plan"; instanceId: string; plan: any } // setupPlan.ts: a setup session's checklist changed
+  | { type: "setup.check"; instanceId: string; stepId: string; running: boolean; at: string; ok?: boolean }; // a step's check started / ended
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
@@ -42,7 +44,7 @@ emitter.setMaxListeners(100);
 // Streaming deltas and live progress are too chatty to keep; everything else is the activity log.
 // Run updates are derived state (the run rows and routine.updated already record runs).
 const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared", "routine-run.updated",
-  "integration.output", "integration.updated"]);
+  "integration.output", "integration.updated", "setup.plan", "setup.check"]);
 
 export function publish(event: BusEvent) {
   if (!EPHEMERAL.has(event.type)) {

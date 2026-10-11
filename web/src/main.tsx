@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, Suspense, lazy, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@fontsource/ibm-plex-sans/400.css";
 import "@fontsource/ibm-plex-sans/500.css";
@@ -23,6 +23,8 @@ import { DocumentsPage } from "./views/DocumentsPage.tsx";
 import { LinkedFileReader } from "./views/Documents.tsx";
 import { Devices } from "./views/Devices.tsx";
 import { Integrations } from "./views/Integrations.tsx";
+// The Setup workspace brings xterm.js: loaded on first use.
+const SetupWorkspace = lazy(() => import("./views/SetupWorkspace.tsx").then((m) => ({ default: m.SetupWorkspace })));
 
 /** Clicking a file path anywhere opens it in the reader (Cmd/Ctrl/middle-click still opens a tab). */
 function FileLinks() {
@@ -70,6 +72,7 @@ function App() {
       {route.name === "system" && <System />}
       {route.name === "devices" && <Devices />}
       {route.name === "integrations" && <Integrations />}
+      {route.name === "setup" && <Suspense fallback={<div className="page" />}><SetupWorkspace key={route.id ?? "latest"} instanceId={route.id} /></Suspense>}
       <FileLinks />
     </Shell>
   );

@@ -33,7 +33,8 @@ export function NewTask({ roleId }: { roleId?: string }) {
     try {
       const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths);
       att.clear();
-      go({ name: "agent", id: inst.id });
+      // The setup agent works in its own workspace (chat, terminal and checklist on one screen).
+      go(role.builtin === "setup" ? { name: "setup", id: inst.id } : { name: "agent", id: inst.id });
     } catch (e: any) {
       setError(e.message);
       setBusy(false);
@@ -95,7 +96,9 @@ export function NewTask({ roleId }: { roleId?: string }) {
             placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the partner portal. Ask me before filing the epic." : "e.g. Fix Dependabot alert #1234 in acme/web-app."} />
           <VoiceStatus v={voice} />
           <AttachmentStrip a={att} />
-          <span className="hint">{att.uploading ? "Uploading image…" : "Paste (⌘V), drop or attach screenshots; the agent can open them."}</span>
+          <span className="hint">{att.uploading ? "Uploading image…" : role?.builtin === "setup"
+            ? "It opens in the Setup workspace: your terminal, the chat and a checklist on one screen. Never paste tokens or passwords here."
+            : "Paste (⌘V), drop or attach screenshots; the agent can open them."}</span>
         </div>
         <div className="field">
           <label htmlFor="nt-title">Title <span className="hint">(optional; defaults to the first line)</span></label>
@@ -107,7 +110,7 @@ export function NewTask({ roleId }: { roleId?: string }) {
           <span className="grow" />
           <span className="hint">⌘⏎ to start</span>
           <button className="btn primary" disabled={!role || (!text.trim() && !att.paths.length) || att.uploading || busy} onClick={start}>
-            {busy ? "Starting…" : `Start${role ? ` with ${role.name}` : ""}`}
+            {busy ? "Starting…" : role?.builtin === "setup" ? "Start with setup" : `Start${role ? ` with ${role.name}` : ""}`}
           </button>
         </div>
       </div>
