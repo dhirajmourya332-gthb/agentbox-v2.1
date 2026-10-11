@@ -1,45 +1,27 @@
 /**
- * Profile toggles: pure, shared by the guide server and the page (no Node imports here).
+ * The first-run "profile" step (docs/V2-ARCHITECTURE.md § 10.1): the only choice is how the owner
+ * will reach agentbox (the access mode). No module picking: the first run sets up the base for
+ * everyone, and integrations are connected later from the portal. Pure, shared by the guide
+ * server and the page (no Node imports here).
  */
-export type Dep = { id: string; depends: string[] };
-export const REQUIRED_IDS = ["core", "claude", "access"];
+export type AccessMode = "tailscale" | "cloudflare" | "ssh-tunnel";
 
-/** Modules that (transitively) depend on `id`, among `mods`. */
-export function dependentsOf(mods: Dep[], id: string): string[] {
-  const out = new Set<string>();
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const m of mods) {
-      if (out.has(m.id) || m.id === id) continue;
-      if (m.depends.some((d) => d === id || out.has(d))) { out.add(m.id); grew = true; }
-    }
-  }
-  return [...out];
-}
+export const ACCESS_MODES: { id: AccessMode; title: string; description: string; recommended?: boolean }[] = [
+  {
+    id: "tailscale", recommended: true, title: "Tailscale",
+    description: "The portal on your private tailnet only (https://<name>.ts.net). Needs a free Tailscale account and the app on your devices. Also what the phone app uses.",
+  },
+  {
+    id: "cloudflare", title: "Cloudflare Tunnel + Access",
+    description: "The portal at a hostname on your Cloudflare domain, behind Cloudflare Access (SSO or an email code; only your email is let in). No VPN client needed.",
+  },
+  {
+    id: "ssh-tunnel", title: "SSH tunnel (localhost only)",
+    description: "Nothing is published: you open the portal through an SSH, SSM or IAP port forward from your computer (on Lima, the forwarded localhost port).",
+  },
+];
 
-/** `id` plus everything it (transitively) depends on. */
-export function dependenciesOf(mods: Dep[], id: string): string[] {
-  const byId = new Map(mods.map((m) => [m.id, m]));
-  const out = new Set<string>();
-  const visit = (x: string) => {
-    for (const d of byId.get(x)?.depends ?? []) if (!out.has(d)) { out.add(d); visit(d); }
-  };
-  visit(id);
-  return [...out];
-}
+export const isAccessMode = (v: unknown): v is AccessMode => ACCESS_MODES.some((m) => m.id === v);
 
-/**
- * One toggle in the profile step: switching a module on also switches on what it needs; switching
- * it off also switches off what needs it. Required modules never change. Returns the new on/off map
- * for the optional modules.
- */
-export function toggleModule(mods: Dep[], current: Record<string, boolean>, id: string, on: boolean) {
-  const next = { ...current };
-  if (REQUIRED_IDS.includes(id) || !(id in next)) return next;
-  next[id] = on;
-  if (on) { for (const d of dependenciesOf(mods, id)) if (d in next) next[d] = true; }
-  else { for (const d of dependentsOf(mods, id)) if (d in next) next[d] = false; }
-  return next;
-}
-
+/** The integrations the Finish card points to (connected later from the portal). */
+export const NEXT_INTEGRATIONS = "GitHub/GitLab/Bitbucket, AWS/GCP/Azure, Kubernetes…";

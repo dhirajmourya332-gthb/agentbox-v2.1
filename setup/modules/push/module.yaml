@@ -1,8 +1,14 @@
 id: push
+kind: integration
+category: extras
 title: Push notifications
 description: '"Needs you" notifications on paired phones through Expo push and Firebase Cloud Messaging'
 optional: true
 depends: [mobile-app]
+skills: []
+default_roles: []
+revoke: |
+  Delete `$(agentbox config get paths.secrets)/google-services.json`, and the FCM service-account key in Firebase and Expo.
 steps:
   - id: firebase
     title: Create the Firebase project and add google-services.json

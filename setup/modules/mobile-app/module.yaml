@@ -1,8 +1,14 @@
 id: mobile-app
+kind: integration
+category: extras
 title: Phone app (Android)
 description: Build the agentbox Android app with Expo EAS (cloud build; no Android SDK on the VM)
 optional: true
 depends: [mobile]
+skills: []
+default_roles: []
+revoke: |
+  On the VM: `eas logout`. Revoke the session at https://expo.dev → Account settings → Sessions.
 steps:
   - id: install
     title: Install the EAS CLI

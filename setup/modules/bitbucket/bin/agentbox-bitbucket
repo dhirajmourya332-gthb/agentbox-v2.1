@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# agentbox-bitbucket: Bitbucket Cloud's REST API (https://api.bitbucket.org/2.0) with the token the
+# owner saved in <secrets>/bitbucket.env. Atlassian maintains no Bitbucket CLI, so this is curl.
+# The token never appears in arguments, the environment of child processes, or the output.
+#
+#   agentbox-bitbucket api <path> [curl args…]   e.g. api /user, api "/repositories/acme/web/pullrequests?state=OPEN"
+#   agentbox-bitbucket whoami                    the account the token belongs to
+#   agentbox-bitbucket check                     exit 0 when the token works (read-only)
+#   agentbox-bitbucket git-credential get        git credential helper for https://bitbucket.org
+#
+# <secrets>/bitbucket.env (saved with `agentbox secret set bitbucket.env`), one of:
+#   BITBUCKET_EMAIL=you@example.com + BITBUCKET_API_TOKEN=…   an Atlassian API token with Bitbucket scopes
+#   BITBUCKET_ACCESS_TOKEN=…                                  a workspace / project / repository access token
+set -euo pipefail
+API="https://api.bitbucket.org/2.0"
+secrets="$(agentbox config get paths.secrets 2>/dev/null || echo /secrets)"
+file="${AGENTBOX_BITBUCKET_ENV:-$secrets/bitbucket.env}"
+
+die() { printf 'agentbox-bitbucket: %s\n' "$*" >&2; exit 1; }
+load() {
+  [ -r "$file" ] || die "no token: save one with 'agentbox secret set bitbucket.env' (see /team/integrations/bitbucket.md)"
+  email="" token="" access=""
+  while IFS='=' read -r k v; do
+    v="${v%$'\r'}"; v="${v#\"}"; v="${v%\"}"
+    case "$k" in
+      BITBUCKET_EMAIL) email="$v" ;;
+      BITBUCKET_API_TOKEN) token="$v" ;;
+      BITBUCKET_ACCESS_TOKEN) access="$v" ;;
+    esac
+  done < "$file"
+  [ -n "$access" ] || { [ -n "$email" ] && [ -n "$token" ]; } || die "$file needs BITBUCKET_EMAIL and BITBUCKET_API_TOKEN, or BITBUCKET_ACCESS_TOKEN"
+}
+# curl reads the credentials from a config on stdin (-K -), so they never show in `ps`.
+auth_config() {
+  if [ -n "$access" ]; then printf 'header = "Authorization: Bearer %s"\n' "$access"
+  else printf 'user = "%s:%s"\n' "$email" "$token"; fi
+}
+api() {
+  local p="${1:?path}"; shift
+  case "$p" in http*) die "give a path under $API, not a URL" ;; /*) ;; *) p="/$p" ;; esac
+  auth_config | curl -fsS --max-time 30 -K - -H "Accept: application/json" "$@" "$API$p"
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  api) load; api "$@" ;;
+  whoami) load; api /user | jq -r '.username // .nickname // .display_name' ;;
+  check) load; api /user >/dev/null ;;
+  git-credential)
+    [ "${1:-}" = get ] || exit 0
+    load
+    # API tokens: username x-bitbucket-api-token-auth; access tokens: x-token-auth.
+    if [ -n "$access" ]; then printf 'username=x-token-auth\npassword=%s\n' "$access"
+    else printf 'username=x-bitbucket-api-token-auth\npassword=%s\n' "$token"; fi ;;
+  ""|-h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command: $cmd (api, whoami, check, git-credential)" ;;
+esac

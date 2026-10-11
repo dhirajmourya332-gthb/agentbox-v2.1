@@ -147,7 +147,7 @@ export function computeRoadmap(inp: RoadmapInput) {
     const steps = moduleSteps(m, conf, inp, inProfile);
     return {
       id: m.id, title: m.title, description: m.description, optional: m.optional, depends: m.depends,
-      enabled: inProfile, implied: inProfile && !isOn(conf, m.id), state: rollup(steps, inProfile), steps,
+      enabled: inProfile, implied: inProfile && !isOn(conf, m), state: rollup(steps, inProfile), steps,
     };
   };
   for (const id of profile.order) views.push(mk(byId.get(id)!, true));

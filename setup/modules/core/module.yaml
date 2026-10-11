@@ -1,4 +1,5 @@
 id: core
+kind: base                 # the first run sets up every base module (docs/MODULES.md)
 title: agentbox core
 description: Node 22, the agentbox server and portal (127.0.0.1:<ports.portal>), its systemd unit, directories and the database
 optional: false

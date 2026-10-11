@@ -321,3 +321,31 @@ A catalog grouped by category. Each card shows: status, the connected account an
 - `agentbox integration render`: re-renders `/team/integrations/*` from the settings.
 
 `agentbox module` keeps working for base modules.
+
+## Changes (integrations workstream)
+Details in docs/MODULES.md (format, CLI, the `status --json` shape) and docs/GUIDE.md.
+- **Manifests:** every module has `kind: base|integration`. Integration extras beyond § 10.2:
+  `available: false` (a catalog entry only: `teams`, `slack`), `account` (a read-only command printing
+  the connected account, for the portal's card), `revoke` (printed on disconnect). Settings entries
+  have `type` (string, list, boolean, number, enum via `options`), `default`, `pattern`, `example`.
+- **Templates:** `{{key}}`, `{{#key}}…{{/key}}` (repeats over a list), `{{^key}}…{{/key}}`, plus
+  `<key>_<option>` flags for enums and `has_<key>` for lists; the steps' `instructions` / `copy`
+  are rendered too. Renderer: `cli/integrations.mjs` (no dependency).
+- **State:** connected = enabled (`modules.<id>: true`, still the server's feature switch) + every
+  applicable check green + settings saved and valid. Extra state `unavailable`. The last
+  connect / verify / disconnect is kept in `/etc/agentbox/integrations/<id>.state.json` (the `error`
+  and `disconnected` states). `connect` saves empty settings when none are required.
+- **`/team` examples are gone:** `github.md` (+ `branching.md`), `kubernetes.md`, `db-tunnel.md`,
+  `env-files.md` became the integrations' `instructions.md`, rendered to `/team/integrations/<id>.md`.
+  The seed skills now read `/team/integrations/github.md` (same Settings row names).
+- **`kubernetes` no longer depends on `aws`** (EKS, GKE, AKS or any cluster; a `provider` setting).
+- **`agentbox module enable|disable|install <id>` refuses integrations** and names the
+  `integration` command; `module list` shows the base; `module install --enabled` still installs every
+  enabled module (a repair) and re-renders connected integrations. `agentbox status` lists the base
+  and the connected integrations separately (`--json`: `modules` = base, plus `integrations`).
+- **Nothing restarts the portal** on connect / disconnect (the setup agent runs inside it): the
+  server must notice `modules.<id>` changes itself.
+- **Default config:** every integration off (`github` too); `gitlab`, `bitbucket`, `gcp`, `azure` added.
+- **Guide:** loads `kind: base` only; the profile step is the access choice (`POST /api/profile
+  {"access": …}`); the setup agent's hook also refuses `glab`/`gcloud`/`az` logins and `agentbox
+  integration connect|disconnect`.

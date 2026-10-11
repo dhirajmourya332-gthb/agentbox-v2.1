@@ -1,0 +1,43 @@
+id: gitlab
+kind: integration
+category: code-hosting
+title: GitLab
+description: git + glab, GitLab's official CLI, so agents can work with projects, issues and merge requests (gitlab.com or self-managed)
+optional: true
+depends: [core]
+settings:
+  - { key: host, prompt: "GitLab host name", default: gitlab.com, pattern: '^[A-Za-z0-9.-]+(:[0-9]+)?$' }
+  - { key: default_project, prompt: "Default project (group/name, subgroups allowed)", pattern: '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$', example: acme/web-app }
+  - { key: other_projects, type: list, prompt: "Other projects agents may work in (comma-separated)", pattern: '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$' }
+  - { key: issue_assignee, prompt: "GitLab username assigned to new issues (empty: don't assign)", pattern: '^[A-Za-z0-9_.-]+$' }
+  - { key: labels, type: list, prompt: "Label catalogue: the only labels agents may use" }
+  - { key: base_branch, prompt: "The main branch", default: main, pattern: '^[A-Za-z0-9._/-]+$' }
+  - { key: merge_approval, prompt: "Who approves merges to the main branch", default: owner }
+instructions:
+  summary: |
+    GitLab ({{host}}): use `glab` for issues, merge requests and pipelines{{#default_project}} (default project {{default_project}}){{/default_project}}.
+    Read /team/integrations/gitlab.md before you file an issue, cut a branch or open a merge request.
+  file: instructions.md
+skills: []
+default_roles: [tech-lead, coder, tester, devops]
+account: "glab api user --hostname \"$(agentbox integration settings gitlab --get host)\" | jq -r .username"
+revoke: |
+  On the VM: `glab auth logout --hostname <host>`. On GitLab: Preferences → Access tokens (or Applications) → revoke the token glab created.
+steps:
+  - id: install
+    title: Install git and glab
+    run: install.sh
+    check: "command -v glab && command -v git"
+  - id: login
+    title: Log in to GitLab
+    human: true
+    instructions: |
+      In the terminal run: `glab auth login --hostname {{host}}` and follow the prompts (sign in
+      with the web browser, or paste a personal access token with the `api` and `write_repository`
+      scopes; it's stored by glab on the VM, never in the portal). Choose HTTPS for git.
+    copy: "glab auth login --hostname {{host}}"
+    check: "glab auth status --hostname \"$(agentbox integration settings gitlab --get host)\""
+  - id: verify
+    title: The GitLab API answers
+    run: verify.sh
+    check: "glab api user --hostname \"$(agentbox integration settings gitlab --get host)\" >/dev/null"

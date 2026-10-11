@@ -5,13 +5,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parse, parseDocument, stringify } from "yaml";
+import {
+  integrationState, normalizeIntegration, parseAssignments, remainingGates, render, renderContext, stepViews, validateSettings,
+} from "./integrations.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const CONFIG = process.env.AGENTBOX_CONFIG || "/etc/agentbox/config.yaml";
 const REQUIRED = ["core", "claude", "access"];
+/** Integration settings, summaries and connect records (no secrets). */
+const INT_DIR = process.env.AGENTBOX_INTEGRATIONS_DIR || "/etc/agentbox/integrations";
 const tty = process.stdout.isTTY;
 const c = (code, s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
 const green = (s) => c(32, s), red = (s) => c(31, s), yellow = (s) => c(33, s), dim = (s) => c(2, s), bold = (s) => c(1, s);
@@ -89,9 +94,11 @@ function printValue(v) {
 const isRoot = () => process.getuid?.() === 0;
 /** Re-run this command as root (keeping the config and source locations). */
 function asRoot(args) {
-  if (isRoot()) return;
+  // AGENTBOX_NO_SUDO=1 (the CLI's tests): run as is; writes simply fail without the permissions.
+  if (isRoot() || process.env.AGENTBOX_NO_SUDO === "1") return;
   const env = [`AGENTBOX_CONFIG=${CONFIG}`];
   if (process.env.AGENTBOX_SRC) env.push(`AGENTBOX_SRC=${process.env.AGENTBOX_SRC}`);
+  if (process.env.AGENTBOX_INTEGRATIONS_DIR) env.push(`AGENTBOX_INTEGRATIONS_DIR=${process.env.AGENTBOX_INTEGRATIONS_DIR}`);
   const r = spawnSync("sudo", ["env", ...env, process.execPath, SELF, ...args], { stdio: "inherit" });
   process.exit(r.status ?? 1);
 }
@@ -125,6 +132,38 @@ function runCheck(conf, check) {
   return r.status === 0;
 }
 
+/** The same, without blocking (for status of many integrations): { ok, code, output, timedOut }. */
+function runCheckAsync(conf, check, { capture = false, timeoutMs = 10_000 } = {}) {
+  const user = agentUser(conf);
+  const me = os.userInfo().username;
+  const [cmd, args] = me === user ? ["bash", ["-lc", check]] : ["sudo", ["-n", "-H", "-u", user, "--", "bash", "-lc", check]];
+  return new Promise((resolve) => {
+    let out = "", stdout = "", timedOut = false;
+    // Its own process group, so a timeout kills the whole check (bash and its children).
+    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, "SIGKILL"); } catch { /* gone */ } }, timeoutMs);
+    const take = (b) => { out += b; if (out.length > 64 * 1024) out = out.slice(-16 * 1024); };
+    child.stdout.on("data", (b) => { take(b); if (capture && stdout.length < 64 * 1024) stdout += b; });
+    child.stderr.on("data", take);
+    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, code: 127, output: e.message, timedOut: false }); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const text = out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trim();
+      // capture: stdout only (a login shell may print noise on stderr), whole.
+      resolve({ ok: code === 0 && !timedOut, code: timedOut ? null : code, output: capture ? stdout.trim() : text.split("\n").slice(-6).join("\n").slice(-600), timedOut });
+    });
+  });
+}
+/** Run async jobs with a concurrency limit, keeping order. */
+async function pool(items, n, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
+  }));
+  return out;
+}
+
 // --- modules ---------------------------------------------------------------------------------------
 
 function modulesDir(conf) { return path.join(srcDir(conf), "setup", "modules"); }
@@ -142,6 +181,12 @@ function allModules(conf) {
     .map((d) => loadModule(conf, d.name));
 }
 const isEnabled = (conf, id) => REQUIRED.includes(id) || conf.modules?.[id] === true;
+/** Base modules (kind: base) are the first run's; everything else is an integration (§ 10). */
+const isIntegration = (m) => m.kind === "integration";
+const baseModules = (conf) => allModules(conf).filter((m) => !isIntegration(m));
+function notAnIntegration(m, verb) {
+  if (isIntegration(m)) fail(`${m.id} is an integration: use \`agentbox integration ${verb} ${m.id}\` (agentbox module is for the base modules)`);
+}
 
 /** Dependency order (depends first). */
 function ordered(conf, ids) {
@@ -275,7 +320,7 @@ function copyTeam(conf, m) {
   }
 }
 
-function installModule(conf, m) {
+function installModule(conf, m, { gates = true } = {}) {
   console.log(bold(`\n### ${m.id}: ${m.title ?? ""}`));
   const logFile = progressLog(conf, m);
   runScript(conf, m, "install.sh", logFile);
@@ -286,6 +331,7 @@ function installModule(conf, m) {
     systemctl("enable", ...m.units);
     systemctl("restart", ...m.units);
   }
+  if (!gates) return 0;
   const pending = m.steps.filter((s) => s.human && s.check && when(conf, s.when) && !runCheck(conf, s.check));
   for (const s of pending) {
     console.log(yellow(`  YOUR TURN: ${s.title}`));
@@ -312,6 +358,382 @@ function stepStates(conf, m) {
     return { ...s, state: okNow ? "ok" : s.human ? "you" : "fail" };
   });
 }
+
+// --- integrations (§ 10) ---------------------------------------------------------------------------
+
+function loadIntegration(conf, id) {
+  const m = loadModule(conf, id);
+  if (!isIntegration(m)) fail(`${id} is a base module, not an integration: use \`agentbox module …\``);
+  try { return normalizeIntegration(m); } catch (e) { fail(e.message); }
+}
+function allIntegrations(conf) {
+  return allModules(conf).filter(isIntegration).map((m) => {
+    try { return normalizeIntegration(m); } catch (e) { fail(e.message); }
+  });
+}
+const intFile = (id, ext) => path.join(INT_DIR, `${id}${ext}`);
+const teamFile = (conf, id) => path.join(conf.paths?.team ?? "/team", "integrations", `${id}.md`);
+
+function readYamlFile(file) {
+  let text;
+  try { text = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; fail(`cannot read ${file} (${e.code ?? e})`); }
+  try { return parse(text) ?? {}; } catch (e) { fail(`${file}: ${e.message}`); }
+}
+/** The saved settings (null: never saved). */
+const readSettings = (id) => readYamlFile(intFile(id, ".yaml"));
+function writeAtomic(file, text, mode = 0o644) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o755 });
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, text, { mode });
+  fs.chmodSync(tmp, mode);
+  fs.renameSync(tmp, file);
+}
+function writeSettings(m, values) {
+  const head = `# ${m.title} integration settings (agentbox integration settings ${m.id}). No secrets here.\n`;
+  writeAtomic(intFile(m.id, ".yaml"), head + stringify(values ?? {}));
+}
+/** The last connect / verify / disconnect (for the error and disconnected states). */
+function readLast(id) {
+  try { return JSON.parse(fs.readFileSync(intFile(id, ".state.json"), "utf8")); } catch { return null; }
+}
+function writeLast(id, last) {
+  try { writeAtomic(intFile(id, ".state.json"), `${JSON.stringify({ ...last, at: new Date().toISOString() })}\n`); } catch { /* not root: a read-only caller */ }
+}
+
+/** Render a template text for an integration with its settings (a broken template is a manifest bug). */
+function renderFor(conf, m, text, saved) {
+  try { return render(text, renderContext(m.settings, saved ?? readSettings(m.id) ?? {}, conf)); } catch (e) { fail(`${m.id}: ${e.message}`); }
+}
+
+/** /team/integrations/<id>.md and <INT_DIR>/<id>.summary.md from the templates and the settings. */
+function renderIntegration(conf, m) {
+  const saved = readSettings(m.id) ?? {};
+  const written = [];
+  if (m.instructions.summary) {
+    const f = intFile(m.id, ".summary.md");
+    writeAtomic(f, `${renderFor(conf, m, m.instructions.summary, saved).trim()}\n`);
+    written.push(f);
+  }
+  if (m.instructions.file) {
+    const tpl = path.join(m.dir, m.instructions.file);
+    if (!fs.existsSync(tpl)) fail(`${m.id}: ${tpl} is missing`);
+    const body = renderFor(conf, m, fs.readFileSync(tpl, "utf8"), saved).replace(/\n{3,}/g, "\n\n").trim();
+    const head = `<!-- Generated by agentbox from setup/modules/${m.id}/${m.instructions.file} and ${intFile(m.id, ".yaml")}.\n` +
+      `     Don't edit: change the settings (agentbox integration settings ${m.id} --set key=value), or put\n` +
+      `     your team's own rules in ${conf.paths?.team ?? "/team"}/*.md. -->\n\n`;
+    const f = teamFile(conf, m.id);
+    const dir = path.dirname(f);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+    fs.chmodSync(dir, 0o755);
+    writeAtomic(f, `${head}${body}\n`);
+    written.push(f);
+  }
+  return written;
+}
+function removeRendered(conf, m) {
+  const gone = [];
+  for (const f of [teamFile(conf, m.id), intFile(m.id, ".summary.md")]) {
+    if (fs.existsSync(f)) { fs.rmSync(f, { force: true }); gone.push(f); }
+  }
+  return gone;
+}
+
+/** Everything the portal and the setup agent need about one integration (`integration status --json`). */
+async function integrationView(conf, m, { checks = true } = {}) {
+  const enabled = conf.modules?.[m.id] === true;
+  const savedRaw = readSettings(m.id);
+  const v = validateSettings(m.settings, savedRaw ?? {});
+  const results = {};
+  if (checks && m.available) {
+    const todo = m.steps.filter((s) => s.check && when(conf, s.when));
+    const rs = await pool(todo, 4, (s) => runCheckAsync(conf, s.check));
+    todo.forEach((s, i) => { results[s.id] = rs[i]; });
+  }
+  const ctx = renderContext(m.settings, savedRaw ?? {}, conf);
+  const renderText = (t) => { try { return render(t, ctx); } catch { return t; } };
+  const steps = stepViews(m.steps, results, { enabled, applies: (s) => when(conf, s.when), renderText });
+  const last = readLast(m.id);
+  const state = integrationState({ available: m.available, enabled, steps, settingsSaved: savedRaw !== null || m.settings.length === 0, missing: v.missing, errors: v.errors, last });
+  let account = null;
+  if (checks && enabled && m.account && steps.every((s) => s.state !== "pending" || !s.human)) {
+    const r = await runCheckAsync(conf, m.account, { capture: true });
+    if (r.ok) account = r.output.split("\n")[0].trim().slice(0, 120) || null;
+  }
+  let summary = null;
+  if (m.instructions.summary) summary = renderText(m.instructions.summary).trim();
+  const tf = m.instructions.file ? teamFile(conf, m.id) : null;
+  const view = {
+    id: m.id,
+    title: m.title ?? m.id,
+    description: String(m.description ?? "").trim(),
+    category: m.category,
+    available: m.available,
+    enabled,
+    state,
+    account,
+    depends: m.depends,
+    steps,
+    settings: {
+      file: intFile(m.id, ".yaml"),
+      saved: savedRaw !== null,
+      schema: m.settings,
+      values: v.values,
+      missing: v.missing,
+      errors: v.errors,
+    },
+    instructions: {
+      summary,
+      summary_file: m.instructions.summary ? intFile(m.id, ".summary.md") : null,
+      file: tf,
+      rendered: tf ? fs.existsSync(tf) : !!(m.instructions.summary && fs.existsSync(intFile(m.id, ".summary.md"))),
+    },
+    skills: m.skills,
+    default_roles: m.default_roles,
+    revoke: m.revoke,
+    gates: [],
+    last,
+    checked_at: checks ? new Date().toISOString() : null,
+  };
+  view.gates = enabled ? remainingGates(view) : [];
+  return view;
+}
+
+const STATE_MARK = { connected: green("✔"), connecting: yellow("⏸"), error: red("✖"), available: dim("○"), disconnected: dim("○"), unavailable: dim("·") };
+
+function printView(v) {
+  console.log(`${STATE_MARK[v.state] ?? " "} ${bold(v.id)} ${dim(`(${v.category})`)}  ${v.state}${v.account ? `  ${dim("as")} ${v.account}` : ""}`);
+  for (const s of v.steps) {
+    const icon = { done: green("✔"), human: yellow("⏸"), failed: red("✖"), pending: dim("○"), skipped: dim("─") }[s.state];
+    console.log(`    ${icon} ${s.id.padEnd(10)} ${s.title}`);
+    if (s.state === "failed" && s.check?.output) for (const l of s.check.output.split("\n").slice(-3)) console.log(dim(`        ${l}`));
+  }
+  for (const e of v.settings.errors) console.log(red(`    setting ${e.key}: ${e.error}`));
+}
+
+function printGates(v) {
+  if (!v.gates.length) return;
+  console.log(yellow(`\nWaiting for you (${v.id}):`));
+  for (const g of v.gates) {
+    if (g.kind === "setting") { console.log(yellow(`  - setting ${g.key}: ${g.title}`)); console.log(`      ${g.command}`); continue; }
+    console.log(yellow(`  - ${g.title}`));
+    for (const line of String(g.instructions ?? "").split("\n")) console.log(`      ${line}`);
+  }
+}
+
+/** The non-flag arguments (skipping the values of flags that take one). */
+function positional(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    if (["--set", "--unset", "--values", "--get"].includes(args[i])) { i++; continue; }
+    if (!args[i].startsWith("-")) out.push(args[i]);
+  }
+  return out;
+}
+
+/** --set k=v (repeatable), --values '<json object>', --unset k (repeatable) → { changes } */
+function settingArgs(rest) {
+  const sets = [], unsets = [];
+  let json = null;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--set") sets.push(rest[++i] ?? fail("--set key=value"));
+    else if (a.startsWith("--set=")) sets.push(a.slice(6));
+    else if (a === "--unset") unsets.push(rest[++i] ?? fail("--unset key"));
+    else if (a === "--values") {
+      try { json = JSON.parse(rest[++i] ?? ""); } catch { fail("--values takes a JSON object"); }
+      if (!json || typeof json !== "object" || Array.isArray(json)) fail("--values takes a JSON object");
+    }
+  }
+  let changes;
+  try { changes = parseAssignments(sets); } catch (e) { fail(e.message); }
+  if (json) Object.assign(changes, json);
+  for (const k of unsets) changes[k] = null;
+  return changes;
+}
+
+/** Merge changes into the saved settings; fail (nothing written) on any invalid value. */
+function applySettings(m, changes) {
+  const saved = readSettings(m.id) ?? {};
+  const v = validateSettings(m.settings, changes, { partial: true });
+  if (v.errors.length) fail(v.errors.map((e) => `${m.id}.${e.key}: ${e.error}`).join("\n"));
+  const next = { ...saved };
+  for (const [k, val] of Object.entries(changes)) {
+    if (val === null || (Array.isArray(v.values[k]) && !v.values[k].length) || v.values[k] === "") delete next[k];
+    else next[k] = v.values[k];
+  }
+  // Drop keys the schema no longer knows.
+  for (const k of Object.keys(next)) if (!m.settings.some((d) => d.key === k)) delete next[k];
+  writeSettings(m, next);
+  return next;
+}
+
+function runVerifyScript(conf, m) {
+  if (!fs.existsSync(path.join(m.dir, "verify.sh"))) return true;
+  console.log(bold(`==> ${m.id}: verify.sh`));
+  const user = agentUser(conf);
+  const env = scriptEnv(conf, m);
+  // verify.sh runs as the agent user, like the checks; it may sudo for root-only reads.
+  const me = os.userInfo().username;
+  const r = me === user
+    ? spawnSync("bash", [path.join(m.dir, "verify.sh")], { stdio: "inherit", env, cwd: m.dir })
+    : spawnSync("sudo", ["-H", "-u", user, "env", ...Object.entries(env).filter(([k]) => k.startsWith("AGENTBOX_") || k === "PATH").map(([k, v]) => `${k}=${v}`), "bash", path.join(m.dir, "verify.sh")], { stdio: "inherit", cwd: m.dir });
+  if (r.status !== 0) { console.log(red(`✖ ${m.id}: verify.sh failed`)); return false; }
+  return true;
+}
+
+async function integrationCmd(argv) {
+  const [, sub, ...rest] = argv;
+  const json = rest.includes("--json");
+  const id = positional(rest)[0];
+  const conf = cfg();
+  switch (sub) {
+    case "list": {
+      const all = allIntegrations(conf);
+      if (json) {
+        console.log(JSON.stringify({ integrations: all.map((m) => ({
+          id: m.id, title: m.title ?? m.id, description: String(m.description ?? "").trim(), category: m.category,
+          available: m.available, enabled: conf.modules?.[m.id] === true, depends: m.depends,
+        })) }, null, 2));
+        return 0;
+      }
+      let cat = null;
+      for (const m of [...all].sort((a, b) => CATEGORY_ORDER(a.category) - CATEGORY_ORDER(b.category) || a.id.localeCompare(b.id))) {
+        if (m.category !== cat) { cat = m.category; console.log(bold(`\n${cat}`)); }
+        const on = conf.modules?.[m.id] === true;
+        const tag = !m.available ? dim("soon") : on ? green("on  ") : dim("off ");
+        console.log(`  ${tag} ${m.id.padEnd(12)} ${m.title ?? ""}`);
+      }
+      console.log(dim("\nagentbox integration status [<id>] runs the checks; connect <id> sets one up."));
+      return 0;
+    }
+
+    case "status": {
+      const mods = id ? [loadIntegration(conf, id)] : allIntegrations(conf);
+      const views = await pool(mods, 4, (m) => integrationView(conf, m, { checks: !rest.includes("--no-checks") }));
+      if (json) { console.log(JSON.stringify(id ? views[0] : { integrations: views, checked_at: new Date().toISOString() }, null, 2)); return 0; }
+      for (const v of views) printView(v);
+      if (id) printGates(views[0]);
+      return id ? (views[0].state === "connected" ? 0 : 1) : 0;
+    }
+
+    case "connect": {
+      if (!id) fail("usage: agentbox integration connect <id> [--set key=value]…");
+      asRoot(argv);
+      const m = loadIntegration(conf, id);
+      if (!m.available) fail(`${id} is coming soon: it can't be connected yet`);
+      for (const d of m.depends) {
+        let dm;
+        try { dm = loadModule(conf, d); } catch { if (d === "access") continue; throw new Fail(`${id} needs ${d}, which doesn't exist`); }
+        if (isIntegration(dm) && conf.modules?.[d] !== true) fail(`${id} needs ${d}: connect it first (agentbox integration connect ${d})`);
+      }
+      const changes = settingArgs(rest);
+      if (Object.keys(changes).length) applySettings(m, changes);
+      else if (readSettings(m.id) === null && m.settings.every((d) => !d.required)) writeSettings(m, {}); // nothing to ask: saved
+      if (conf.modules?.[id] !== true) { setValue(`modules.${id}`, "true"); console.log(`modules.${id} = true`); }
+      const conf2 = cfg();
+      writeLast(id, { action: "connect", ok: null });
+      try {
+        installModule(conf2, m, { gates: false });
+      } catch (e) {
+        writeLast(id, { action: "connect", ok: false, error: String(e.message ?? e).slice(0, 2000) });
+        throw e;
+      }
+      for (const f of renderIntegration(conf2, m)) console.log(dim(`  rendered ${f}`));
+      writeLast(id, { action: "connect", ok: true });
+      const v = await integrationView(conf2, m);
+      console.log("");
+      printView(v);
+      printGates(v);
+      if (v.state === "connected") console.log(green(`\n${id} connected.`));
+      else if (!v.gates.length) console.log(yellow(`\n${id}: installed; run \`agentbox integration verify ${id}\` to finish.`));
+      console.log(dim("(The portal picks up the change on its own; nothing was restarted.)"));
+      return 0;
+    }
+
+    case "verify": {
+      if (!id) fail("usage: agentbox integration verify <id>");
+      asRoot(argv);
+      const m = loadIntegration(conf, id);
+      if (conf.modules?.[id] !== true) fail(`${id} isn't connected: agentbox integration connect ${id}`);
+      const ok = runVerifyScript(conf, m);
+      const v = await integrationView(conf, m);
+      const good = ok && v.state === "connected";
+      writeLast(id, good ? { action: "verify", ok: true } : { action: "verify", ok: false, error: ok ? `not connected yet: ${v.gates.map((g) => g.title).join("; ") || v.steps.filter((s) => s.state === "failed").map((s) => s.title).join("; ")}` : "verify.sh failed" });
+      const v2 = good ? v : await integrationView(conf, m, { checks: true });
+      printView(v2);
+      printGates(v2);
+      if (good && v.instructions.file && !v.instructions.rendered) renderIntegration(conf, m);
+      return good ? 0 : 1;
+    }
+
+    case "disconnect": {
+      if (!id) fail("usage: agentbox integration disconnect <id> [--forget]");
+      asRoot(argv);
+      const m = loadIntegration(conf, id);
+      const users = allModules(conf).filter((x) => x.id !== id && isEnabled(conf, x.id) && x.depends.includes(id));
+      if (users.length) fail(`${users.map((x) => x.id).join(", ")} need(s) ${id}; disconnect those first`);
+      runScript(conf, m, "disable.sh");
+      removeUnits(m);
+      for (const f of removeRendered(conf, m)) console.log(dim(`  removed ${f}`));
+      if (conf.modules?.[id] === true) setValue(`modules.${id}`, "false");
+      if (rest.includes("--forget")) { fs.rmSync(intFile(id, ".yaml"), { force: true }); console.log(dim(`  removed ${intFile(id, ".yaml")}`)); }
+      writeLast(id, { action: "disconnect", ok: true });
+      console.log(`${id} disconnected: its instructions are gone and agents no longer get it. Packages stay installed.`);
+      if (m.revoke) {
+        console.log(yellow("Credentials were left alone. To revoke them:"));
+        for (const l of m.revoke.split("\n")) console.log(`  ${l}`);
+      }
+      return 0;
+    }
+
+    case "settings": {
+      if (!id) fail("usage: agentbox integration settings <id> [--set key=value]… [--unset key] [--values JSON] [--get key] [--json]");
+      const m = loadIntegration(conf, id);
+      const gi = rest.indexOf("--get");
+      if (gi >= 0) {
+        const key = rest[gi + 1] ?? fail("--get <key>");
+        if (!m.settings.some((d) => d.key === key)) fail(`${id} has no setting ${key}`);
+        const ctx = renderContext(m.settings, readSettings(id) ?? {}, conf);
+        const val = ctx[key];
+        console.log(Array.isArray(val) ? val.join(",") : String(val ?? ""));
+        return 0;
+      }
+      const changes = settingArgs(rest);
+      if (Object.keys(changes).length) {
+        asRoot(argv);
+        applySettings(m, changes);
+        if (conf.modules?.[id] === true) {
+          runScript(conf, m, "configure.sh");
+          for (const f of renderIntegration(conf, m)) console.log(dim(`  rendered ${f}`));
+        }
+      }
+      const saved = readSettings(id);
+      const v = validateSettings(m.settings, saved ?? {});
+      if (json) { console.log(JSON.stringify({ id, file: intFile(id, ".yaml"), saved: saved !== null, schema: m.settings, values: v.values, missing: v.missing, errors: v.errors }, null, 2)); return 0; }
+      if (!m.settings.length) { console.log(`${id} has no settings.`); return 0; }
+      for (const d of m.settings) {
+        const has = d.key in v.values;
+        const shown = has ? (Array.isArray(v.values[d.key]) ? v.values[d.key].join(", ") : String(v.values[d.key])) : d.default !== undefined ? dim(`${Array.isArray(d.default) ? d.default.join(", ") : d.default} (default)`) : dim("(not set)");
+        console.log(`  ${(d.required && !has ? red : (x) => x)(d.key.padEnd(22))} ${shown}  ${dim(d.prompt)}`);
+      }
+      if (v.missing.length) console.log(red(`missing: ${v.missing.join(", ")}`));
+      for (const e of v.errors) console.log(red(`${e.key}: ${e.error}`));
+      return 0;
+    }
+
+    case "render": {
+      asRoot(argv);
+      const mods = id ? [loadIntegration(conf, id)] : allIntegrations(conf).filter((m) => conf.modules?.[m.id] === true);
+      if (id && conf.modules?.[id] !== true) fail(`${id} isn't connected: agentbox integration connect ${id}`);
+      for (const m of mods) for (const f of renderIntegration(conf, m)) console.log(`rendered ${f}`);
+      if (!mods.length) console.log("no connected integrations");
+      return 0;
+    }
+  }
+  fail(`usage: agentbox integration list|status|connect|verify|disconnect|settings|render [<id>]\n${USAGE_INT}`);
+}
+
+const CATEGORY_ORDER = (c) => ["code-hosting", "cloud", "cluster", "database", "chat", "extras"].indexOf(c);
 
 // --- the portal ------------------------------------------------------------------------------------
 
@@ -359,16 +781,26 @@ function enabledUnits(conf) {
 
 // --- commands ----------------------------------------------------------------------------------------
 
+const USAGE_INT = `  integration list [--json]            the catalog: GitHub, GitLab, AWS, Kubernetes… (on / off / soon)
+  integration status [<id>] [--json]   checks, state, settings, what waits for you
+  integration connect <id> [--set k=v]… install it, save settings, render its instructions (root)
+  integration verify <id>              verify.sh and every check (root: records the result)
+  integration disconnect <id> [--forget]  remove its instructions and units, run disable.sh (root)
+  integration settings <id> [--set k=v]… [--unset k] [--values JSON] [--get k] [--json]
+  integration render [<id>]            re-render /team/integrations/*.md from the settings (root)`;
+
 const USAGE = `usage: agentbox <command>
-  status [--json]                      modules (checks), services, listeners
+  status [--json]                      base modules and integrations (checks), services, listeners
   config get [<key>]                   e.g. agentbox config get paths.secrets
-  config set <key> <value>             e.g. agentbox config set modules.voice true (root)
-  module list
+  config set <key> <value>             e.g. agentbox config set access tailscale (root)
+  module list                          the base modules (core, claude, access, display, terminal)
   module check <id>                    run the module's checks (read-only)
-  module install <id>... | --enabled   install.sh, units, configure.sh, team examples (root)
-  module enable <id>                   turn on (and its dependencies), install, restart the portal
-  module disable <id>                  turn off, remove its units, restart the portal
+  module install <id>... | --enabled   install.sh, units, configure.sh (root); --enabled: every
+                                       enabled base module and connected integration (a repair)
+  module enable <id>                   turn a base module on (and its dependencies), install it
+  module disable <id>                  turn a base module off, remove its units
   module verify <id>                   verify.sh and every check
+${USAGE_INT}
   secret set <name>                    stdin → <secrets>/<name>, 0600, owned by the agent user
   update [--force]                     pull (cloud) or sync (lima), build, restart
   start | stop [--force] | restart [--force]
@@ -401,10 +833,11 @@ async function main(argv) {
     case "module": {
       const conf = cfg();
       if (sub === "list") {
-        for (const m of allModules(conf)) {
+        for (const m of baseModules(conf)) {
           const on = isEnabled(conf, m.id);
           console.log(`${on ? green("on ") : dim("off")}  ${m.id.padEnd(12)} ${m.title ?? ""}${m.depends.length ? dim(`  (needs ${m.depends.join(", ")})`) : ""}`);
         }
+        console.log(dim("\nIntegrations (GitHub, AWS, Kubernetes…): agentbox integration list"));
         return 0;
       }
       if (sub === "check") {
@@ -426,13 +859,18 @@ async function main(argv) {
         let waiting = 0;
         // With explicit ids, only those (dependencies must already be installed).
         const mods = rest.includes("--enabled") ? ordered(conf, ids) : ids.map((id) => loadModule(conf, id));
-        for (const m of mods) waiting += installModule(conf, m);
+        if (!rest.includes("--enabled")) for (const m of mods) notAnIntegration(m, "connect");
+        for (const m of mods) {
+          waiting += installModule(conf, m);
+          if (isIntegration(m)) renderIntegration(conf, loadIntegration(conf, m.id));
+        }
         console.log(waiting ? yellow(`\n${waiting} step(s) wait for you (above).`) : green("\ndone"));
         return 0;
       }
       if (sub === "enable") {
         asRoot(argv);
         const id = rest[0] ?? fail("usage: agentbox module enable <id>");
+        notAnIntegration(loadModule(conf, id), "connect");
         const mods = ordered(conf, [id]);
         const fresh = new Set();
         for (const m of mods) {
@@ -449,6 +887,7 @@ async function main(argv) {
         const id = rest[0] ?? fail("usage: agentbox module disable <id>");
         if (REQUIRED.includes(id)) fail(`${id} is always on`);
         const m = loadModule(conf, id);
+        notAnIntegration(m, "disconnect");
         const users = allModules(conf).filter((x) => x.id !== id && isEnabled(conf, x.id) && x.depends.includes(id));
         if (users.length) fail(`${users.map((x) => x.id).join(", ")} need(s) ${id}; disable those first`);
         runScript(conf, m, "disable.sh");
@@ -460,17 +899,7 @@ async function main(argv) {
       }
       if (sub === "verify") {
         const m = loadModule(conf, rest[0] ?? fail("usage: agentbox module verify <id>"));
-        if (fs.existsSync(path.join(m.dir, "verify.sh"))) {
-          console.log(bold(`==> ${m.id}: verify.sh`));
-          const user = agentUser(conf);
-          const env = scriptEnv(conf, m);
-          // verify.sh runs as the agent user, like the checks; it may sudo for root-only reads.
-          const me = os.userInfo().username;
-          const r = me === user
-            ? spawnSync("bash", [path.join(m.dir, "verify.sh")], { stdio: "inherit", env, cwd: m.dir })
-            : spawnSync("sudo", ["-H", "-u", user, "env", ...Object.entries(env).filter(([k]) => k.startsWith("AGENTBOX_") || k === "PATH").map(([k, v]) => `${k}=${v}`), "bash", path.join(m.dir, "verify.sh")], { stdio: "inherit", cwd: m.dir });
-          if (r.status !== 0) { console.log(red(`✖ ${m.id}: verify.sh failed`)); return 1; }
-        }
+        if (!runVerifyScript(conf, m)) return 1;
         return main(["module", "check", m.id]);
       }
       fail("usage: agentbox module list|check|install|enable|disable|verify <id>");
@@ -531,6 +960,8 @@ async function main(argv) {
 
     case "status": return status(argv.includes("--json"));
 
+    case "integration": case "integrations": return integrationCmd(argv);
+
     case "api": {
       const conf = cfg();
       const args = argv.slice(1);
@@ -581,9 +1012,10 @@ function restartPortalIfUp() {
   }
 }
 
-function status(json) {
+async function status(json) {
   const conf = cfg();
-  const mods = allModules(conf).map((m) => {
+  const ints = await pool(allIntegrations(conf).filter((m) => conf.modules?.[m.id] === true), 4, (m) => integrationView(conf, m));
+  const mods = baseModules(conf).map((m) => {
     const on = isEnabled(conf, m.id);
     return { id: m.id, title: m.title, enabled: on, steps: on ? stepStates(conf, m).map((s) => ({ id: s.id, title: s.title, state: s.state, human: !!s.human })) : [] };
   });
@@ -594,7 +1026,11 @@ function status(json) {
   const ss = spawnSync("ss", ["-Hltn"], { encoding: "utf8" });
   const listeners = (ss.stdout ?? "").split("\n").filter(Boolean).map((l) => l.trim().split(/\s+/)[3]).filter(Boolean)
     .map((addr) => ({ addr, loopback: /^(127\.[\d.]+(%\w+)?|\[::1\](%\w+)?):\d+$/.test(addr) }));
-  if (json) { console.log(JSON.stringify({ host: conf.host, access: conf.access, modules: mods, units, listeners }, null, 2)); return 0; }
+  if (json) {
+    const integrations = ints.map((v) => ({ id: v.id, title: v.title, category: v.category, state: v.state, steps: v.steps.map((s) => ({ id: s.id, title: s.title, state: s.state, human: s.human })) }));
+    console.log(JSON.stringify({ host: conf.host, access: conf.access, modules: mods, integrations, units, listeners }, null, 2));
+    return 0;
+  }
   console.log(bold(`agentbox · host ${conf.host} · access ${conf.access} · user ${agentUser(conf)}`));
   console.log(bold("\nmodules"));
   for (const m of mods) {
@@ -603,6 +1039,13 @@ function status(json) {
     const mark = bad ? red("✖") : you ? yellow("⏸") : green("✔");
     const note = [...m.steps.filter((s) => s.state === "fail").map((s) => red(s.title)), ...m.steps.filter((s) => s.state === "you").map((s) => yellow(`your turn: ${s.title}`))].join(" · ");
     console.log(`  ${mark} ${m.id.padEnd(12)} ${note}`);
+  }
+  console.log(bold("\nintegrations"));
+  if (!ints.length) console.log(dim("  none connected (agentbox integration list)"));
+  for (const v of ints) {
+    const waiting = v.gates.map((g) => yellow(`your turn: ${g.title}`));
+    const failed = v.steps.filter((s) => s.state === "failed").map((s) => red(s.title));
+    console.log(`  ${STATE_MARK[v.state]} ${v.id.padEnd(12)} ${v.state}${v.account ? dim(` as ${v.account}`) : ""} ${[...failed, ...waiting].join(" · ")}`);
   }
   console.log(bold("\nservices"));
   for (const u of units) console.log(`  ${u.state === "active" ? green("●") : red("●")} ${u.unit.padEnd(40)} ${u.state}`);

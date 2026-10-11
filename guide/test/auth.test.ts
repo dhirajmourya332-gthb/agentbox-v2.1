@@ -83,7 +83,7 @@ describe("the guide over HTTP", () => {
   let finished = 0;
   before(async () => {
     const configFile = path.join(tmp, "config.yaml");
-    fs.writeFileSync(configFile, `host: lima\naccess: ssh-tunnel\nuser: ${os.userInfo().username}\nmodules: { github: true }\nports: { guide: 7699, portal: 7700 }\n`);
+    fs.writeFileSync(configFile, `host: lima\naccess: ssh-tunnel\nuser: ${os.userInfo().username}\nmodules: { display: true, github: true }\nports: { guide: 7699, portal: 7700 }\n`);
     guide = await createGuide({
       configFile, stateDir, src: path.resolve(import.meta.dirname, "../.."),
       runCheck: async () => ({ ok: false, code: 1, output: "", at: Date.now() }),
@@ -120,7 +120,11 @@ describe("the guide over HTTP", () => {
     assert.equal(r.headers.get("x-frame-options"), "DENY");
     const s = await r.json();
     assert.equal(s.host.kind, "lima");
-    assert.ok(s.roadmap.modules.some((m: any) => m.id === "github" && m.enabled));
+    // The base only: integrations (even if on in the config) aren't part of the first run.
+    assert.ok(s.roadmap.modules.some((m: any) => m.id === "display" && m.enabled));
+    assert.ok(!s.roadmap.modules.some((m: any) => m.id === "github"));
+    assert.equal(s.profile.access, "ssh-tunnel");
+    assert.deepEqual(s.profile.options.map((o: any) => o.id), ["tailscale", "cloudflare", "ssh-tunnel"]);
   });
   test("the setup agent doesn't start before the Claude login check is green", async () => {
     const cookie = await login();
@@ -146,7 +150,7 @@ describe("the guide over HTTP", () => {
     assert.equal(await open({ origin: `http://127.0.0.1:${port}` }), 401);
     assert.equal(await open({ origin: `http://127.0.0.1:${port}`, cookie }), 101);
   });
-  test("profile save goes through agentbox (config set / module disable) and marks the step", async () => {
+  test("the profile step records the access mode through agentbox and marks the step", async () => {
     const calls: string[][] = [];
     const g2 = await createGuide({
       configFile: path.join(tmp, "config.yaml"), stateDir: path.join(tmp, "http2"), src: path.resolve(import.meta.dirname, "../.."),
@@ -158,12 +162,17 @@ describe("the guide over HTTP", () => {
     const t = mintToken(path.join(tmp, "http2", "tokens"));
     const r1 = await g2.app.inject({ url: `/?t=${t}`, headers: { host: "localhost" }, remoteAddress: "127.0.0.1" });
     const cookie = String(r1.headers["set-cookie"]).split(";")[0];
-    const r = await g2.app.inject({
+    const post = (payload: unknown) => g2.app.inject({
       method: "POST", url: "/api/profile", headers: { host: "localhost", cookie, "content-type": "application/json" },
-      remoteAddress: "127.0.0.1", payload: { modules: { github: false, kubernetes: true } },
+      remoteAddress: "127.0.0.1", payload: payload as any,
     });
+    // Module toggles are gone; only an access mode is accepted.
+    assert.equal((await post({ modules: { github: true } })).statusCode, 400);
+    assert.equal((await post({ access: "funnel" })).statusCode, 400);
+    assert.ok(!fs.existsSync(path.join(tmp, "http2", "profile-confirmed")));
+    const r = await post({ access: "tailscale" });
     assert.equal(r.statusCode, 200, r.body);
-    assert.deepEqual(calls, [["module", "disable", "github"], ["config", "set", "modules.aws", "true"], ["config", "set", "modules.kubernetes", "true"]]);
+    assert.deepEqual(calls, [["config", "set", "access", "tailscale"]]);
     assert.ok(fs.existsSync(path.join(tmp, "http2", "profile-confirmed")));
     await g2.close();
   });

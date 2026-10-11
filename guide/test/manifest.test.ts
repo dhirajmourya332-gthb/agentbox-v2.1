@@ -3,15 +3,15 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { evalWhen, loadModules, planProfile, resolveProfile, toggleModule, normalizeModule, type ModuleDef } from "../src/manifest.ts";
+import { baseOnly, evalWhen, isOn, loadModules, resolveProfile, normalizeModule, type ModuleDef } from "../src/manifest.ts";
+import { ACCESS_MODES, isAccessMode } from "../src/profile.ts";
 
-const mod = (id: string, depends: string[] = [], steps: any[] = [{ id: "install", title: "Install", check: "true" }]): ModuleDef =>
-  normalizeModule({ id, title: id, depends, steps }, id);
+const mod = (id: string, depends: string[] = [], kind = "base", steps: any[] = [{ id: "install", title: "Install", check: "true" }]): ModuleDef =>
+  normalizeModule({ id, kind, title: id, depends, steps }, id);
 
 const MODS = [
   mod("core"), mod("claude", ["core"]), mod("access", ["core"]), mod("display", ["core"]), mod("terminal", ["core"]),
-  mod("github", ["core"]), mod("aws", ["core"]), mod("kubernetes", ["aws"]), mod("mobile", ["core", "access"]),
-  mod("mobile-app", ["mobile"]), mod("push", ["mobile-app"]),
+  mod("github", ["core"], "integration"), mod("aws", ["core"], "integration"), mod("kubernetes", ["aws"], "integration"),
 ];
 
 describe("when:", () => {
@@ -40,50 +40,34 @@ describe("when:", () => {
 });
 
 describe("profile", () => {
-  test("required modules are always in, dependencies first", () => {
-    const p = resolveProfile(MODS, { modules: {} });
-    assert.deepEqual(p.order, ["core", "claude", "access"]);
+  test("every base module is in, required first; integrations never", () => {
+    const p = resolveProfile(baseOnly(MODS), { modules: { github: true } });
+    assert.deepEqual(p.order, ["core", "claude", "access", "terminal", "display"]);
     assert.deepEqual(p.implied, []);
   });
-  test("an enabled module pulls in its dependencies (transitively)", () => {
-    const p = resolveProfile(MODS, { modules: { push: true, kubernetes: true } });
-    assert.deepEqual(p.order, ["core", "claude", "access", "aws", "kubernetes", "mobile", "mobile-app", "push"]);
-    assert.deepEqual(p.implied.sort(), ["aws", "mobile", "mobile-app"]);
-    for (const m of MODS) {
-      const i = p.order.indexOf(m.id);
-      if (i < 0) continue;
-      for (const d of m.depends) assert.ok(p.order.indexOf(d) < i, `${d} before ${m.id}`);
-    }
+  test("a base module is off only when the config says false; required ones never", () => {
+    const p = resolveProfile(baseOnly(MODS), { modules: { display: false, core: false } });
+    assert.ok(!p.order.includes("display"));
+    assert.ok(p.order.includes("core"));
+    assert.equal(isOn({ modules: {} }, { id: "display", kind: "base" }), true);
+    assert.equal(isOn({ modules: {} }, { id: "github", kind: "integration" }), false);
+    assert.equal(isOn({ modules: { github: true } }, { id: "github", kind: "integration" }), true);
   });
-  test("false and missing entries are off", () => {
-    const p = resolveProfile(MODS, { modules: { github: false, display: true } });
-    assert.ok(!p.order.includes("github"));
-    assert.ok(p.order.includes("display"));
+  test("a manifest without kind is base; kind: integration is kept", () => {
+    assert.equal(normalizeModule({ id: "x" }, "x").kind, "base");
+    assert.equal(normalizeModule({ id: "x", kind: "integration" }, "x").kind, "integration");
+    assert.deepEqual(baseOnly(MODS).map((m) => m.id), ["core", "claude", "access", "display", "terminal"]);
   });
   test("missing dependencies and cycles are reported, not fatal", () => {
-    const p = resolveProfile([...MODS, mod("x", ["nope"]), mod("a", ["b"]), mod("b", ["a"])], { modules: { x: true, a: true } });
+    const p = resolveProfile([...MODS, mod("x", ["nope"]), mod("a", ["b"]), mod("b", ["a"])], { modules: {} });
     assert.deepEqual(p.missing, ["nope"]);
     assert.ok(p.cycles.length > 0);
     assert.ok(p.order.includes("a") && p.order.includes("b"));
   });
-  test("toggling on brings dependencies, toggling off drops dependents", () => {
-    const cur = { display: false, terminal: true, github: false, aws: false, kubernetes: false, mobile: false, "mobile-app": false, push: false };
-    const on = toggleModule(MODS, cur, "push", true);
-    assert.equal(on.push && on["mobile-app"] && on.mobile, true);
-    const off = toggleModule(MODS, on, "mobile", false);
-    assert.equal(off.mobile || off["mobile-app"] || off.push, false);
-    assert.equal(toggleModule(MODS, cur, "core", false).core, undefined, "required modules aren't toggles");
-  });
-  test("planProfile: disables dependents first, enables dependencies first, never leaves a dependency off", () => {
-    const conf = { modules: { aws: true, kubernetes: true, github: true } };
-    const plan = planProfile(MODS, conf, { aws: false, kubernetes: false, push: true });
-    const ids = plan.changes.map((c) => `${c.on ? "+" : "-"}${c.id}`);
-    assert.deepEqual(ids, ["-kubernetes", "-aws", "+mobile", "+mobile-app", "+push"]);
-    // kubernetes on without aws: aws comes back on.
-    const p2 = planProfile(MODS, { modules: {} }, { kubernetes: true, aws: false });
-    assert.deepEqual(p2.changes.map((c) => c.id), ["aws", "kubernetes"]);
-    // Required modules can't be switched off.
-    assert.deepEqual(planProfile(MODS, { modules: {} }, { core: false, claude: false }).changes, []);
+  test("the access choices", () => {
+    assert.deepEqual(ACCESS_MODES.map((m) => m.id), ["tailscale", "cloudflare", "ssh-tunnel"]);
+    assert.equal(isAccessMode("cloudflare"), true);
+    assert.equal(isAccessMode("funnel"), false);
   });
 });
 
@@ -108,9 +92,15 @@ describe("the real manifests", () => {
       assert.ok(s.check, `${m.id}.${s.id} check`);
     }
   });
-  test("the default profile (lima / ssh-tunnel) resolves", () => {
-    const p = resolveProfile(mods, { access: "ssh-tunnel", modules: { display: true, terminal: true, github: true } });
+  test("the first run is the base: core, claude, access, display, terminal", () => {
+    const base = baseOnly(mods);
+    assert.deepEqual(base.map((m) => m.id).sort(), ["access", "claude", "core", "display", "terminal"]);
+    const p = resolveProfile(base, { access: "ssh-tunnel", modules: { display: true, terminal: true, github: true } });
     assert.deepEqual(p.missing, []);
-    assert.deepEqual(p.order.slice(0, 3), ["core", "claude", "access"]);
+    assert.deepEqual(p.order, ["core", "claude", "access", "terminal", "display"]);
+  });
+  test("every other module is an integration", () => {
+    for (const m of mods.filter((x) => x.kind === "integration")) assert.ok(!["core", "claude", "access", "display", "terminal"].includes(m.id), m.id);
+    assert.ok(mods.some((m) => m.id === "github" && m.kind === "integration"));
   });
 });

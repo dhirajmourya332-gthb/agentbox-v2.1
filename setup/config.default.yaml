@@ -20,11 +20,17 @@ ports:                    # all bound to 127.0.0.1
   terminal: 7702
   gateway: 7710
   guide: 7699
-modules:                  # core, claude and access are always on
+modules:                  # base: core, claude and access are always on; display and terminal too by default
   display: true
   terminal: true
-  github: true
+  # Integrations: off until connected from the portal (or `agentbox integration connect <id>`).
+  # Their settings live in /etc/agentbox/integrations/<id>.yaml.
+  github: false
+  gitlab: false
+  bitbucket: false
   aws: false
+  gcp: false
+  azure: false
   kubernetes: false
   db-tunnel: false
   env-files: false

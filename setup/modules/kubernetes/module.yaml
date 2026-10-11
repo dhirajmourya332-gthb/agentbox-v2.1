@@ -1,22 +1,41 @@
 id: kubernetes
+kind: integration
+category: cluster
 title: Kubernetes
-description: kubectl and a kubeconfig for your cluster (EKS through the aws module); team rules in /team/kubernetes.md
+description: kubectl and a kubeconfig for your cluster (EKS, GKE, AKS or any other), with rules for what agents may change
 optional: true
-depends: [aws]
+depends: [core]
+settings:
+  - { key: provider, prompt: "Where the cluster runs", options: [eks, gke, aks, other], default: other }
+  - { key: cluster, prompt: "Cluster name", pattern: '^[A-Za-z0-9_.:/@-]+$', example: example-cluster }
+  - { key: region, prompt: "Cluster region (EKS / GKE / AKS resource group's region)", pattern: '^[a-z0-9-]+$' }
+  - { key: resource_group, prompt: "AKS only: the cluster's resource group", pattern: '^[A-Za-z0-9._()-]+$' }
+  - { key: context, prompt: "kubectl context agents use (empty: the current one)", pattern: '^[A-Za-z0-9_.:/@-]+$' }
+  - { key: writable_namespaces, type: list, prompt: "Namespaces agents may change (comma-separated)", default: [dev, staging], pattern: '^[a-z0-9-]+$' }
+  - { key: production_namespaces, type: list, prompt: "Production namespaces (read only)", pattern: '^[a-z0-9-]+$' }
+instructions:
+  summary: |
+    Kubernetes: use `kubectl`{{#cluster}} on {{cluster}}{{/cluster}}{{#context}} (context {{context}}){{/context}}; {{#has_writable_namespaces}}changes only in {{writable_namespaces}}{{/has_writable_namespaces}}{{^has_writable_namespaces}}read only{{/has_writable_namespaces}}; deletes, scale-to-zero and secrets need the owner's OK.
+    Read /team/integrations/kubernetes.md before you change anything in the cluster.
+  file: instructions.md
+skills: []
+default_roles: [devops]
+account: "kubectl config current-context"
+revoke: |
+  Remove the context from ~/.kube/config on the VM (`kubectl config delete-context <name>`), and the VM identity's access in the cluster (RBAC / the cloud provider's IAM).
 steps:
   - id: install
     title: Install kubectl
     run: install.sh
     check: "command -v kubectl"
   - id: cluster
-    title: Choose the cluster and access level
+    title: Point kubectl at your cluster
     human: true
     instructions: |
-      Point kubectl at your cluster, e.g. for EKS:
-        `aws eks update-kubeconfig --name <cluster> --region <region>`
-      Give the VM's identity the least access that works (read-only to start). Then edit
-      /team/kubernetes.md: which namespaces agents may touch and what needs your approval.
-    copy: "aws eks update-kubeconfig --name <cluster> --region <region>"
+      Give the VM's identity the least access that works (read-only to start), then in the terminal:
+      {{#provider_eks}}EKS (needs the AWS integration): `aws eks update-kubeconfig --name {{cluster}} --region {{region}}`{{/provider_eks}}{{#provider_gke}}GKE (needs the Google Cloud integration): `gcloud container clusters get-credentials {{cluster}} --region {{region}}`{{/provider_gke}}{{#provider_aks}}AKS (needs the Azure integration): `az aks get-credentials --resource-group {{resource_group}} --name {{cluster}}`{{/provider_aks}}{{#provider_other}}Save your kubeconfig as `~/.kube/config` (0600) for the agent user, e.g. `mkdir -p ~/.kube && (umask 077; cat > ~/.kube/config)`, paste it, then Ctrl-D.{{/provider_other}}
+      {{#context}}Then select the context: `kubectl config use-context {{context}}`{{/context}}
+    copy: "{{#provider_eks}}aws eks update-kubeconfig --name {{cluster}} --region {{region}}{{/provider_eks}}{{#provider_gke}}gcloud container clusters get-credentials {{cluster}} --region {{region}}{{/provider_gke}}{{#provider_aks}}az aks get-credentials --resource-group {{resource_group}} --name {{cluster}}{{/provider_aks}}{{#provider_other}}mkdir -p ~/.kube && (umask 077; cat > ~/.kube/config){{/provider_other}}"
     check: "kubectl config current-context"
   - id: verify
     title: Verify

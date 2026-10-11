@@ -1,4 +1,5 @@
 id: display
+kind: base                 # the first run sets up every base module (docs/MODULES.md)
 title: Shared screen and browser
 description: Xvfb display :99, fluxbox, VNC (password, loopback) + noVNC on 127.0.0.1:<ports.screen>, a shared Chromium (CDP 127.0.0.1:9222), the screen lock
 optional: true

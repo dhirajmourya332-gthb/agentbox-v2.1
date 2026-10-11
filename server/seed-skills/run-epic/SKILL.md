@@ -5,7 +5,7 @@ description: Run big work as an epic — parent issue and sub-issues, an epic br
 
 # Run an epic
 
-Rules: `/team/github.md` (its Branching and Issues sections, and the Settings table for the repo,
+Rules: `/team/integrations/github.md` (its Branching and Issues sections, and the Settings table for the repo,
 board and approver). Use the `file-github-issue` skill for every issue. Below, `<repo>` is
 `owner/name` (the Default repo unless the task names another) and `<name>` is the part after the
 slash; the shared clone is `/work/<name>`.
@@ -23,7 +23,7 @@ or is phased. Otherwise use a single `feature/`/`fix/` branch and skip this skil
 2. One sub-issue per independently mergeable piece: the team's "Sub-issue type", linked as a
    sub-issue of the parent, with acceptance criteria, the required labels and dependencies
    between them.
-3. All of them: assigned, on the board and in the current sprint as `/team/github.md` says.
+3. All of them: assigned, on the board and in the current sprint as `/team/integrations/github.md` says.
 
 ## 3. Epic branch
 
@@ -50,7 +50,7 @@ Independent sub-issues can run in parallel; dependent ones wait for their prereq
 Review each sub-issue PR (`review-pr` skill). Check its base is the epic. When it's approved and
 green, squash-merge it into the epic (`gh pr merge <n> --squash --delete-branch`), close the
 sub-issue (`gh issue close <sub#> --comment "Merged into $EPIC in #<pr>"`), and remove the
-sub-issue's worktree and local branch right away (`/team/github.md`, Branching: clean up).
+sub-issue's worktree and local branch right away (`/team/integrations/github.md`, Branching: clean up).
 
 ## 6. Keep the epic current
 
@@ -78,6 +78,6 @@ gh pr create -R <repo> --base main --head "$EPIC" \
 Body: `Closes #<parent>`, what the epic delivers, the list of sub-issues and PRs, how it was
 tested, risks. This is always a big PR: review it, then **ask for approval** from the team's
 "Epic approval" person (the owner by default) before it's merged, with a **merge commit** (not
-squash). Right after the merge, clean up (`/team/github.md`, Branching: clean up): delete the epic
+squash). Right after the merge, clean up (`/team/integrations/github.md`, Branching: clean up): delete the epic
 branch on GitHub and locally, remove `/work/<name>-epic-<parent#>`, and remove any sub-issue
 worktrees still left, then `git worktree prune`.

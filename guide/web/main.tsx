@@ -9,7 +9,7 @@ import "@fontsource/ibm-plex-sans/400.css";
 import "@fontsource/ibm-plex-sans/600.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "./styles.css";
-import { toggleModule } from "../src/profile.ts";
+import { NEXT_INTEGRATIONS } from "../src/profile.ts";
 import { fmtDuration, heartbeat, runningLabel, waitNotice } from "../src/progress.ts";
 import type { JobView, LogEntry, ModuleView, Progress, Snapshot, StepState, StepView } from "./types.ts";
 
@@ -246,50 +246,45 @@ function ModuleGroup({ m, onRetry, hide }: { m: ModuleView; onRetry: (id: string
   );
 }
 
+/** The profile step (§ 10.1): only how the owner will reach agentbox. No module picking. */
 function ProfileCard({ snap, onError }: { snap: Snapshot; onError: (e: string) => void }) {
-  const mods = snap.roadmap.modules;
-  const optional = mods.filter((m) => !snap.profile.required.includes(m.id));
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<Record<string, boolean> | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const current = draft ?? snap.profile.modules;
-  const showEditor = editing || (!snap.profile.done && snap.profile.checked);
-  const deps = mods.map((m) => ({ id: m.id, depends: m.depends }));
+  const p = snap.profile;
+  const current = draft ?? p.access ?? "tailscale";
+  const showEditor = editing || (!p.done && p.checked);
+  const chosen = p.options.find((o) => o.id === p.access);
   const save = async () => {
     setBusy(true);
-    try { await post("api/profile", { modules: current }); setEditing(false); setDraft(null); } catch (e: any) { onError(e.message); }
+    try { await post("api/profile", { access: current }); setEditing(false); setDraft(null); } catch (e: any) { onError(e.message); }
     setBusy(false);
   };
-  const on = [...snap.profile.required, ...Object.entries(snap.profile.modules).filter(([, v]) => v).map(([k]) => k)];
   return (
     <div className="card">
       <div className="step-line">
-        <span className="icon">{snap.profile.done ? ICON.done : snap.profile.checked ? ICON.human : ICON.pending}</span>
-        <span className="step-title">Choose your modules</span>
-        {snap.profile.done && !showEditor && <button className="btn small link" onClick={() => { setEditing(true); setDraft(null); }}>Change</button>}
+        <span className="icon">{p.done ? ICON.done : p.checked ? ICON.human : ICON.pending}</span>
+        <span className="step-title">Choose how you'll reach agentbox</span>
+        {p.done && !showEditor && <button className="btn small link" onClick={() => { setEditing(true); setDraft(null); }}>Change</button>}
       </div>
-      {!showEditor && snap.profile.done && <p className="muted small">{on.join(" · ")}</p>}
+      {!showEditor && p.done && <p className="muted small">{chosen ? chosen.title : p.access}</p>}
       {showEditor && (
         <div className="profile">
-          <p className="muted small">core, Claude Code and access are always on. Turning a module on also turns on what it needs. Nothing of a module is installed unless it's on.</p>
-          <ul className="toggles">
-            {mods.filter((m) => snap.profile.required.includes(m.id)).map((m) => (
-              <li key={m.id} className="toggle fixed"><input type="checkbox" checked disabled id={`t-${m.id}`} /><label htmlFor={`t-${m.id}`}><b>{m.title}</b> <span className="muted">always on</span><br /><span className="muted small">{m.description}</span></label></li>
-            ))}
-            {optional.map((m) => (
-              <li key={m.id} className="toggle">
-                <input type="checkbox" id={`t-${m.id}`} checked={!!current[m.id]} onChange={(e) => setDraft(toggleModule(deps, current, m.id, e.target.checked))} />
-                <label htmlFor={`t-${m.id}`}>
-                  <b>{m.title}</b>{m.depends.length > 0 && <span className="muted small"> · needs {m.depends.join(", ")}</span>}
-                  {m.id === "mobile" && snap.host.access !== "tailscale" && <span className="warn small"> · needs access: tailscale</span>}
-                  <br /><span className="muted small">{m.description}</span>
+          <p className="muted small">Nothing is ever opened to the internet: every option keeps the portal private and behind a login. You can connect GitHub, clouds and the rest later, from the portal.</p>
+          <ul className="toggles" role="radiogroup" aria-label="Access method">
+            {p.options.map((o) => (
+              <li key={o.id} className="toggle">
+                <input type="radio" name="access" id={`a-${o.id}`} checked={current === o.id} onChange={() => setDraft(o.id)} />
+                <label htmlFor={`a-${o.id}`}>
+                  <b>{o.title}</b>{o.recommended && <span className="muted small"> · recommended</span>}
+                  <br /><span className="muted small">{o.description}</span>
                 </label>
               </li>
             ))}
           </ul>
           <div className="actions">
-            <button className="btn primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save profile"}</button>
-            {snap.profile.done && <button className="btn" onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>}
+            <button className="btn primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Continue"}</button>
+            {p.done && <button className="btn" onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>}
           </div>
         </div>
       )}
@@ -303,7 +298,7 @@ function AgentCard({ snap, onError }: { snap: Snapshot; onError: (e: string) => 
   const act = (p: string) => post(p).catch((e) => onError(e.message));
   let note = "";
   if (!snap.claudeReady) note = "Starts once you're logged in to Claude.";
-  else if (!snap.profile.done) note = "Starts once you've chosen your modules.";
+  else if (!snap.profile.done) note = "Starts once you've chosen how you'll reach agentbox.";
   else if (s === "waiting") note = "Waiting for your turn above; it continues by itself when that step turns green.";
   else if (s === "paused") note = "Paused. Nothing runs until you resume.";
   else if (snap.agent.resumePending) note = "The guide restarted while the setup agent was working; it resumes by itself in a moment.";
@@ -351,7 +346,8 @@ function SelftestCard({ snap, onError }: { snap: Snapshot; onError: (e: string) 
       {all && t.ok && (
         <div className="done-box">
           <p>All set. Your portal: {portal ? <a href={portal} target="_blank" rel="noreferrer">{portal}</a> : <span className="muted">open it through your access path</span>}</p>
-          <p className="muted small">Finish stops the guide and invalidates its links. You can bring it back any time with <code>agentbox guide</code> (e.g. to add a module).</p>
+          <p className="next"><b>Next:</b> open the portal → <b>Setup agent</b> (or <b>Integrations</b>) to connect {NEXT_INTEGRATIONS}</p>
+          <p className="muted small">Finish stops the guide and invalidates its links. You can bring it back any time with <code>agentbox guide</code> (e.g. to repair the base).</p>
           <button className="btn primary" disabled={finishing} onClick={async () => { setFinishing(true); try { await post("api/finish"); } catch (e: any) { onError(e.message); setFinishing(false); } }}>Finish</button>
         </div>
       )}
@@ -388,7 +384,7 @@ function Roadmap({ snap, onError }: { snap: Snapshot; onError: (e: string) => vo
         {login && <div className="card"><ul className="steps flat"><StepRow step={{ ...login, title: "Log in to Claude" }} /></ul></div>}
         <ProfileCard snap={snap} onError={onError} />
         <AgentCard snap={snap} onError={onError} />
-        <h2 className="section">Modules</h2>
+        <h2 className="section">Base</h2>
         {on.map((m) => <ModuleGroup key={m.id} m={m} onRetry={retry} hide={hide} />)}
         {off.length > 0 && (
           <div className="off-list">
@@ -491,7 +487,8 @@ function App() {
         <h1>Setup complete</h1>
         <p>The guide has stopped and its links no longer work.</p>
         {portal && <p>Open your portal: <a href={portal}>{portal}</a></p>}
-        <p className="muted">To change modules later, run <code>agentbox guide</code> on the VM.</p>
+        <p><b>Next:</b> open the portal → <b>Setup agent</b> (or <b>Integrations</b>) to connect {NEXT_INTEGRATIONS}</p>
+        <p className="muted">To repair the base later, run <code>agentbox guide</code> on the VM.</p>
       </div>
     );
   }

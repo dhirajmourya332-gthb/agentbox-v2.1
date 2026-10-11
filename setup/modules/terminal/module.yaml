@@ -1,4 +1,5 @@
 id: terminal
+kind: base                 # the first run sets up every base module (docs/MODULES.md)
 title: Web terminal
 description: ttyd for the portal's terminal (/term/), on 127.0.0.1:<ports.terminal> with the Origin check (-O) and a credential
 optional: false

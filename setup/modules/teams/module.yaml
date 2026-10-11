@@ -1,0 +1,9 @@
+id: teams
+kind: integration
+category: chat
+title: Microsoft Teams
+description: Agents read and post in your Teams channels (coming soon)
+available: false            # a catalog entry only: shown as "coming soon", can't be connected yet
+optional: true
+depends: [core]
+steps: []

@@ -1,8 +1,23 @@
 id: db-tunnel
+kind: integration
+category: database
 title: Database tunnels
 description: Named SSH / AWS Session Manager port forwards to private databases (agentbox-tunnel), configured by you
 optional: true
 depends: [core]
+settings:
+  - { key: tunnels, type: list, prompt: "Tunnel names agents may open (comma-separated; empty: all configured)", pattern: '^[A-Za-z0-9_.-]+$' }
+  - { key: description, prompt: "What's behind them, e.g. \"main: MongoDB on 127.0.0.1:27017, Redis on 127.0.0.1:6379\"" }
+  - { key: writes, prompt: "Writes to shared databases", options: [never, ask, allowed], default: ask }
+instructions:
+  summary: |
+    Database tunnels: open private databases with `agentbox-tunnel start <name>` (list: `agentbox-tunnel list`) and close them when done; writes: {{writes}}.
+    Read /team/integrations/db-tunnel.md before you connect to a database.
+  file: instructions.md
+skills: []
+default_roles: [devops, tester]
+revoke: |
+  Remove the tunnel files: `rm -r "$(agentbox config get paths.secrets)/tunnels"`, and the bastion / SSM access for the VM's identity.
 steps:
   - id: install
     title: Install agentbox-tunnel
@@ -12,8 +27,8 @@ steps:
     title: Describe your tunnels
     human: true
     instructions: |
-      For each tunnel write a small file (format: `agentbox-tunnel` with no arguments, or
-      /team/db-tunnel.md) and save it, plus the SSH key if the mode uses SSH, in the terminal:
+      For each tunnel write a small file (run `agentbox-tunnel` with no arguments for the format)
+      and save it, plus the SSH key if the mode uses SSH, in the terminal:
         `agentbox secret set tunnels/<name>.conf < <name>.conf`
         `agentbox secret set tunnels/<name>.key < key.pem`
       Modes: ssh-ssm (SSH over AWS Session Manager; needs the aws module), ssh (a bastion), ssm.

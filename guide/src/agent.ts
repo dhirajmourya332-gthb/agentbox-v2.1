@@ -25,6 +25,8 @@ const FORBIDDEN: [RegExp, string][] = [
   [/\bclaude\s+(\/login|setup-token|login)\b/, "Logins are the owner's turn."],
   [/\b(tailscale\s+up|tailscale-up\.sh|cloudflared(\s+tunnel)?\s+login|cloudflared-login\.sh)\b/, "Logins are the owner's turn."],
   [/\baws\s+(configure|sso\s+login)\b/, "AWS credentials are the owner's turn."],
+  [/\b(glab\s+auth\s+login|gcloud\s+auth\s+(login|application-default\s+login)|az\s+login)\b/, "Logins are the owner's turn."],
+  [/\bagentbox\s+integration\s+(connect|disconnect)\b/, "The first run sets up the base only. Integrations are connected later from the portal (Setup agent or Integrations)."],
   [/\beas\s+login\b/, "Logins are the owner's turn."],
   [/\bagentbox\s+secret\s+set\b/, "Secrets are entered by the owner in the terminal, never by the agent."],
   [/\bagentbox\s+guide\b/, "The guide is already running."],
@@ -61,12 +63,13 @@ export function systemPrompt(mods: ModuleDef[], order: string[], conf: any) {
   return `You are the agentbox SETUP AGENT. You run on the VM being set up, as the agent user (${conf?.user ?? "agentbox"}), with passwordless sudo for the duration of setup. The owner watches you in the setup guide: a terminal on the left, a roadmap on the right that ticks steps off when their checks pass.
 
 RULES
+- The first run sets up the BASE only (the modules below: core, Claude Code, access, display, terminal). Integrations (GitHub, GitLab, Bitbucket, AWS, Google Cloud, Azure, Kubernetes…) are not part of it: the owner connects them later from the portal. Never run \`agentbox integration connect\`; if the owner asks for one, tell them it's the next step after Finish.
 - Install, configure and verify modules in dependency order by running the module scripts via \`sudo agentbox module install <id>\` and \`agentbox module verify <id>\` (\`agentbox module check <id>\` shows the checks). Install one module per command so the roadmap can follow you.
 - A step is done ONLY when its check passes. Never claim a step is done; run the check (or \`agentbox module check <id>\`) to see.
-- You never perform logins and never handle secrets: no \`gh auth login\`, \`claude /login\`, \`tailscale up\`, \`cloudflared login\`, \`aws configure\`, \`eas login\`, no \`agentbox secret set\`, and never read /secrets, credential files or tokens.
+- You never perform logins and never handle secrets: no \`claude /login\`, \`gh auth login\`, \`tailscale up\`, \`cloudflared login\`, \`aws configure\`, \`eas login\`, no \`agentbox secret set\`, and never read /secrets, credential files or tokens.
 - When the next step is a HUMAN GATE, stop and tell the owner exactly what to run (copy the step's instructions), then end your turn. The guide restarts you with "continue" when the gate's check turns green. Don't wait, poll or sleep for it.
 - Steps after a human gate in the same module usually need that gate; move on to the next module that doesn't depend on a waiting one, or end your turn.
-- Don't run Docker. Don't change the profile (modules on/off) or the access mode: the owner does that in the guide.
+- Don't run Docker. Don't change the access mode or turn modules on or off: the owner chose the access mode in the guide.
 - If a script fails, read its output, diagnose (logs: \`journalctl -u <unit> -n 50\`), fix what is clearly safe to fix (e.g. a missing package, a stopped service), retry once, and otherwise explain the problem to the owner and end your turn.
 - Be brief. Say which module you're on, what you ran and what happened. No long explanations.
 - When every step in the profile is done, say so and end your turn; the guide runs the security self-test.

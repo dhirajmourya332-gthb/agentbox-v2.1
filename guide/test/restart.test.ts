@@ -22,13 +22,13 @@ function setup(name: string) {
   const dir = path.join(tmp, name);
   fs.mkdirSync(dir, { recursive: true });
   const configFile = path.join(dir, "config.yaml");
-  fs.writeFileSync(configFile, `host: lima\naccess: ssh-tunnel\nuser: ${os.userInfo().username}\nmodules: { github: true }\nports: { guide: 7699, portal: 7700 }\n`);
+  fs.writeFileSync(configFile, `host: lima\naccess: ssh-tunnel\nuser: ${os.userInfo().username}\nmodules: { display: true }\nports: { guide: 7699, portal: 7700 }\n`);
   const stateDir = path.join(dir, "state");
   fs.mkdirSync(stateDir, { recursive: true });
   const base: GuideOptions = {
     configFile, stateDir, src, webDist: path.join(dir, "no-dist"),
-    // Every check green (Claude login, the profile) except github's, so the agent may start.
-    runCheck: async (cmd) => ({ ok: !/gh /.test(cmd), code: 0, output: "", at: Date.now() }),
+    // Every check green (Claude login, the profile) except display's, so the agent may start.
+    runCheck: async (cmd) => ({ ok: !/Xvfb|xvfb|9222/.test(cmd), code: 0, output: "", at: Date.now() }),
     runAdmin: async () => ({ code: 0, output: "" }),
     checkIntervalMs: 50,
     tailIntervalMs: 30,
@@ -148,16 +148,16 @@ describe("guide restart", () => {
     });
     await g.app.ready();
     const cookie = await login(g, stateDir);
-    const r = await g.app.inject({ method: "POST", url: "/api/retry", headers: { ...H, cookie, "content-type": "application/json" }, remoteAddress: "127.0.0.1", payload: { module: "github" } });
+    const r = await g.app.inject({ method: "POST", url: "/api/retry", headers: { ...H, cookie, "content-type": "application/json" }, remoteAddress: "127.0.0.1", payload: { module: "display" } });
     assert.equal(r.statusCode, 200, r.body);
-    const job = () => (g.snapshot() as any).progress.jobs.find((j: any) => j.module === "github");
+    const job = () => (g.snapshot() as any).progress.jobs.find((j: any) => j.module === "display");
     assert.ok(job(), "a job as soon as the Retry starts");
     assert.equal(job().by, "retry");
-    emit!("==> github: install.sh\n⏳ Waiting for Ubuntu's automatic security updates to finish (unattended-upgrades is installing updates; this is normal on a new VM) — 0 s elapsed, up to 15 min\n");
+    emit!("==> display: install.sh\n⏳ Waiting for Ubuntu's automatic security updates to finish (unattended-upgrades is installing updates; this is normal on a new VM) — 0 s elapsed, up to 15 min\n");
     assert.match(job().waiting.text, /automatic security updates/);
-    emit!("✔ The package manager is free again (waited 20 s); continuing\n--> github cli\n");
+    emit!("✔ The package manager is free again (waited 20 s); continuing\n--> display cli\n");
     assert.equal(job().waiting, null);
-    assert.equal(job().tail.at(-1), "--> github cli");
+    assert.equal(job().tail.at(-1), "--> display cli");
     finish!();
     await until(() => !job());
     await g.close();
@@ -168,7 +168,7 @@ describe("guide restart", () => {
     fs.writeFileSync(path.join(stateDir, "profile-confirmed"), "x");
     const runs = path.join(stateDir, "runs");
     fs.mkdirSync(runs, { recursive: true });
-    const logFile = path.join(runs, "github.log");
+    const logFile = path.join(runs, "display.log");
     fs.writeFileSync(logFile, "OLD RUN\n");
     fs.utimesSync(logFile, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
     let release: (() => void) | undefined;
@@ -176,7 +176,7 @@ describe("guide restart", () => {
       const abort = options.abortController as AbortController;
       async function* gen() {
         yield { type: "system", subtype: "init", session_id: "t1" };
-        yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "sudo agentbox module install github" } }] } };
+        yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "sudo agentbox module install display" } }] } };
         await new Promise<void>((res, rej) => { release = res; abort.signal.addEventListener("abort", () => rej(new Error("aborted"))); });
         yield { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "b1", content: "done", is_error: false }] } };
         yield { type: "result", subtype: "success", session_id: "t1" };
@@ -190,18 +190,18 @@ describe("guide restart", () => {
     const cookie = await login(g, stateDir);
     await until(() => g.runner.settled && !!g.snapshot().claudeReady);
     await g.app.inject({ method: "POST", url: "/api/agent/start", headers: { ...H, cookie }, remoteAddress: "127.0.0.1" });
-    const job = () => (g.snapshot() as any).progress.jobs.find((j: any) => j.module === "github");
+    const job = () => (g.snapshot() as any).progress.jobs.find((j: any) => j.module === "display");
     await until(() => !!job());
     assert.equal(job().by, "agent");
-    assert.match((g.snapshot() as any).progress.agent.tool.command, /module install github/);
+    assert.match((g.snapshot() as any).progress.agent.tool.command, /module install display/);
     await sleep(100);
     assert.deepEqual(job().tail, [], "the previous run's log isn't shown");
     // The CLI replaces the file (new inode) and writes as the scripts run.
     fs.rmSync(logFile);
-    fs.writeFileSync(logFile, "==> github: install.sh\n");
-    await until(() => job()?.tail.includes("==> github: install.sh"));
-    fs.appendFileSync(logFile, "--> github cli\n");
-    await until(() => job()?.tail.at(-1) === "--> github cli");
+    fs.writeFileSync(logFile, "==> display: install.sh\n");
+    await until(() => job()?.tail.includes("==> display: install.sh"));
+    fs.appendFileSync(logFile, "--> display cli\n");
+    await until(() => job()?.tail.at(-1) === "--> display cli");
     release!();
     await until(() => !job());
     assert.equal((g.snapshot() as any).progress.agent.tool, null);

@@ -22,7 +22,12 @@ export type Snapshot = {
   portalUrl: string | null;
   usage: { status?: string; resetsAt?: number; utilization?: number; rateLimitType?: string; costUsd?: number };
   problems: string[];
-  profile: { done: boolean; checked: boolean; required: string[]; modules: Record<string, boolean> };
+  /** The profile step: how the owner reaches agentbox (§ 10.1). */
+  profile: {
+    done: boolean; checked: boolean; required: string[];
+    access: "tailscale" | "cloudflare" | "ssh-tunnel" | null;
+    options: { id: "tailscale" | "cloudflare" | "ssh-tunnel"; title: string; description: string; recommended?: boolean }[];
+  };
   claudeReady: boolean;
   agent: { status: AgentStatus; hasSession: boolean; resumePending?: boolean };
   progress: Progress;

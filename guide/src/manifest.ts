@@ -1,13 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "yaml";
-import { dependenciesOf, dependentsOf, toggleModule } from "./profile.ts";
-
-export { dependenciesOf, dependentsOf, toggleModule };
-
 /**
- * Module manifests (setup/modules/<id>/module.yaml, docs/V2-ARCHITECTURE.md § 3) and the profile:
- * which modules are on, in which order, and which of their steps apply. Pure apart from loadModules.
+ * Module manifests (setup/modules/<id>/module.yaml, docs/V2-ARCHITECTURE.md § 3 and § 10) and the
+ * profile: which modules are on, in which order, and which of their steps apply. Pure apart from
+ * loadModules. The guide only sets up the **base** (kind: base); integrations (kind: integration)
+ * are connected later from the portal with `agentbox integration connect`.
  */
 
 export type StepDef = {
@@ -21,8 +19,11 @@ export type StepDef = {
   when?: string;
 };
 
+export type ModuleKind = "base" | "integration";
+
 export type ModuleDef = {
   id: string;
+  kind: ModuleKind;
   title: string;
   description: string;
   optional: boolean;
@@ -32,11 +33,8 @@ export type ModuleDef = {
 
 /** Always on (the CLI's REQUIRED). */
 export const REQUIRED = ["core", "claude", "access"];
-/** Display order between modules that don't depend on each other (server/src/config.ts MODULE_IDS). */
-export const PREFERRED_ORDER = [
-  "core", "claude", "access", "terminal", "display", "github", "aws", "kubernetes", "db-tunnel", "env-files",
-  "voice", "mobile", "mobile-app", "push",
-];
+/** Display order between modules that don't depend on each other. */
+export const PREFERRED_ORDER = ["core", "claude", "access", "terminal", "display"];
 
 const ID = /^[a-z0-9-]+$/;
 
@@ -56,6 +54,8 @@ export function normalizeModule(raw: any, fallbackId: string): ModuleDef {
     }));
   return {
     id,
+    // A manifest without `kind` is treated as base (older manifests); the shipped ones all say.
+    kind: raw?.kind === "integration" ? "integration" : "base",
     title: String(raw?.title ?? id),
     description: String(raw?.description ?? "").trim(),
     optional: raw?.optional !== false && !REQUIRED.includes(id),
@@ -63,6 +63,9 @@ export function normalizeModule(raw: any, fallbackId: string): ModuleDef {
     steps,
   };
 }
+
+/** The base modules: what the guide's first run sets up. */
+export const baseOnly = (mods: ModuleDef[]) => mods.filter((m) => m.kind === "base");
 
 /** Every setup/modules/<id>/module.yaml under the source tree. A broken manifest is skipped (and reported). */
 export function loadModules(src: string, onError: (msg: string) => void = () => {}): ModuleDef[] {
@@ -107,7 +110,15 @@ export function evalWhen(conf: unknown, cond: string | undefined | null): boolea
   return m[2] === "==" ? eq : !eq;
 }
 
-export const isOn = (conf: any, id: string) => REQUIRED.includes(id) || conf?.modules?.[id] === true;
+/**
+ * In the profile? Required modules always; other base modules unless the config turns them off
+ * explicitly (`modules.display: false`); integrations only when the config turns them on.
+ */
+export function isOn(conf: any, m: Pick<ModuleDef, "id" | "kind">): boolean {
+  if (REQUIRED.includes(m.id)) return true;
+  const v = conf?.modules?.[m.id];
+  return m.kind === "base" ? v !== false : v === true;
+}
 
 export type Profile = {
   /** The modules that will be set up, dependencies first. */
@@ -129,7 +140,7 @@ export function resolveProfile(mods: ModuleDef[], conf: any): Profile {
   const byId = new Map(mods.map((m) => [m.id, m]));
   const rank = (id: string) => { const i = PREFERRED_ORDER.indexOf(id); return i < 0 ? PREFERRED_ORDER.length : i; };
   const byRank = (a: string, b: string) => rank(a) - rank(b) || a.localeCompare(b);
-  const chosen = mods.map((m) => m.id).filter((id) => isOn(conf, id)).sort(byRank);
+  const chosen = mods.filter((m) => isOn(conf, m)).map((m) => m.id).sort(byRank);
   const missing = new Set<string>();
   const cycles: string[] = [];
   // Closure over depends.
@@ -153,25 +164,4 @@ export function resolveProfile(mods: ModuleDef[], conf: any): Profile {
     left.delete(ready[0]);
   }
   return { order, chosen, implied: order.filter((id) => !chosen.includes(id)), missing: [...missing], cycles };
-}
-
-/**
- * The config changes for a wanted set of optional modules. Anything switched on brings its
- * dependencies (a module never ends up on without what it needs); required modules never change.
- * Changes come out in a safe order: disables dependents-first, then enables dependencies-first.
- */
-export function planProfile(mods: ModuleDef[], conf: any, wanted: Record<string, boolean>) {
-  const final: Record<string, boolean> = {};
-  for (const m of mods) if (!REQUIRED.includes(m.id)) final[m.id] = isOn(conf, m.id);
-  for (const [id, on] of Object.entries(wanted)) if (id in final) final[id] = !!on;
-  for (const [id, on] of Object.entries(final)) {
-    if (!on) continue;
-    for (const d of dependenciesOf(mods, id)) if (d in final) final[d] = true;
-  }
-  const order = resolveProfile(mods, { modules: Object.fromEntries(mods.map((m) => [m.id, true])) }).order;
-  const pos = (id: string) => order.indexOf(id);
-  const changes = Object.entries(final).filter(([id, on]) => on !== isOn(conf, id)).map(([id, on]) => ({ id, on }));
-  const disables = changes.filter((c) => !c.on).sort((a, b) => pos(b.id) - pos(a.id));
-  const enables = changes.filter((c) => c.on).sort((a, b) => pos(a.id) - pos(b.id));
-  return { final, changes: [...disables, ...enables] };
 }
