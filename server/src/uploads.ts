@@ -31,6 +31,8 @@ export function saveUpload(input: { name?: string; type?: string; data?: string 
 export function checkImages(images: unknown): string[] {
   if (images === undefined || images === null) return [];
   if (!Array.isArray(images) || images.length > 10) throw new Error("Attach at most 10 images");
+  if (images.length === 0) return [];
+  fs.mkdirSync(UPLOAD_ROOT, { recursive: true }); // a fresh install has no uploads yet
   const root = fs.realpathSync(UPLOAD_ROOT);
   return images.map((p) => {
     let real: string;
