@@ -13,6 +13,7 @@ import { PlanCard, PlanChip } from "../components/Plan.tsx";
 import { ChangesButton, ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
 import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
+import { onFocusRequest } from "../components/focusMessage.ts";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -265,15 +266,23 @@ export function Timeline({ agent, thread, live, focus }: {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   });
-  // A linked message: bring it into view and flash it, once it's rendered (then stop following the bottom).
-  const focused = useRef<string | null>(null);
+  // A linked message: bring it into view and flash it once it's rendered (then stop following the
+  // bottom). Asked again (the same link clicked after scrolling away), it does it again.
+  const want = useRef<string | null>(focus ?? null);
+  const [, again] = useState(0);
+  useEffect(() => { want.current = focus ?? null; again((n) => n + 1); }, [focus]);
+  useEffect(() => onFocusRequest((id) => { want.current = id; again((n) => n + 1); }), []);
   useLayoutEffect(() => {
-    if (!focus || focused.current === focus) return;
-    const el = document.getElementById(`msg-${focus}`);
-    if (!el) return;
-    focused.current = focus;
+    const id = want.current;
+    if (!id) return;
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return; // not rendered yet: tried again after the next render
+    want.current = null;
     stick.current = false;
+    // Instant: a smooth scroll starts at the bottom, where "follow new output" would pull it back.
     el.scrollIntoView({ block: "center" });
+    el.classList.remove("msg-flash");
+    void el.offsetWidth; // restart the flash animation
     el.classList.add("msg-flash");
     setTimeout(() => el.classList.remove("msg-flash"), 2600);
   });

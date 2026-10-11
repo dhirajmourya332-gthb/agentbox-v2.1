@@ -3,6 +3,7 @@ import { api, type Roadmap, type RoadmapItem, type RoadmapStatus } from "../api.
 import { useStore } from "../store.tsx";
 import { Icon, relTime } from "./ui.tsx";
 import { Drawing, FullScreen, layout, type GEdge, type GNode } from "./graph.tsx";
+import { openMessage } from "./focusMessage.ts";
 
 /**
  * Roadmaps (docs/V2.1-PLAN.md §3): progress on big work without reading the chat.
@@ -59,7 +60,7 @@ const linkHref = (l: string) => (l.startsWith("/") ? `/api/file?path=${encodeURI
 export function openStep(i: RoadmapItem, before?: () => void) {
   const msg = messageHref(i);
   if (i.status !== "blocked" && i.link) { window.open(linkHref(i.link), "_blank", "noopener"); return; }
-  if (msg) { before?.(); location.hash = msg; return; }
+  if (msg) { before?.(); openMessage(msg, i.source?.message_id ?? null); return; }
   if (i.link) window.open(linkHref(i.link), "_blank", "noopener");
 }
 
@@ -119,7 +120,8 @@ function Glance({ r }: { r: Roadmap }) {
     <div className="rm-glance">
       {line("Now", "doing", g.now, (i) => (i.owner ? ` (${i.owner})` : ""))}
       {line("Blocked", "blocked", g.blocked, (i) => (i.note ? `: ${i.note}` : ""))}
-      {ask && <a className="rm-ask" href={messageHref(ask)!} title={`${ask.source?.agent_name}'s message about "${ask.title}"`}>Read what {ask.source?.agent_name} needs from you →</a>}
+      {ask && <a className="rm-ask" href={messageHref(ask)!} onClick={(e) => { e.preventDefault(); openMessage(messageHref(ask)!, ask.source?.message_id ?? null); }}
+        title={`${ask.source?.agent_name}'s message about "${ask.title}"`}>Read what {ask.source?.agent_name} needs from you →</a>}
       {line("Next", "todo", g.next)}
       {r.status === "done" && <div className="rm-glance-line done"><span className="rm-glance-key">Done</span><span className="rm-glance-val">Every step is finished.</span></div>}
     </div>
@@ -215,7 +217,8 @@ export function RoadmapStrip({ instanceId }: { instanceId: string }) {
               {hint && <span className={`rm-strip-hint ${hint.cls}`}>{hint.text}</span>}
             </button>
             {g.blocked[0] && messageHref(g.blocked[0]) && (
-              <a className="rm-strip-ask" href={messageHref(g.blocked[0])!} title="The message that asks you">Read the question →</a>
+              <a className="rm-strip-ask" href={messageHref(g.blocked[0])!} title="The message that asks you"
+                onClick={(e) => { e.preventDefault(); openMessage(messageHref(g.blocked[0])!, g.blocked[0].source?.message_id ?? null); }}>Read the question →</a>
             )}
           </div>
         );
@@ -309,7 +312,8 @@ function RoadmapList({ r, onLeave }: { r: Roadmap; onLeave: () => void }) {
                 </span>
                 <span className="rm-list-links">
                   {messageHref(i) && (
-                    <a href={messageHref(i)!} onClick={onLeave} title={`${i.source?.agent_name}'s message from when this last changed`}>
+                    <a href={messageHref(i)!} onClick={(e) => { e.preventDefault(); onLeave(); openMessage(messageHref(i)!, i.source?.message_id ?? null); }}
+                      title={`${i.source?.agent_name}'s message from when this last changed`}>
                       {i.status === "blocked" ? "Read the question" : "Message"}
                     </a>
                   )}
