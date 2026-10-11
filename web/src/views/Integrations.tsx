@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Integration } from "../api.ts";
+import { api, type Integration, type SettingValue } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Icon } from "../components/ui.tsx";
 import { STATE_LABEL, STATE_STEP, STEP_ICON } from "../components/Setup.tsx";
@@ -59,7 +59,8 @@ export function Integrations() {
 function IntegrationCard({ it, onChange }: { it: Integration; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const settings = it.settings.filter((s) => s.value);
+  const shown = (v: SettingValue | null) => (v === null ? "" : Array.isArray(v) ? v.join(", ") : String(v));
+  const settings = it.settings.filter((s) => shown(s.value) !== "");
   const open = async (action: "connect" | "reconnect" | "disconnect") => {
     setBusy(true); setError(null);
     try {
@@ -69,7 +70,7 @@ function IntegrationCard({ it, onChange }: { it: Integration; onChange: () => vo
   };
   const st = STATE_STEP[it.state];
   return (
-    <div className={`card integration-card st-${st}`}>
+    <div className={`card integration-card st-${st}${it.available ? "" : " unavailable"}`}>
       <div className="integration-top">
         <strong>{it.title}</strong>
         {it.available
@@ -80,9 +81,12 @@ function IntegrationCard({ it, onChange }: { it: Integration; onChange: () => vo
       {(it.account || settings.length > 0) && (
         <dl className="int-settings">
           {it.account && <><dt>Account</dt><dd>{it.account}</dd></>}
-          {settings.map((s) => <span key={s.key} style={{ display: "contents" }}><dt title={s.prompt}>{s.key.replace(/_/g, " ")}</dt><dd>{s.value}</dd></span>)}
+          {settings.map((s) => <span key={s.key} style={{ display: "contents" }}><dt title={s.prompt}>{s.key.replace(/_/g, " ")}</dt><dd>{shown(s.value)}</dd></span>)}
         </dl>
       )}
+      {!it.available && <div className="hint">Coming soon: listed so you know it's planned; it can't be connected yet.</div>}
+      {it.available && it.state === "error" && it.last?.ok === false && it.last.error && <div className="hint">Last {it.last.action}: {it.last.error}</div>}
+      {it.available && it.gates.length > 0 && <div className="hint">Waiting for you: {it.gates.map((g) => g.title).join("; ")}</div>}
       {it.available && <RoleChips it={it} onChange={onChange} />}
       {error && <div className="error-box">{error}</div>}
       {it.available && (

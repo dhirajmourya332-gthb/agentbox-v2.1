@@ -1,22 +1,25 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { api, type Approval, type Integration, type IntegrationState, type StepState } from "../api.ts";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { api, type Approval, type Integration, type IntegrationGate, type IntegrationJob, type IntegrationState, type StepState } from "../api.ts";
+import { fmtDuration, heartbeat, runningLabel, waitNotice } from "./progress.ts";
 import { useStore } from "../store.tsx";
 import { Icon, Markdown, relTime } from "./ui.tsx";
 import { TERMINAL_URL } from "./Controls.tsx";
 
 /**
  * The setup agent's chat pieces (docs/V2-ARCHITECTURE.md §10.4): a steps card per integration being
- * connected (the guide's visuals: ○ ● ⏸ ✔ ✖ ─), "your turn" cards with copy buttons, approval cards,
- * and the embedded terminal for logins.
+ * connected (the guide's visuals: ○ ● ⏸ ✔ ✖ ─) with live output, elapsed time and a heartbeat during
+ * long runs, "your turn" cards from the CLI's gates with copy buttons, the revoke text after a
+ * disconnect, approval cards, and the embedded terminal for logins.
  */
 
-export const STEP_ICON: Record<StepState, string> = { pending: "○", running: "●", human: "⏸", done: "✔", failed: "✖", disabled: "─" };
-const STEP_LABEL: Record<StepState, string> = { pending: "pending", running: "working", human: "your turn", done: "done", failed: "failed", disabled: "off" };
+export const STEP_ICON: Record<StepState, string> = { pending: "○", running: "●", human: "⏸", done: "✔", failed: "✖", skipped: "─" };
+const STEP_LABEL: Record<StepState, string> = { pending: "pending", running: "working", human: "your turn", done: "done", failed: "failed", skipped: "not needed here" };
 export const STATE_STEP: Record<IntegrationState, StepState> = {
-  available: "pending", connecting: "running", connected: "done", error: "failed", disconnected: "disabled",
+  available: "pending", connecting: "running", connected: "done", error: "failed", disconnected: "skipped", unavailable: "skipped",
 };
 export const STATE_LABEL: Record<IntegrationState, string> = {
   available: "Not connected", connecting: "Connecting", connected: "Connected", error: "Needs attention", disconnected: "Disconnected",
+  unavailable: "Coming soon",
 };
 
 /** Lets a "your turn" card open the terminal panel next to the chat. */
@@ -29,7 +32,7 @@ async function copyText(s: string) {
   }
 }
 
-export function CopyRow({ text }: { text: string }) {
+export function CopyRow({ text, terminal = true }: { text: string; terminal?: boolean }) {
   const [done, setDone] = useState(false);
   const openTerminal = useContext(TerminalCtx);
   return (
@@ -38,18 +41,62 @@ export function CopyRow({ text }: { text: string }) {
       <button className="btn sm" onClick={async () => { if (await copyText(text)) { setDone(true); setTimeout(() => setDone(false), 1500); } }}>
         {done ? "Copied" : "Copy"}
       </button>
-      {openTerminal && <button className="btn sm" onClick={openTerminal}><Icon name="terminal" size={14} />Terminal</button>}
+      {terminal && openTerminal && <button className="btn sm" onClick={openTerminal}><Icon name="terminal" size={14} />Terminal</button>}
     </div>
   );
 }
 
-function YourTurn({ step }: { step: Integration["steps"][number] }) {
+/** A "your turn" card: one of the CLI's gates (a login / config step, or a setting to give). */
+function YourTurn({ gate }: { gate: IntegrationGate }) {
+  if (gate.kind === "setting") {
+    return (
+      <div className="sc-your-turn">
+        <div className="sc-yt-head">Your turn · setting</div>
+        <p>{gate.title} <span className="hint">({gate.key})</span></p>
+        <div className="hint">Tell the setup agent in the chat (never a token or password), or set it yourself in the terminal:</div>
+        {gate.command && <CopyRow text={gate.command} />}
+      </div>
+    );
+  }
   return (
     <div className="sc-your-turn">
       <div className="sc-yt-head">Your turn</div>
-      {step.instructions && <Markdown text={step.instructions} />}
-      {step.copy && <CopyRow text={step.copy} />}
+      {gate.instructions && <Markdown text={gate.instructions} />}
+      {gate.copy && <CopyRow text={gate.copy} />}
       <div className="hint">When you're done, tell the setup agent; it checks and continues.</div>
+    </div>
+  );
+}
+
+/** The browser's clock, corrected to the server's (from the last answer's `now`), ticking every second. */
+function useServerNow(offset: number, on: boolean) {
+  const [t, setT] = useState(() => Date.now() + offset);
+  useEffect(() => {
+    setT(Date.now() + offset);
+    if (!on) return;
+    const timer = setInterval(() => setT(Date.now() + offset), 1000);
+    return () => clearInterval(timer);
+  }, [offset, on]);
+  return t;
+}
+
+/** A running connect / verify / disconnect: spinner, elapsed time, live output, a heartbeat when quiet. */
+function JobProgress({ job, lines, offset }: { job: IntegrationJob; lines: string[]; offset: number }) {
+  const now = useServerNow(offset, true);
+  const box = useRef<HTMLPreElement>(null);
+  const shown = lines.filter((l) => waitNotice(l) === null).slice(-12);
+  const wait = lines.length ? waitNotice(lines[lines.length - 1]) : null;
+  const hb = wait ? null : heartbeat(Date.parse(job.last_output_at), now);
+  useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight; }, [shown.length, shown[shown.length - 1]]);
+  return (
+    <div className="sc-progress" aria-live="polite">
+      <div className="sc-pg-head">
+        <span className="sc-spinner" aria-hidden="true" />
+        <span>{runningLabel(job.action, Date.parse(job.started_at), now)}</span>
+      </div>
+      {wait && <div className="sc-wait"><span className="tag">Waiting for Ubuntu updates</span> {wait}</div>}
+      {shown.length > 0 && <pre className="sc-output" ref={box}>{shown.join("\n")}</pre>}
+      {hb && <div className="sc-heartbeat">{hb}</div>}
     </div>
   );
 }
@@ -58,24 +105,37 @@ function YourTurn({ step }: { step: Integration["steps"][number] }) {
 export function IntegrationStepsCard({ id, active }: { id: string; active: boolean }) {
   const { onEvent } = useStore();
   const [it, setIt] = useState<Integration | null>(null);
+  const [job, setJob] = useState<IntegrationJob | null>(null);
+  const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [lines, setLines] = useState<string[]>([]);
   const [showOutput, setShowOutput] = useState(false);
   const load = () => api.integration(id).then((x) => {
     setIt(x); setError(null);
+    if (x.now) setOffset(Date.parse(x.now) - Date.now());
+    if (x.job !== undefined) setJob(x.job ?? null);
     if (x.output) setLines(x.output.map((o) => o.line));
   }).catch((e) => setError(e.message));
   useEffect(() => { load(); }, [id]);
+  const running = !!job?.running;
   useEffect(() => {
-    if (!active) return;
-    const t = setInterval(load, 3000);
+    if (!active && !running) return;
+    const t = setInterval(load, running ? 5000 : 3000);
     return () => clearInterval(t);
-  }, [id, active]);
+  }, [id, active, running]);
   useEffect(() => onEvent((e) => {
     if (e.integrationId !== id) return;
-    if (e.type === "integration.output") setLines((l) => [...l.slice(-199), e.line]);
+    if (e.type === "integration.output") {
+      setLines((l) => [...l.slice(-199), e.line]);
+      setJob((j) => (j ? { ...j, last_output_at: new Date(Date.now() + offset).toISOString() } : j));
+    }
+    if (e.type === "integration.job") {
+      setJob(e.job);
+      if (e.job?.running) setLines([]);
+      load();
+    }
     if (e.type === "integration.updated") load();
-  }), [id, onEvent]);
+  }), [id, onEvent, offset]);
 
   if (!it) {
     return (
@@ -85,37 +145,64 @@ export function IntegrationStepsCard({ id, active }: { id: string; active: boole
       </div>
     );
   }
-  const head = STATE_STEP[it.state];
-  const done = it.steps.filter((s) => s.state === "done").length;
+  if (!it.available) {
+    return (
+      <div className="sc-card st-skipped" aria-label={`${it.title}: coming soon`}>
+        <div className="sc-head"><span className="sc-icon">─</span><strong>{it.title}</strong><span className="tag">Coming soon</span></div>
+        <p className="hint">This integration can't be connected yet.</p>
+      </div>
+    );
+  }
+  const head: StepState = running ? "running" : STATE_STEP[it.state];
+  // While a run is going, the first step that isn't done (and isn't the owner's) is the one working.
+  const workingId = running ? it.steps.find((s) => s.state !== "done" && s.state !== "skipped" && s.state !== "human")?.id : undefined;
+  const steps = it.steps.map((s) => (s.id === workingId ? { ...s, state: "running" as StepState } : s));
+  const live = steps.filter((s) => s.state !== "skipped");
+  const done = live.filter((s) => s.state === "done").length;
+  const stepGates = new Map(it.gates.flatMap((g) => (g.kind === "step" ? [[g.id, g] as const] : [])));
+  const settingGates = it.gates.filter((g) => g.kind === "setting");
+  const disconnected = !running && job?.action === "disconnect" && job.ok && it.state === "disconnected";
+  const lastFailed = !running && it.last?.ok === false && it.last.error && it.state !== "connected";
   return (
     <div className={`sc-card st-${head}`} aria-label={`${it.title} setup steps`}>
       <div className="sc-head">
         <span className="sc-icon" title={STATE_LABEL[it.state]}>{STEP_ICON[head]}</span>
         <strong>{it.title}</strong>
-        <span className="tag">{STATE_LABEL[it.state]}{it.account ? ` · ${it.account}` : ""}</span>
-        {it.steps.length > 0 && <span className="sc-count">{done}/{it.steps.length}</span>}
+        <span className="tag">{running ? "Working" : STATE_LABEL[it.state]}{it.account ? ` · ${it.account}` : ""}</span>
+        {live.length > 0 && <span className="sc-count">{done}/{live.length}</span>}
       </div>
-      {it.steps.length > 0 && (
+      {settingGates.map((g) => <YourTurn key={`s-${g.key}`} gate={g} />)}
+      {steps.length > 0 && (
         <ul className="sc-steps">
-          {it.steps.map((s) => (
+          {steps.map((s) => (
             <li key={s.id} className={`sc-step st-${s.state}`}>
               <div className="sc-line">
                 <span className="sc-icon" aria-label={STEP_LABEL[s.state]} title={STEP_LABEL[s.state]}>{STEP_ICON[s.state]}</span>
                 <span className="sc-title">{s.title}</span>
                 {s.state === "running" && <span className="tag">working…</span>}
+                {s.state === "skipped" && <span className="hint">not needed here</span>}
               </div>
-              {s.state === "human" && <YourTurn step={s} />}
+              {stepGates.has(s.id) && !running && <YourTurn gate={stepGates.get(s.id)!} />}
               {s.state === "failed" && s.last_error && <pre className="sc-error">{s.last_error}</pre>}
             </li>
           ))}
         </ul>
       )}
-      {lines.length > 0 && (
+      {running && job && <JobProgress job={job} lines={lines} offset={offset} />}
+      {lastFailed && <pre className="sc-error" style={{ marginLeft: 0 }}>Last {it.last!.action} failed: {it.last!.error}</pre>}
+      {disconnected && (
+        <div className="sc-revoke">
+          <strong>Disconnected.</strong> Its instructions and skills are gone; credentials were left alone.
+          {it.revoke ? <><div className="hint">To revoke them:</div><Markdown text={it.revoke} /></> : null}
+        </div>
+      )}
+      {!running && lines.length > 0 && (
         <div className="sc-output-wrap">
-          <button className="worklog-toggle" aria-expanded={showOutput || active} onClick={() => setShowOutput(!showOutput)}>
-            <span className="chev"><Icon name="chevron" size={14} /></span>Output ({lines.length} line{lines.length === 1 ? "" : "s"})
+          <button className="worklog-toggle" aria-expanded={showOutput} onClick={() => setShowOutput(!showOutput)}>
+            <span className="chev"><Icon name="chevron" size={14} /></span>
+            Output of the last {job?.action ?? "run"} ({lines.length} line{lines.length === 1 ? "" : "s"}{job?.ended_at ? `, ${fmtDuration(Date.parse(job.ended_at) - Date.parse(job.started_at))}` : ""})
           </button>
-          {(showOutput || active) && <pre className="sc-output">{(showOutput ? lines : lines.slice(-8)).join("\n")}</pre>}
+          {showOutput && <pre className="sc-output">{lines.join("\n")}</pre>}
         </div>
       )}
       {error && <p className="hint">Status may be stale: {error}</p>}
