@@ -281,7 +281,8 @@ The `terminal` and `display` modules own these units (the access module only ver
   - Generate the credential at install: `agentbox:<32 random chars>`, mode 0600, owned by the user
     the portal and ttyd run as.
   - The credential is visible in ttyd's command line to local users (`/proc/<pid>/cmdline`). That
-    is accepted: it only has to stop browsers.
+    is accepted: it only has to stop browsers (ttyd has no credential-file or env option; see
+    SECURITY.md › Known limitations).
   - Disable Ubuntu's own `ttyd.service` (port 7681): `systemctl disable --now ttyd.service`.
 - **x11vnc** (`agentbox-vnc.service`): replace `-nopw` with `-passwdfile /etc/agentbox/vnc.password`
   and keep `-localhost`. Generate the file at install: 8 random alphanumeric characters (VNC uses
