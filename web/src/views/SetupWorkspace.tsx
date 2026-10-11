@@ -402,6 +402,9 @@ function Panel({ id, layout, narrow, onExpand, title, actions, note, children, o
 
 // --- the checklist -------------------------------------------------------------------------------------------
 
+const visible = (p: SetupPlan) => JSON.stringify([p.title, p.steps, p.current, p.checking]);
+function sameSteps(a: SetupPlan, b: SetupPlan) { return visible(a) === visible(b); }
+
 function usePlan(instanceId: string | null) {
   const { onEvent } = useStore();
   const [plan, setPlan] = useState<SetupPlan | null>(null);
@@ -412,7 +415,8 @@ function usePlan(instanceId: string | null) {
   }, [instanceId]);
   useEffect(() => onEvent((e) => {
     if (!instanceId || e.instanceId !== instanceId) return;
-    if (e.type === "setup.plan") setPlan(e.plan);
+    // Replace the plan only when something visible changed, so an unchanged update never re-renders.
+    if (e.type === "setup.plan") setPlan((p) => (p && sameSteps(p, e.plan) ? p : e.plan));
     if (e.type === "setup.check") {
       setPlan((p) => {
         if (!p) return p;
@@ -472,11 +476,10 @@ function StepItem({ n, step, plan, current, onInsert, terminalUp, instanceId, ca
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const checking = plan.checking[step.id];
-  const lastAt = plan.checked_at[step.id];
   const shown = open ?? current;
   const state = checking && (step.status === "pending" || step.status === "failed") ? "checking" : step.status;
   const checkable = !!step.check || !!step.integration;
-  const now = useNow(shown && checkable && step.status !== "done" && step.status !== "skipped");
+  const now = useNow(!!checking); // ticks only while an owner-requested check runs
   const act = async (action: "check" | "skip" | "done" | "reopen") => {
     setBusy(action); setError(null);
     try { await api.setupStep(instanceId, step.id, action); } catch (e: any) { setError(e.message); }
@@ -510,12 +513,11 @@ function StepItem({ n, step, plan, current, onInsert, terminalUp, instanceId, ca
                 <span className="hint">Skipped</span>
               ) : (
                 <>
-                  <span className={`ws-beat${checking ? " on" : ""}`} aria-hidden="true" />
+                  <span className={`ws-beat${checking ? " on" : current ? " watch" : ""}`} aria-hidden="true" />
                   <span>
                     {checking
                       ? <>Checking… {fmtDuration(now - Date.parse(checking))}</>
-                      : current ? <>Waiting: checks every {Math.round(plan.interval_ms / 1000)} s</> : "Checked when it's the current step"}
-                    {lastAt && !checking && <span className="hint"> · last check {fmtDuration(Math.max(0, now - Date.parse(lastAt)))} ago</span>}
+                      : current ? <>Watching: ticks itself when done (checked every {Math.round(plan.interval_ms / 1000)} s)</> : "Checked when it's the current step"}
                   </span>
                   <code className="ws-check-cmd" title={step.check ?? ""}>
                     {step.check ?? `agentbox integration status ${step.integration!.id}${step.integration!.step ? ` (${step.integration!.step})` : ""}`}

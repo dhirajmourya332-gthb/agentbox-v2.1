@@ -179,7 +179,7 @@ export function planView(instanceId: string): PlanView | null {
   const checkedAt: Record<string, string> = {};
   for (const s of p.steps) {
     const l = c?.liveOf(instanceId, s.id);
-    if (l?.since) checking[s.id] = new Date(l.since).toISOString();
+    if (l?.since && l.shown) checking[s.id] = new Date(l.since).toISOString(); // background polls stay invisible
     if (l?.at) checkedAt[s.id] = new Date(l.at).toISOString();
     else if (s.last_check) checkedAt[s.id] = s.last_check.at;
   }
@@ -322,7 +322,7 @@ export type CheckerDeps = {
   clock?: () => number;
 };
 
-type Live = { since: number | null; at: number | null };
+type Live = { since: number | null; at: number | null; shown?: boolean };
 
 export type PlanChecker = ReturnType<typeof createPlanChecker>;
 
@@ -372,9 +372,12 @@ export function createPlanChecker(deps: CheckerDeps) {
     if (!checkable(step)) throw new Error("This step has no check; mark it done instead");
     if (l.since) return { result: step.last_check, turnedDone: false, busy: true };
     l.since = clock();
+    // Only a check the owner asked for is shown as "checking"; the background poll is silent and the
+    // page changes only when a result changes the step (recordCheck saves, and publishes, only then).
+    l.shown = !!opts.explicit;
     live.set(k, l);
     running++;
-    publish({ type: "setup.check", instanceId, stepId, running: true, at: new Date(l.since).toISOString() });
+    if (l.shown) publish({ type: "setup.check", instanceId, stepId, running: true, at: new Date(l.since).toISOString() });
     let res: CheckResult;
     try {
       res = await runOne(instanceId, step);
@@ -390,7 +393,8 @@ export function createPlanChecker(deps: CheckerDeps) {
       turnedDone = recordCheck(instanceId, stepId, res, { explicit: !!opts.explicit }).turnedDone;
       if (turnedDone && !opts.quiet) scheduleNudge(instanceId, stepId, "check");
     }
-    publish({ type: "setup.check", instanceId, stepId, running: false, at: new Date(l.at!).toISOString(), ok: res.ok });
+    if (l.shown) publish({ type: "setup.check", instanceId, stepId, running: false, at: new Date(l.at!).toISOString(), ok: res.ok });
+    l.shown = false;
     return { result: res, turnedDone, busy: false };
   }
 
