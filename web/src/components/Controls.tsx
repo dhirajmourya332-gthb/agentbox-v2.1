@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type React from "react";
 import { api } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Avatar, Icon, relTime } from "./ui.tsx";
@@ -165,7 +166,84 @@ export function PausedBar() {
   );
 }
 
-/** A small live view of the shared screen, pinned to the corner on every page. */
+/**
+ * Where the screen preview sits: an offset from the bottom-right corner, dragged by hand and
+ * remembered per browser. It's kept on screen when the window shrinks, and a double-click on the
+ * handle puts it back in the corner.
+ */
+const PIP_POS_KEY = "agentbox.pip.pos";
+const PIP_MARGIN = 8;
+type Corner = { right: number; bottom: number };
+function readPos(): Corner {
+  try {
+    const v = JSON.parse(localStorage.getItem(PIP_POS_KEY) ?? "null");
+    if (v && Number.isFinite(v.right) && Number.isFinite(v.bottom)) return { right: v.right, bottom: v.bottom };
+  } catch { /* storage unavailable */ }
+  return { right: 16, bottom: 16 };
+}
+
+function useDragToMove() {
+  const [pos, setPos] = useState<Corner>(readPos);
+  const el = useRef<HTMLElement | null>(null);
+  const moved = useRef(false);
+  // Keep the whole thing inside the window (after a resize, or when it grows from pill to preview).
+  const clamp = (p: Corner): Corner => {
+    const r = el.current?.getBoundingClientRect();
+    const w = r?.width ?? 0, h = r?.height ?? 0;
+    return {
+      right: Math.min(Math.max(PIP_MARGIN, p.right), Math.max(PIP_MARGIN, window.innerWidth - w - PIP_MARGIN)),
+      bottom: Math.min(Math.max(PIP_MARGIN, p.bottom), Math.max(PIP_MARGIN, window.innerHeight - h - PIP_MARGIN)),
+    };
+  };
+  const save = (p: Corner) => { try { localStorage.setItem(PIP_POS_KEY, JSON.stringify(p)); } catch { /* storage unavailable */ } };
+  // After every render (e.g. the pill opening into the bigger preview): pull it back inside if it sticks out.
+  useLayoutEffect(() => {
+    const c = clamp(pos);
+    if (c.right !== pos.right || c.bottom !== pos.bottom) setPos(c);
+  });
+  useEffect(() => {
+    const fit = () => setPos((p) => clamp(p));
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+  /** Pointer handlers for the drag handle. A press that doesn't move stays a click. */
+  const handle = {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0 || (e.target as HTMLElement).closest("a, button:not(.pip-drag)")) return;
+      const start = { x: e.clientX, y: e.clientY, ...pos };
+      moved.current = false;
+      const target = e.currentTarget as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+      const move = (ev: PointerEvent) => {
+        const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+        if (!moved.current && Math.hypot(dx, dy) < 4) return;
+        moved.current = true;
+        setPos(clamp({ right: start.right - dx, bottom: start.bottom - dy }));
+      };
+      const up = () => {
+        target.removeEventListener("pointermove", move);
+        target.removeEventListener("pointerup", up);
+        target.removeEventListener("pointercancel", up);
+        setPos((p) => { save(p); return p; });
+      };
+      target.addEventListener("pointermove", move);
+      target.addEventListener("pointerup", up);
+      target.addEventListener("pointercancel", up);
+    },
+    onDoubleClick: (e: React.MouseEvent) => {
+      if ((e.target as HTMLElement).closest("a, button:not(.pip-drag)")) return;
+      const home = { right: 16, bottom: 16 };
+      setPos(home);
+      save(home);
+    },
+  };
+  /** True right after a drag: the click that ends it shouldn't also open or close anything. */
+  const wasDrag = () => { const m = moved.current; moved.current = false; return m; };
+  return { style: { right: pos.right, bottom: pos.bottom }, ref: el, handle, wasDrag };
+}
+
+/** A small live view of the shared screen; drag it anywhere (it starts in the bottom-right corner). */
 export function ScreenPip() {
   const { display } = useStore();
   // "auto": a small pill, opening by itself while an agent is using the screen. A choice made by
@@ -181,17 +259,20 @@ export function ScreenPip() {
   const open = mode === "open" || (mode === "auto" && agentOnScreen);
   const setOpen = (v: boolean) => choose(v ? "open" : "closed");
   const previewUrl = useScreenUrl(SCREEN_PREVIEW_URL);
+  const drag = useDragToMove();
 
   if (!open) {
     return (
-      <button className="pip-tab" onClick={() => setOpen(true)} aria-label="Show the shared screen">
+      <button ref={drag.ref as React.Ref<HTMLButtonElement>} className="pip-tab pip-drag" style={drag.style} {...drag.handle}
+        onClick={() => { if (!drag.wasDrag()) setOpen(true); }} aria-label="Show the shared screen (drag to move)" title="Show the shared screen · drag to move">
         <Icon name="screen" size={14} /><ScreenHolder compact />
       </button>
     );
   }
   return (
-    <aside className="pip" aria-label="Shared screen preview">
-      <div className="pip-bar">
+    <aside ref={drag.ref as React.Ref<HTMLElement>} className="pip" style={drag.style} aria-label="Shared screen preview">
+      <div className="pip-bar" {...drag.handle} title="Drag to move · double-click to put it back in the corner">
+        <span className="pip-grip" aria-hidden="true">⋮⋮</span>
         <ScreenHolder compact />
         <a className="icon-btn" href="#/screen" aria-label="Open the screen" title="Open the screen"><Icon name="screen" size={14} /></a>
         <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Hide preview" title="Hide preview"><Icon name="close" size={14} /></button>
