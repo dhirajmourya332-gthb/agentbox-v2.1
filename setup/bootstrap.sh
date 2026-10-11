@@ -56,6 +56,11 @@ echo "agentbox bootstrap · host $HOST · agent user $AGENT_USER · access $ACCE
 
 # --- 1. base packages, Node 22, git, ttyd ---------------------------------------------------------------
 say "base packages"
+# A fresh VM often runs unattended-upgrades on first boot, holding the dpkg lock for minutes.
+# Make every apt/dpkg call (here and in every module) wait for the lock instead of failing.
+cat > /etc/apt/apt.conf.d/90agentbox-lock <<'APT'
+DPkg::Lock::Timeout "900";
+APT
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   ca-certificates curl gnupg git jq rsync unzip python3 sudo iproute2 netcat-openbsd ttyd >/dev/null
