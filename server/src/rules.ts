@@ -129,10 +129,10 @@ export function helperLimitError(from: Agent): string | null {
 // --- enforcement ------------------------------------------------------------------------------
 
 const run = promisify(execFile);
-const DEPLOY_WORKFLOW = /deploy|build-push|release|rollout|rollback/i;
+export const DEPLOY_WORKFLOW = /deploy|build-push|release|rollout|rollback/i;
 
 /** The base branch of the PR a merge command names, or null when it can't be told. */
-async function prBase(command: string): Promise<string | null> {
+export async function prBase(command: string): Promise<string | null> {
   const url = command.match(/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/);
   const num = url?.[2] ?? command.match(/gh\s+pr\s+merge\s+(?:--?\S+\s+)*#?(\d+)/)?.[1] ?? command.match(/pulls\/(\d+)\/merge/)?.[1];
   const repo = url?.[1] ?? command.match(/(?:-R|--repo)[\s=]+([\w.-]+\/[\w.-]+)/)?.[1] ?? command.match(/repos\/([\w.-]+\/[\w.-]+)\/pulls/)?.[1];
@@ -143,6 +143,12 @@ async function prBase(command: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** The deploy workflow a command dispatches (gh workflow run / the dispatches API), or null. Drift reports are read-only. */
+export function deployWorkflowOf(command: string): string | null {
+  const dispatch = command.match(/gh\s+workflow\s+run\s+["']?([\w./-]+)/)?.[1] ?? command.match(/actions\/workflows\/([\w.-]+)\/dispatches/)?.[1];
+  return dispatch && DEPLOY_WORKFLOW.test(dispatch) && !/drift/i.test(dispatch) ? dispatch : null;
 }
 
 /** Why this shell command breaks the routine's rules, or null. */
@@ -165,8 +171,8 @@ export async function ruleViolation(agent: Agent, command: string): Promise<stri
     }
   }
   if (p.deploy && p.deploy !== "production") {
-    const dispatch = command.match(/gh\s+workflow\s+run\s+["']?([\w./-]+)/)?.[1] ?? command.match(/actions\/workflows\/([\w.-]+)\/dispatches/)?.[1];
-    if (dispatch && DEPLOY_WORKFLOW.test(dispatch) && !/drift/i.test(dispatch)) { // drift reports are read-only
+    const dispatch = deployWorkflowOf(command);
+    if (dispatch) {
       if (p.deploy === "none") return `${where} doesn't allow deploying (${dispatch}).`;
       if (/\bprod(uction)?\b/i.test(command)) return `${where} allows deploying to staging only, and this targets production.`;
     }

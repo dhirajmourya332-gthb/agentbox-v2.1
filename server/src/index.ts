@@ -24,7 +24,7 @@ import {
 } from "./routines.ts";
 import { continueGroup, createGroup, deleteGroup, getGroup, listGroups, postAsOwner, updateGroup } from "./groups.ts";
 import {
-  approveDraft, deleteSkill, getDraft, getSkill, listDrafts, listSkills, rejectDraft, saveSkill, seedSkills,
+  approveDraft, deleteSkill, ensureSeedSkill, getDraft, getSkill, listDrafts, listSkills, rejectDraft, saveSkill, seedSkills,
   setAgentSkills, setSkillAgents, skillsOf,
 } from "./skills.ts";
 import { health } from "./health.ts";
@@ -41,6 +41,9 @@ import { mappedIntegrations, refreshIntegrations } from "./integrations.ts";
 import { registerIntegrationRoutes } from "./integrationRoutes.ts";
 import { startSudoSweeper } from "./sudo.ts";
 import { registerSetupRoutes, startSetupWorkspace } from "./setupRoutes.ts";
+import { registerRepoRoutes } from "./repoRoutes.ts";
+import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
+import { startSetupRequests } from "./setupRequests.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Ports and feature flags come from /etc/agentbox/config.yaml (config.ts). A disabled module's
@@ -79,7 +82,8 @@ registerAccessRoutes(app, access);
 app.setErrorHandler((err: any, _req, reply) => {
   const status = err.statusCode ?? 400;
   if (status >= 500) app.log.error(err);
-  reply.status(status).send({ error: err.message });
+  // 409s from repos carry what's in the way (open tasks, unpushed worktrees); the phone gets web_only.
+  reply.status(status).send({ error: err.message, ...(err.detail ? { detail: err.detail } : {}), ...(err.web_only ? { web_only: true } : {}) });
 });
 
 const agentView = (a: ReturnType<typeof getAgent> & {}) => ({
@@ -198,7 +202,16 @@ app.post("/api/work", async (req) => {
   if (!text && !images.length) throw new HttpError(400, "Say what needs doing");
   const firstLine = text.split("\n")[0] || "Task from an image";
   const label = String(b?.title ?? "").trim() || (firstLine.length > 70 ? firstLine.slice(0, 67) + "…" : firstLine);
+  // Repos for this task (each gets its worktree before the first turn): checked before it starts.
+  const repoNames: string[] = Array.isArray(b?.repos) ? [...new Set(b.repos.map((x: unknown) => String(x).trim()).filter(Boolean))] as string[] : [];
+  for (const n of repoNames) {
+    const repo = getRepo(n);
+    if (!repo || repo.status === "archived") throw new HttpError(400, `No repo called "${n}"`);
+    if (repo.status !== "ready") throw new HttpError(400, `${repo.name} isn't ready (${repo.status})`);
+    if (!roleAllowed(repo, role)) throw new HttpError(400, `${role.name} isn't allowed to use ${repo.name}`);
+  }
   const inst = spawnInstance(role.id, { label, createdBy: "owner" });
+  for (const n of repoNames) bindRepo(inst, n);
   sendMessage(inst.id, dmThreadOf(inst.id)!, text, images);
   return agentView(inst);
 });
@@ -504,6 +517,8 @@ app.post("/api/attention/:id/seen", async (req) => {
 registerIntegrationRoutes(app);
 // The Setup workspace: the owner's terminal (readable by the setup agent) and the checklist.
 registerSetupRoutes(app);
+// Repos (per-task worktrees, the Repos page) and setup requests from agents.
+registerRepoRoutes(app);
 
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 // Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.
@@ -530,6 +545,10 @@ const setupWorkspace = startSetupWorkspace({ log: (m) => app.log.warn(m) }); // 
 app.addHook("onClose", async () => setupWorkspace.stop());
 refreshIntegrations(0).catch(() => {});
 startRoutines();
+ensureSeedSkill("onboard-repo"); // added after the first seeding: copied once
+const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, daily sweep, cleanup on task close
+const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true
+app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });
 startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish
 // Push notifications to paired phones (push.ts); wired to "needs you" items below.
 if (PUSH) startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });

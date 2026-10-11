@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { all } from "./db.ts";
+import { paths } from "./config.ts";
 import { AGENTS_ROOT, WORK_ROOT, homeOf, type Agent } from "./agents.ts";
 
 /**
@@ -106,7 +107,8 @@ export function allowed(p: string) {
       return path.resolve(p);
     }
   })();
-  return [AGENTS_ROOT, WORK_ROOT].some((root) => real === root || real.startsWith(root + path.sep));
+  // Plus the repos' knowledge packs (<data>/repos/<name>/map/).
+  return [AGENTS_ROOT, WORK_ROOT, path.resolve(paths.data, "repos")].some((root) => real === root || real.startsWith(root + path.sep));
 }
 
 const TYPES: Record<string, string> = {

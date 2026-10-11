@@ -49,6 +49,11 @@ function create(kind: Attention["kind"], agentId: string, taskId: string | null,
   return item;
 }
 
+/** Raise an item from elsewhere (setup requests): announced, and pushed to paired phones like the rest. */
+export function raiseAttention(kind: Attention["kind"], agentId: string, taskId: string | null, roomId: string | null, title: string) {
+  return create(kind, agentId, taskId, roomId, title);
+}
+
 /** Items, unseen first (newest first within each), at most 100. */
 export function listAttention(): Attention[] {
   return all<Attention>(

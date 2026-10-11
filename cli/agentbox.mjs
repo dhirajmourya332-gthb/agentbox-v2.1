@@ -783,6 +783,118 @@ function enabledUnits(conf) {
   return [...units.filter((u) => u !== "agentbox-web.service"), ...units.filter((u) => u === "agentbox-web.service")];
 }
 
+// --- repos (the portal owns them: clones, worktrees, maps; docs/V2-ARCHITECTURE.md, Changes (repos)) -----
+
+async function apiJson(conf, apiPath, opts = {}) {
+  let r;
+  try { r = await api(conf, apiPath, opts); } catch (e) { fail(`the portal isn't answering on 127.0.0.1:${conf.ports?.portal ?? 7700} (${e.cause?.code ?? e.message})`); }
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+  if (!r.ok) {
+    const e = new Fail(data?.error ?? `${r.status} ${text.slice(0, 200)}`);
+    e.detail = data?.detail;
+    throw e;
+  }
+  return data;
+}
+
+const ago = (iso) => {
+  if (!iso) return "never";
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  return s < 90 ? `${s}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : s < 129600 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
+};
+const REPO_MARK = { ready: green("✔"), cloning: yellow("●"), error: red("✖"), archived: dim("─") };
+
+function printRepo(r, long = false) {
+  const wts = (r.worktrees ?? []).filter((w) => w.status === "active" || w.status === "kept");
+  console.log(`${REPO_MARK[r.status] ?? "?"} ${r.name.padEnd(20)} ${r.status.padEnd(8)} ${String(r.default_branch ?? "?").padEnd(10)} fetched ${ago(r.last_fetch_at).padEnd(9)} map ${r.map_status.padEnd(7)} ${wts.length} worktree(s)${r.error ? red(`  ${r.error}`) : ""}`);
+  if (!long) return;
+  console.log(dim(`    ${r.url} · ${r.provider} · ${r.path ?? ""}`));
+  if (r.description) console.log(dim(`    ${r.description}`));
+  if (r.test_command) console.log(dim(`    tests: ${r.test_command}`));
+  console.log(dim(`    protected: ${r.protected_branches.join(", ") || "none"} · agents may merge: ${r.agents_may_merge ? "yes" : "no"} · deploy: ${r.agents_may_deploy ? "yes" : "no"}`));
+  for (const w of wts) console.log(`    ${w.status === "kept" ? yellow("kept") : "open"} ${w.path} (${w.branch}) ${w.instance ? `${w.instance.name}: ${w.instance.label ?? ""}` : ""}${w.note ? dim(` · ${w.note}`) : ""}`);
+}
+
+async function repoCmd(argv) {
+  const [, sub, ...rest] = argv;
+  const conf = cfg();
+  const json = rest.includes("--json");
+  const args = rest.filter((a) => a !== "--json");
+  const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+  switch (sub) {
+    case "list": case undefined: {
+      const d = await apiJson(conf, "/api/repos");
+      if (json) { console.log(JSON.stringify(d.repos, null, 2)); return 0; }
+      if (!d.repos.length) console.log(dim("No repos yet: agentbox repo add <url>"));
+      for (const r of d.repos) printRepo(r);
+      return 0;
+    }
+    case "status": {
+      const name = args.find((a) => !a.startsWith("-"));
+      const repos = name ? [await apiJson(conf, `/api/repos/${encodeURIComponent(name)}`)] : (await apiJson(conf, "/api/repos")).repos;
+      if (json) { console.log(JSON.stringify(name ? repos[0] : repos, null, 2)); return 0; }
+      for (const r of repos) printRepo(r, true);
+      return repos.some((r) => r.status === "error") ? 1 : 0;
+    }
+    case "add": {
+      const url = args.find((a) => !a.startsWith("-") && ![opt("--name"), opt("--branch"), opt("--roles")].includes(a));
+      if (!url) fail("usage: agentbox repo add <url> [--name n] [--branch b] [--roles a,b] [--no-map] [--no-wait]");
+      const body = { url, name: opt("--name"), default_branch: opt("--branch"), allowed_roles: opt("--roles") ? opt("--roles").split(",").map((s) => s.trim()).filter(Boolean) : undefined, onboard: !args.includes("--no-map") };
+      let r = await apiJson(conf, "/api/repos", { method: "POST", body: JSON.stringify(body) });
+      console.log(`added ${r.name}: cloning ${r.url}`);
+      if (args.includes("--no-wait")) { if (json) console.log(JSON.stringify(r, null, 2)); return 0; }
+      let shown = 0;
+      const deadline = Date.now() + 35 * 60_000;
+      while (r.status === "cloning" && Date.now() < deadline) {
+        await new Promise((res) => setTimeout(res, 1000));
+        r = await apiJson(conf, `/api/repos/${encodeURIComponent(r.name)}`);
+        const lines = r.job?.lines ?? [];
+        for (const l of lines.slice(Math.min(shown, lines.length))) console.log(dim(`  ${l.line}`));
+        shown = lines.length;
+      }
+      if (json) console.log(JSON.stringify(r, null, 2));
+      if (r.status !== "ready") { console.error(red(`agentbox: ${r.name}: ${r.error ?? r.status}`)); return 1; }
+      console.log(green(`${r.name} is ready (default branch ${r.default_branch})${body.onboard ? "; the onboarding (map) run has started" : ""}`));
+      return 0;
+    }
+    case "fetch": {
+      const name = args.find((a) => !a.startsWith("-"));
+      if (!name || args.includes("--all")) {
+        const d = await apiJson(conf, "/api/repos/fetch-all", { method: "POST", body: "{}" });
+        for (const x of d.results) console.log(`${x.ok ? green("✔") : red("✖")} ${x.name}${x.error ? `  ${x.error}` : ""}`);
+        return d.results.every((x) => x.ok) ? 0 : 1;
+      }
+      const r = await apiJson(conf, `/api/repos/${encodeURIComponent(name)}/fetch`, { method: "POST", body: "{}" });
+      console.log(`${green("✔")} ${r.name} fetched`);
+      return 0;
+    }
+    case "remap": {
+      const name = args.find((a) => !a.startsWith("-")) ?? fail("usage: agentbox repo remap <name>");
+      const r = await apiJson(conf, `/api/repos/${encodeURIComponent(name)}/remap`, { method: "POST", body: "{}" });
+      console.log(`mapping ${name} (task ${r.instance_id})`);
+      return 0;
+    }
+    case "remove": {
+      const name = args.find((a) => !a.startsWith("-")) ?? fail("usage: agentbox repo remove <name> [--keep-unpushed]");
+      try {
+        const r = await apiJson(conf, `/api/repos/${encodeURIComponent(name)}/archive`, { method: "POST", body: JSON.stringify({ confirm_unpushed: args.includes("--keep-unpushed") }) });
+        console.log(`archived ${name} → ${r.archive_path ?? "(no clone)"}; its map stays. Purge it from the Repos page to delete it.`);
+        return 0;
+      } catch (e) {
+        if (e.detail?.kind === "busy") for (const t of e.detail.tasks ?? []) console.error(`  open: ${t.name} (${t.label ?? "task"})`);
+        if (e.detail?.kind === "unpushed") {
+          for (const w of e.detail.worktrees ?? []) console.error(`  ${w.path}: ${w.note ?? "unpushed work"}`);
+          console.error("  rerun with --keep-unpushed to archive anyway (the worktrees stay on disk)");
+        }
+        throw e;
+      }
+    }
+  }
+  fail("usage: agentbox repo list|status [<name>]|add <url>|fetch [<name>]|remap <name>|remove <name> [--json]");
+}
+
 // --- commands ----------------------------------------------------------------------------------------
 
 const USAGE_INT = `  integration list [--json]            the catalog: GitHub, GitLab, AWS, Kubernetes… (on / off / soon)
@@ -792,6 +904,14 @@ const USAGE_INT = `  integration list [--json]            the catalog: GitHub, G
   integration disconnect <id> [--forget]  remove its instructions and units, run disable.sh (root)
   integration settings <id> [--set k=v]… [--unset k] [--values JSON] [--get k] [--json]
   integration render [<id>]            re-render /team/integrations/*.md from the settings (root)`;
+
+const USAGE_REPO = `  repo list [--json]                   the repos agents work on (status, default branch, fetch, map)
+  repo status [<name>] [--json]        settings, protected branches, open and kept worktrees
+  repo add <url> [--name n] [--branch b] [--roles a,b] [--no-map] [--no-wait]
+                                       register and clone it (https, ssh or git@; no credentials)
+  repo fetch [<name>]                  git fetch --prune the canonical clone(s) now
+  repo remap <name>                    run the onboarding (map) task again
+  repo remove <name> [--keep-unpushed] archive it (refused while open tasks use it)`;
 
 const USAGE = `usage: agentbox <command>
   status [--json]                      base modules and integrations (checks), services, listeners
@@ -805,6 +925,7 @@ const USAGE = `usage: agentbox <command>
   module disable <id>                  turn a base module off, remove its units
   module verify <id>                   verify.sh and every check
 ${USAGE_INT}
+${USAGE_REPO}
   secret set <name>                    stdin → <secrets>/<name>, 0600, owned by the agent user
   update [--force]                     pull (cloud) or sync (lima), build, restart
   start | stop [--force] | restart [--force]
@@ -965,6 +1086,8 @@ async function main(argv) {
     case "status": return status(argv.includes("--json"));
 
     case "integration": case "integrations": return integrationCmd(argv);
+
+    case "repo": case "repos": return repoCmd(argv);
 
     case "api": {
       const conf = cfg();
