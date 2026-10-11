@@ -1,0 +1,142 @@
+import { useEffect, useState } from "react";
+import { api, type Integration } from "../api.ts";
+import { useStore } from "../store.tsx";
+import { Icon } from "../components/ui.tsx";
+import { STATE_LABEL, STATE_STEP, STEP_ICON } from "../components/Setup.tsx";
+
+/** docs/V2-ARCHITECTURE.md §10.5: the catalog, by category, with status, settings and mapped agents. */
+
+const CATEGORIES: { id: string; label: string }[] = [
+  { id: "code-hosting", label: "Code hosting" },
+  { id: "cloud", label: "Cloud" },
+  { id: "cluster", label: "Clusters" },
+  { id: "database", label: "Databases" },
+  { id: "chat", label: "Chat" },
+  { id: "extras", label: "Extras" },
+];
+
+export function useIntegrations() {
+  const { onEvent } = useStore();
+  const [data, setData] = useState<{ integrations: Integration[]; error: string | null } | null>(null);
+  const load = () => api.integrations().then((d) => setData({ integrations: d.integrations, error: d.error })).catch((e) => setData({ integrations: [], error: e.message }));
+  useEffect(() => { load(); }, []);
+  useEffect(() => onEvent((e) => {
+    if (e.type === "integration.updated" || e.type === "integration.mapping") load();
+  }), [onEvent]);
+  return { data, reload: load };
+}
+
+export function Integrations() {
+  const { data, reload } = useIntegrations();
+  const known = new Set(CATEGORIES.map((c) => c.id));
+  const groups = [...CATEGORIES, { id: "__other", label: "Other" }]
+    .map((c) => ({ ...c, items: (data?.integrations ?? []).filter((i) => (c.id === "__other" ? !known.has(i.category) : i.category === c.id)) }))
+    .filter((g) => g.items.length);
+  return (
+    <div className="page">
+      <div className="page-inner" style={{ maxWidth: 1000 }}>
+        <h1>Integrations</h1>
+        <p className="lede">
+          The services your agents work with. The setup agent connects them with you: it installs what's needed and stops
+          for your logins, which happen in the terminal. Each integration reaches only the agents you map to it.
+        </p>
+        {data?.error && <div className="error-box" style={{ marginBottom: 16 }}>Couldn't read the integration catalog: {data.error}</div>}
+        {!data && <p className="hint">Loading…</p>}
+        {groups.map((g) => (
+          <section key={g.id}>
+            <h2>{g.label}</h2>
+            <div className="cards integration-cards">
+              {g.items.map((it) => <IntegrationCard key={it.id} it={it} onChange={reload} />)}
+            </div>
+          </section>
+        ))}
+        {data && !data.error && groups.length === 0 && <div className="group-intro"><p>No integrations in the catalog.</p></div>}
+      </div>
+    </div>
+  );
+}
+
+function IntegrationCard({ it, onChange }: { it: Integration; onChange: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const settings = it.settings.filter((s) => s.value);
+  const open = async (action: "connect" | "reconnect" | "disconnect") => {
+    setBusy(true); setError(null);
+    try {
+      const r = await api.integrationTask(it.id, action);
+      location.hash = `#/agents/${r.instance_id}`;
+    } catch (e: any) { setError(e.message); setBusy(false); }
+  };
+  const st = STATE_STEP[it.state];
+  return (
+    <div className={`card integration-card st-${st}`}>
+      <div className="integration-top">
+        <strong>{it.title}</strong>
+        {it.available
+          ? <span className={`int-state st-${st}`}><span className="sc-icon" aria-hidden="true">{STEP_ICON[st]}</span>{STATE_LABEL[it.state]}</span>
+          : <span className="tag">Coming soon</span>}
+      </div>
+      {it.description && <div className="sub">{it.description}</div>}
+      {(it.account || settings.length > 0) && (
+        <dl className="int-settings">
+          {it.account && <><dt>Account</dt><dd>{it.account}</dd></>}
+          {settings.map((s) => <span key={s.key} style={{ display: "contents" }}><dt title={s.prompt}>{s.key.replace(/_/g, " ")}</dt><dd>{s.value}</dd></span>)}
+        </dl>
+      )}
+      {it.available && <RoleChips it={it} onChange={onChange} />}
+      {error && <div className="error-box">{error}</div>}
+      {it.available && (
+        <div className="int-actions">
+          {(it.state === "available" || it.state === "disconnected") && (
+            <button className="btn sm primary" disabled={busy} onClick={() => open("connect")}><Icon name="plug" size={14} />Connect</button>
+          )}
+          {it.state === "connecting" && <button className="btn sm" disabled={busy} onClick={() => open("connect")}>Continue setup</button>}
+          {(it.state === "connected" || it.state === "error") && (
+            <button className={`btn sm${it.state === "error" ? " primary" : ""}`} disabled={busy} onClick={() => open("reconnect")}>Reconnect</button>
+          )}
+          {(it.state === "connected" || it.state === "error" || it.state === "connecting") && (
+            <button className="btn sm ghost danger" disabled={busy} onClick={() => open("disconnect")}>Disconnect</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Mapped agents as chips; the owner edits them directly. */
+function RoleChips({ it, onChange }: { it: Integration; onChange: () => void }) {
+  const { agents } = useStore();
+  const [error, setError] = useState<string | null>(null);
+  const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
+  const save = async (next: string[]) => {
+    setError(null);
+    try { await api.setIntegrationRoles(it.id, next); onChange(); } catch (e: any) { setError(e.message); }
+  };
+  const unmapped = roles.filter((r) => !it.roles.includes(r.id));
+  return (
+    <div className="int-roles">
+      <span className="hint">Used by</span>
+      <div className="role-chips">
+        {it.roles.map((rid) => {
+          const r = agents.find((a) => a.id === rid);
+          return (
+            <span key={rid} className="role-chip">
+              {r?.name ?? "deleted agent"}
+              <button className="chip-x" aria-label={`Remove ${r?.name ?? "agent"}`} title="Remove" onClick={() => save(it.roles.filter((x) => x !== rid))}>
+                <Icon name="close" size={10} />
+              </button>
+            </span>
+          );
+        })}
+        {it.roles.length === 0 && <span className="hint">no agents yet</span>}
+        {unmapped.length > 0 && (
+          <select className="chip-add" aria-label={`Add an agent to ${it.title}`} value="" onChange={(e) => e.target.value && save([...it.roles, e.target.value])}>
+            <option value="">+ Add</option>
+            {unmapped.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        )}
+      </div>
+      {error && <div className="error-box">{error}</div>}
+    </div>
+  );
+}

@@ -27,6 +27,33 @@ export type Agent = {
   max_replicas?: number;
   can_scale?: number;
   retired_at?: string | null;
+  /** Built-in roles (e.g. "setup"): not deletable or renamable; their CLAUDE.md belongs to agentbox. */
+  builtin?: string | null;
+  owner_notes?: string | null;
+  /** Roles: ids of the integrations mapped to them. */
+  integrations?: string[];
+};
+export type StepState = "pending" | "running" | "human" | "done" | "failed" | "disabled";
+export type IntegrationState = "available" | "connecting" | "connected" | "error" | "disconnected";
+/** server/src/integrations.ts › Integration (adapted from `agentbox integration … --json`). */
+export type Integration = {
+  id: string; title: string; category: string; kind: string; description: string; state: IntegrationState;
+  available: boolean; account: string | null;
+  settings: { key: string; prompt: string; required: boolean; value: string | null }[];
+  steps: { id: string; title: string; human: boolean; instructions: string | null; copy: string | null; state: StepState; last_error: string | null }[];
+  default_roles: string[]; skills: string[];
+  /** Mapped role ids. */
+  roles: string[];
+  output?: { line: string; at: string }[];
+};
+export type Approval = {
+  id: string; kind: "mapping" | "team_rule"; status: "pending" | "approved" | "rejected" | "failed";
+  proposed_by: string; proposed_by_name?: string | null; task_id: string | null; thread_id: string | null;
+  title: string; error: string | null; created_at: string; decided_at: string | null;
+  payload: {
+    integration_id?: string; integration_title?: string; roles?: string[]; before?: string[]; added?: string[]; removed?: string[];
+    file?: string; relative?: string; reason?: string; created?: boolean; diff?: { op: " " | "-" | "+"; text: string }[];
+  };
 };
 export type DocumentInfo = {
   path: string; name: string; folder: string; location: string; size: number; modified: string;
@@ -281,4 +308,17 @@ export const api = {
   testPush: (id: string) => call<{ ok: true }>("POST", `/api/devices/${id}/test-push`, {}),
   gateway: (fresh = false) => call<GatewayStatus>("GET", `/api/devices/gateway${fresh ? "?fresh=1" : ""}`),
   setGatewayUrl: (url: string) => call<GatewayStatus>("PUT", "/api/devices/gateway", { url }),
+  // Integrations and the setup agent (docs/V2-ARCHITECTURE.md §10).
+  integrations: () => call<{ integrations: Integration[]; setup_role_id: string | null; error: string | null }>("GET", "/api/integrations"),
+  integration: (id: string) => call<Integration>("GET", `/api/integrations/${id}`),
+  setIntegrationRoles: (id: string, roles: string[]) => call<{ roles: string[] }>("PUT", `/api/integrations/${id}/roles`, { roles }),
+  integrationTask: (id: string, action: "connect" | "reconnect" | "disconnect") =>
+    call<{ instance_id: string; created: boolean }>("POST", `/api/integrations/${id}/task`, { action }),
+  roleIntegrations: (roleId: string) => call<{ integrations: string[] }>("GET", `/api/agents/${roleId}/integrations`),
+  setRoleIntegrations: (roleId: string, integrations: string[]) =>
+    call<{ integrations: string[] }>("PUT", `/api/agents/${roleId}/integrations`, { integrations }),
+  saveNotes: (roleId: string, text: string) => call<{ owner_notes: string }>("PUT", `/api/agents/${roleId}/notes`, { text }),
+  approval: (id: string) => call<Approval>("GET", `/api/approvals/${id}`),
+  approve: (id: string) => call<Approval>("POST", `/api/approvals/${id}/approve`),
+  reject: (id: string) => call<Approval>("POST", `/api/approvals/${id}/reject`),
 };

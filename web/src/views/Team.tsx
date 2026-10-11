@@ -78,7 +78,7 @@ export function Team() {
                 <a className="who" href={`#/agents/${a.id}`} style={{ color: "var(--text)", textDecoration: "none" }}>
                   <Avatar name={a.name} color={a.color} size={32} />
                   <div style={{ minWidth: 0 }}>
-                    <strong>{a.name}</strong>
+                    <strong>{a.name}</strong>{a.builtin && <span className="builtin-badge" title="Built into agentbox">built-in</span>}
                     <div className="sub">{a.title}</div>
                   </div>
                 </a>
