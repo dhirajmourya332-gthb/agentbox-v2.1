@@ -17,6 +17,8 @@ instructions:
     Read /team/integrations/aws.md before you change anything in the account.
   file: instructions.md
 skills: []
+# CLIs only roles mapped to this integration may run (server/src/roleGuards.ts).
+commands: [aws, session-manager-plugin]
 default_roles: [devops]
 account: "aws sts get-caller-identity --query Arn --output text"
 revoke: |

@@ -19,6 +19,8 @@ instructions:
     Read /team/integrations/gitlab.md before you file an issue, cut a branch or open a merge request.
   file: instructions.md
 skills: []
+# CLIs only roles mapped to this integration may run (server/src/roleGuards.ts).
+commands: [glab]
 default_roles: [tech-lead, coder, tester, devops]
 account: "glab api user --hostname \"$(agentbox integration settings gitlab --get host)\" | jq -r .username"
 revoke: |

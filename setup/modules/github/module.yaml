@@ -26,6 +26,8 @@ instructions:
     Read /team/integrations/github.md before you file an issue, cut a branch or open a PR.
   file: instructions.md
 skills: [review-pr, open-pr, file-github-issue, run-epic, fix-vulnerability]
+# CLIs only roles mapped to this integration may run (server/src/roleGuards.ts).
+commands: [gh]
 default_roles: [tech-lead, coder, tester, devops]
 account: "gh api user -q .login"
 revoke: |

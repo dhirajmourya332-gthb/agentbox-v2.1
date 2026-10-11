@@ -18,6 +18,8 @@ instructions:
     Read /team/integrations/azure.md before you change anything in the subscription.
   file: instructions.md
 skills: []
+# CLIs only roles mapped to this integration may run (server/src/roleGuards.ts).
+commands: [az]
 default_roles: [devops]
 account: "az account show --query user.name -o tsv 2>/dev/null"
 revoke: |

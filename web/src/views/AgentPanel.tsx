@@ -19,7 +19,7 @@ export function ScaleSwitch({ agent }: { agent: Agent }) {
         onChange={(e) => api.updateAgent(agent.id, { can_scale: e.target.checked })} />
       <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <span style={{ fontWeight: 500 }}>Plans and delegates</span>
-        <span className="hint">{agent.name} splits work and starts tasks for other agents (several at once), and finishes them when they're done. Only you start {agent.name} tasks.</span>
+        <span className="hint">{agent.name} orchestrates: it plans, splits work and starts tasks for other agents (several at once), reviews and merges, and finishes them when they're done. It doesn't do hands-on work itself: agentbox refuses its code edits and commits in repos. Only you start {agent.name} tasks.</span>
       </span>
     </label>
   );

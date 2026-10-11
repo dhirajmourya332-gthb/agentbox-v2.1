@@ -19,6 +19,8 @@ instructions:
     Read /team/integrations/kubernetes.md before you change anything in the cluster.
   file: instructions.md
 skills: []
+# CLIs only roles mapped to this integration may run (server/src/roleGuards.ts).
+commands: [kubectl, helm, k9s, kustomize]
 default_roles: [devops]
 account: "kubectl config current-context"
 revoke: |

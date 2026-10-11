@@ -22,6 +22,7 @@ import { prepareWorktrees, reposLayer, setSender, worktreeDirs, worktreesFor } f
 import { repoGuard } from "./repoGuard.ts";
 import { planGuard, planNote } from "./plans.ts";
 import { roadmapNote } from "./roadmaps.ts";
+import { integrationGuard, orchestratorGuard } from "./roleGuards.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -193,7 +194,14 @@ function scaleNote(agent: Agent) {
   if (!agent.can_scale) return "";
   return `
 
-You coordinate: split work into independent pieces and delegate one piece per task. Each
+You orchestrate; you don't do hands-on work. Your job: understand the problem, find the simplest
+elegant solution (prefer removing or reusing over adding; question the requirement before building),
+plan it, delegate every piece to the teammate whose job it is, review what comes back, merge, and
+report. Implementation and rework go to coder, CI/deploys/AWS/Kubernetes to devops, vulnerabilities to
+security. agentbox refuses code edits and commits in repos for you, and the CLIs of integrations you
+don't have. Claude's built-in subagents are only for reading and searching code and docs while you plan.
+
+Split work into independent pieces and delegate one piece per task. Each
 delegation to an agent starts a fresh instance of it, so several coders (or devops, security…)
 work in parallel, up to ${DEFAULT_PER_CREATOR} live tasks per agent from you. Keep follow-ups and rework on the
 instance that did the work (delegate to it by name, e.g. coder#3; a delegation to the agent whose
@@ -265,6 +273,10 @@ your final report; whoever started this task will close it.` : ""}${scaleNote(ag
 - Big work (several steps, phases or agents) gets a roadmap the owner can follow at a glance: create it with
   \`mcp__team__roadmap_create\` when you plan the work, and keep it current with \`mcp__team__roadmap_update\`
   (several labelled roadmaps are fine for separate streams). Small tasks don't need one.
+- Stay in your lane: use only your own tools and integrations (see Integrations). Work that needs one you don't
+  have (AWS, kubectl, another cloud…) goes to the teammate who has it (the roster below shows who), via
+  \`mcp__team__delegate_task\`; agentbox refuses those CLIs for you. Claude's built-in subagents are for reading
+  and searching within your own job, never for doing a teammate's.
 - Handle low- and medium-risk work yourself, end to end: no plans, no asking for approval. Wait for the owner's
   OK on a plan only when this work says "Plan first" or the owner asks for a plan. For a high-impact design change
   (a new service, a changed data flow or schema), you may share a plan with \`mcp__team__submit_plan\` (a small
@@ -566,7 +578,7 @@ async function runTask(taskId: string) {
         },
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(agent, sudo, repoPrep.problems) },
         env: { ...process.env, DISPLAY: ":99", BROWSER: "/usr/local/bin/agentbox-open" },
-        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), repoGuard(agent), planGuard(agent), sudoGuard(agent), ...(enabled("display") ? [screenGuard(agent, taskId)] : [])] }] },
+        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), integrationGuard(agent), orchestratorGuard(agent), repoGuard(agent), planGuard(agent), sudoGuard(agent), ...(enabled("display") ? [screenGuard(agent, taskId)] : [])] }] },
       },
     });
     let result: any;

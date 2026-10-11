@@ -9,6 +9,7 @@ import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
+import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
 import { LIMITS as PLAN_LIMITS, submitPlan } from "./plans.ts";
 import { LIMITS as RM_LIMITS, STATUSES as RM_STATUSES, createRoadmap, itemsOf as roadmapItems, updateRoadmap } from "./roadmaps.ts";
 
@@ -569,7 +570,11 @@ export function rosterFor(agent: Agent) {
   const myRole = agent.base_agent_id ?? agent.id;
   // Built-in roles (the setup agent) take work from the owner only, so they aren't offered here.
   const roles = listAgents().filter((a) => !a.base_agent_id && a.id !== myRole && !a.builtin);
+  const tools = (id: string) => {
+    const list = mappedIntegrations(id).filter(isConnected).map((i) => cachedIntegrations()?.find((x) => x.id === i)?.title ?? i);
+    return list.length ? ` Tools: ${list.join(", ")}.` : "";
+  };
   return roles.length
-    ? roles.map((a) => `- **${a.name}** (${a.title}): ${a.summary}${a.can_scale ? " (hand it work to bring it in as this work's lead)" : ""}`).join("\n")
+    ? roles.map((a) => `- **${a.name}** (${a.title}): ${a.summary}${tools(a.id)}${a.can_scale ? " (hand it work to bring it in as this work's lead)" : ""}`).join("\n")
     : "- (no other agents yet)";
 }

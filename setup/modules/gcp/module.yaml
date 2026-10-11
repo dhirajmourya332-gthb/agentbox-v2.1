@@ -17,6 +17,8 @@ instructions:
     Read /team/integrations/gcp.md before you change anything in the project.
   file: instructions.md
 skills: []
+# CLIs only roles mapped to this integration may run (server/src/roleGuards.ts).
+commands: [gcloud, gsutil, bq]
 default_roles: [devops]
 account: "gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1"
 revoke: |
