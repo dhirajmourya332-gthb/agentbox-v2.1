@@ -271,7 +271,12 @@ test("checker: polls the current step, moves the pointer when it passes, and tel
   runs = [];
   await wait(220); c.tick();
   assert.equal(runs.length, 0, "nothing to poll when everything is done");
-  assert.ok(events.some((e) => e.type === "setup.check" && e.running === true));
+  // Background polls are silent: no "checking" events, and a plan update only when a step changed.
+  assert.equal(events.filter((e) => e.type === "setup.check").length, 0, "polls publish no check events");
+  const seen = events.filter((e) => e.type === "setup.plan")
+    .map((e) => JSON.stringify([e.plan.current, e.plan.steps.map((x: any) => [x.status, x.last_check?.ok, x.last_check?.output])]));
+  assert.ok(seen.length > 0);
+  seen.slice(1).forEach((v, i) => assert.notEqual(v, seen[i], `plan update ${i + 1} repeats the previous one`));
   off();
   c.stop();
 });

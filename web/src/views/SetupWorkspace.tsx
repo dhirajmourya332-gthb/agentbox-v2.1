@@ -402,7 +402,7 @@ function Panel({ id, layout, narrow, onExpand, title, actions, note, children, o
 
 // --- the checklist -------------------------------------------------------------------------------------------
 
-const visible = (p: SetupPlan) => JSON.stringify([p.title, p.steps, p.current, p.checking]);
+const visible = (p: SetupPlan) => JSON.stringify([p.title, p.steps.map(({ nudged: _n, ...s }: any) => s), p.current, p.checking]);
 function sameSteps(a: SetupPlan, b: SetupPlan) { return visible(a) === visible(b); }
 
 function usePlan(instanceId: string | null) {

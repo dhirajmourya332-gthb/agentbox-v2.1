@@ -155,14 +155,15 @@ export function getPlan(instanceId: string): Plan | null {
   return { instance_id: r.instance_id, title: r.title, steps, created_at: r.created_at, updated_at: r.updated_at };
 }
 
-function save(p: Plan) {
+/** Persist the plan; publish to the page unless the change is internal bookkeeping (quiet). */
+function save(p: Plan, opts: { quiet?: boolean } = {}) {
   p.updated_at = now();
   run(
     `INSERT INTO setup_plans (instance_id, title, steps, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (instance_id) DO UPDATE SET title = excluded.title, steps = excluded.steps, updated_at = excluded.updated_at`,
     p.instance_id, p.title, JSON.stringify(p.steps), p.created_at, p.updated_at,
   );
-  publish({ type: "setup.plan", instanceId: p.instance_id, plan: planView(p.instance_id) });
+  if (!opts.quiet) publish({ type: "setup.plan", instanceId: p.instance_id, plan: planView(p.instance_id) });
   return p;
 }
 
@@ -420,7 +421,7 @@ export function createPlanChecker(deps: CheckerDeps) {
         const s = after.steps.find((x) => x.id === r.id);
         if (r.ok && s && !s.nudged) { s.nudged = true; dirty = true; }
       }
-      if (dirty) save(after);
+      if (dirty) save(after, { quiet: true }); // the nudge flag isn't shown
     }
     return results;
   }
@@ -445,7 +446,7 @@ export function createPlanChecker(deps: CheckerDeps) {
     const s = p?.steps.find((x) => x.id === stepId);
     if (!p || !s || s.nudged) return false;
     s.nudged = true; // claimed now, so a second pass or click can't queue another
-    save(p);
+    save(p, { quiet: true }); // bookkeeping only: nothing on the page changes
     const cur = pendingNudges.get(instanceId);
     if (cur) clearTimeout(cur.timer);
     const steps = [...(cur?.steps ?? []), { id: stepId, how }];
