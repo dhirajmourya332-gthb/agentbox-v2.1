@@ -23,7 +23,8 @@ export type Route =
   | { name: "skills" }
   | { name: "skill"; skill: string }
   | { name: "new-skill" }
-  | { name: "draft"; id: string };
+  | { name: "draft"; id: string }
+  | { name: "integrations" };
 
 export function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
@@ -42,6 +43,7 @@ export function parse(hash: string): Route {
   if (parts[0] === "skills" && parts[1]) return { name: "skill", skill: parts[1] };
   if (parts[0] === "skills") return { name: "skills" };
   if (parts[0] === "activity") return { name: "activity" };
+  if (parts[0] === "integrations") return { name: "integrations" };
   if (parts[0] === "new") return { name: "new-task", role: parts[1] };
   if (parts[0] === "work" && parts[1]) return { name: "room", id: parts[1] };
   if (parts[0] === "documents") return { name: "documents" };

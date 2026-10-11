@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import { api, type Agent } from "../api.ts";
 import { useStore } from "../store.tsx";
-import { Avatar, Icon, StatusGlyph, relTime } from "../components/ui.tsx";
+import { Avatar, Icon, Markdown, StatusGlyph, relTime } from "../components/ui.tsx";
+import { STATE_LABEL, STATE_STEP, STEP_ICON } from "../components/Setup.tsx";
+import { useIntegrations } from "./Integrations.tsx";
 import { AgentSkills, DeleteAgent, Instructions, Memory, ScaleSwitch } from "./AgentPanel.tsx";
 import { AgentDocuments } from "./Documents.tsx";
 
-type Tab = "tasks" | "instructions" | "skills" | "memory" | "documents" | "settings";
+type Tab = "tasks" | "instructions" | "integrations" | "skills" | "memory" | "documents" | "settings";
 const TABS: { key: Tab; label: string }[] = [
   { key: "tasks", label: "Tasks" },
   { key: "instructions", label: "Instructions" },
+  { key: "integrations", label: "Integrations" },
   { key: "skills", label: "Skills" },
   { key: "memory", label: "Memory" },
   { key: "documents", label: "Documents" },
@@ -28,7 +31,7 @@ export function RolePage({ role }: { role: Agent }) {
         <div className="role-head">
           <Avatar name={role.name} color={role.color} size={44} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ margin: 0 }}>{role.name}</h1>
+            <h1 style={{ margin: 0 }}>{role.name}{role.builtin && <span className="builtin-badge" title="Built into agentbox">built-in</span>}</h1>
             <p className="hint" style={{ marginTop: 2 }}>{role.title} · {role.model}</p>
           </div>
           <a className="btn primary" href={`#/new/${role.id}`}><Icon name="plus" />New task</a>
@@ -36,13 +39,16 @@ export function RolePage({ role }: { role: Agent }) {
         <p className="lede" style={{ marginTop: 12 }}>{role.summary}</p>
 
         <nav className="tabs page-tabs" role="tablist">
-          {TABS.map((t) => (
+          {TABS.filter((t) => !(role.builtin && t.key === "integrations")).map((t) => (
             <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>{t.label}</button>
           ))}
         </nav>
         <div className="role-body" role="tabpanel">
           {tab === "tasks" && <RoleTasks role={role} />}
-          {tab === "instructions" && data && <Instructions agent={role} text={data.instructions} onSaved={reload} />}
+          {tab === "instructions" && data && (role.builtin
+            ? <BuiltinInstructions role={role} text={data.instructions} />
+            : <Instructions agent={role} text={data.instructions} onSaved={reload} />)}
+          {tab === "integrations" && !role.builtin && <RoleIntegrations role={role} />}
           {tab === "skills" && <AgentSkills agent={role} />}
           {tab === "memory" && data && <Memory files={data.memory} agent={role} />}
           {tab === "documents" && <AgentDocuments agent={role} />}
@@ -127,8 +133,81 @@ function RoleSettings({ role }: { role: Agent }) {
         </select>
         <span className="hint">For example, how many {role.name} tasks one tech-lead task can have going in parallel. Your own tasks aren't limited.</span>
       </div>
-      <ScaleSwitch agent={role} />
-      <DeleteAgent agent={role} />
+      {!role.builtin && <ScaleSwitch agent={role} />}
+      {role.builtin
+        ? <p className="hint">{role.name} is built into agentbox: it can't be renamed or deleted.</p>
+        : <DeleteAgent agent={role} />}
     </div>
+  );
+}
+
+/** Built-in roles: CLAUDE.md belongs to agentbox (read-only); the owner adds notes instead. */
+function BuiltinInstructions({ role, text }: { role: Agent; text: string }) {
+  const [notes, setNotes] = useState(role.owner_notes ?? "");
+  const [saved, setSaved] = useState(role.owner_notes ?? "");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setNotes(role.owner_notes ?? ""); setSaved(role.owner_notes ?? ""); }, [role.owner_notes]);
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div className="field">
+        <label htmlFor="owner-notes">Your notes for {role.name}</label>
+        <textarea id="owner-notes" className="text" style={{ minHeight: 110 }} value={notes} maxLength={8000}
+          placeholder="Preferences and context, e.g. which AWS region or GitHub org to use."
+          onChange={(e) => setNotes(e.target.value)} />
+        <span className="hint">Added to {role.name}'s instructions on its next turn.</span>
+        {error && <div className="error-box">{error}</div>}
+        <div><button className="btn sm primary" disabled={notes === saved} onClick={async () => {
+          setError(null);
+          try { const r = await api.saveNotes(role.id, notes); setSaved(r.owner_notes); } catch (e: any) { setError(e.message); }
+        }}>Save notes</button></div>
+      </div>
+      <div>
+        <span className="hint">Maintained by agentbox and updated with it; read-only here.</span>
+        <Markdown text={text} home={role.home} />
+      </div>
+    </div>
+  );
+}
+
+/** Which integrations this agent uses (§10.3). Unmapped ones are invisible to it. */
+function RoleIntegrations({ role }: { role: Agent }) {
+  const { data, reload } = useIntegrations();
+  const [error, setError] = useState<string | null>(null);
+  if (!data) return <p className="hint">Loading…</p>;
+  const items = data.integrations.filter((i) => i.available);
+  const mine = items.filter((i) => i.roles.includes(role.id)).map((i) => i.id);
+  const toggle = async (id: string, on: boolean) => {
+    setError(null);
+    // Keep mappings to integrations the catalog doesn't list right now.
+    const current = (role.integrations ?? []).filter((x) => !items.some((i) => i.id === x));
+    const next = on ? [...new Set([...current, ...mine, id])] : [...current, ...mine.filter((x) => x !== id)];
+    try { await api.setRoleIntegrations(role.id, next); reload(); } catch (e: any) { setError(e.message); }
+  };
+  return (
+    <>
+      <span className="hint">
+        {role.name} gets the instructions and skills of the integrations switched on here, while they're connected. <a href="#/integrations">All integrations</a>
+      </span>
+      {data.error && <div className="error-box">Couldn't read the integration catalog: {data.error}</div>}
+      {error && <div className="error-box">{error}</div>}
+      <div className="rows" style={{ marginTop: 10 }}>
+        {items.map((i) => {
+          const st = STATE_STEP[i.state];
+          return (
+            <label key={i.id} className="row" style={{ cursor: "pointer" }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ fontWeight: 500 }}>{i.title}</span>
+                <span className={`int-state st-${st}`} style={{ marginLeft: 10 }}><span className="sc-icon" aria-hidden="true">{STEP_ICON[st]}</span>{STATE_LABEL[i.state]}</span>
+              </span>
+              <span className="switch">
+                <input type="checkbox" checked={mine.includes(i.id)} aria-label={`${role.name} uses ${i.title}`} onChange={(e) => toggle(i.id, e.target.checked)} />
+                <span />
+              </span>
+            </label>
+          );
+        })}
+        {items.length === 0 && <div className="row"><span className="hint">No integrations in the catalog.</span></div>}
+      </div>
+    </>
   );
 }

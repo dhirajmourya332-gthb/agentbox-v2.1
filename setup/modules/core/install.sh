@@ -51,3 +51,15 @@ else
     warn "$AGENT_USER still has passwordless sudo from another sudoers entry"
   fi
 fi
+
+log "setup agent: temporary sudo helper (docs/V2-ARCHITECTURE.md §10.4)"
+# The portal grants sudo only while a setup-agent turn runs, through this root-owned helper; it
+# refuses to grant unless the portal confirms such a turn. A grant never survives a reinstall.
+HELPER_SRC="$(dirname "$0")/../../../server/setup-agent/agentbox-setup-sudo"
+if [ -f "$HELPER_SRC" ]; then
+  install -m 0755 -o root -g root "$HELPER_SRC" /usr/local/sbin/agentbox-setup-sudo
+  printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/agentbox-setup-sudo\n' "$AGENT_USER" > /etc/sudoers.d/agentbox-setup-helper.tmp
+  chmod 0440 /etc/sudoers.d/agentbox-setup-helper.tmp && visudo -cf /etc/sudoers.d/agentbox-setup-helper.tmp >/dev/null \
+    && mv /etc/sudoers.d/agentbox-setup-helper.tmp /etc/sudoers.d/agentbox-setup-helper
+  rm -f /etc/sudoers.d/agentbox-setup
+fi

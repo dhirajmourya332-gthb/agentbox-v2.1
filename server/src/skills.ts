@@ -122,11 +122,16 @@ export function deleteSkill(name: string) {
   publish({ type: "skill.deleted", name });
 }
 
-/** Make /agents/<slug>/.claude/skills hold exactly the agent's assigned skills. */
-export function syncLinks(agent: Agent) {
+export const skillExists = (name: string) => NAME_RE.test(name) && fs.existsSync(skillFile(name));
+
+/**
+ * Make /agents/<slug>/.claude/skills hold exactly the agent's assigned skills, or `names` when given
+ * (the runner adds the skills of the agent's connected, mapped integrations for each turn).
+ */
+export function syncLinks(agent: Agent, names?: string[]) {
   const dir = path.join(homeOf(agent), ".claude", "skills");
   fs.mkdirSync(dir, { recursive: true });
-  const want = new Set(skillsOf(agent.id));
+  const want = new Set((names ?? skillsOf(agent.id)).filter(skillExists));
   for (const entry of fs.readdirSync(dir)) {
     const p = path.join(dir, entry);
     // Only manage our own links; leave anything else the agent put there.

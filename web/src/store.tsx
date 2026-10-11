@@ -165,6 +165,18 @@ function reducer(s: State, a: Action): State {
               : others,
           };
         }
+        case "integration.mapping": {
+          // Keep each role's list of mapped integrations current.
+          const roles: string[] = e.roles ?? [];
+          return {
+            ...s,
+            agents: s.agents.map((x) => {
+              if (x.base_agent_id) return x;
+              const had = (x.integrations ?? []).filter((i) => i !== e.integrationId);
+              return { ...x, integrations: roles.includes(x.id) ? [...had, e.integrationId].sort() : had };
+            }),
+          };
+        }
         case "attention.updated":
           return { ...s, attention: sortAttention([e.item, ...s.attention.filter((x) => x.id !== e.item.id)]).slice(0, 100) };
         case "turn.delta":

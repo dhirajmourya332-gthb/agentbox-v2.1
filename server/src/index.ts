@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 import { all, dataDir, get } from "./db.ts";
 import { subscribe } from "./bus.ts";
 import {
-  createAgent, deleteAgent, dmThreadOf, getAgent, homeOf, listAgents, listMemory, listRetired, readInstructions, retireReplica, setInstanceMeta,
-  spawnInstance, spawnReplica, updateAgent, writeInstructions,
+  createAgent, deleteAgent, dmThreadOf, editInstructions, getAgent, homeOf, listAgents, listMemory, listRetired, readInstructions, retireReplica,
+  setInstanceMeta, spawnInstance, spawnReplica, updateAgent,
 } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
 import { activity, graph } from "./activity.ts";
@@ -36,6 +36,10 @@ import { listProgress, startProgress } from "./progress.ts";
 import { listRuns, runDetail, startRoutineRuns } from "./routineRuns.ts";
 import { listAttention, markAllSeen, markRoomSeen, markSeen, onAttention, startAttention } from "./attention.ts";
 import { config, enabled, ports, publicConfig } from "./config.ts";
+import { ensureSetupRole } from "./setup.ts";
+import { mappedIntegrations, refreshIntegrations } from "./integrations.ts";
+import { registerIntegrationRoutes } from "./integrationRoutes.ts";
+import { startSudoSweeper } from "./sudo.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Ports and feature flags come from /etc/agentbox/config.yaml (config.ts). A disabled module's
@@ -84,6 +88,7 @@ const agentView = (a: ReturnType<typeof getAgent> & {}) => ({
   skills: skillsOf(a.id),
   home: homeOf(a),
   live_instances: a.base_agent_id ? undefined : listAgents().filter((x) => x.base_agent_id === a.id).length,
+  integrations: a.base_agent_id ? undefined : mappedIntegrations(a.id),
 });
 const mustAgent = (id: string) => {
   const a = getAgent(id);
@@ -153,10 +158,9 @@ app.get("/api/agents/:id", async (req) => {
 app.patch("/api/agents/:id", async (req) => agentView(updateAgent(mustAgent((req.params as any).id).id, req.body as any)));
 app.put("/api/agents/:id/instructions", async (req) => {
   const a = mustAgent((req.params as any).id);
-  if (a.base_agent_id) throw new HttpError(400, "Replicas use their base agent's instructions; edit those instead");
   const text = (req.body as any)?.text;
   if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Instructions can't be empty");
-  writeInstructions(a, text);
+  try { editInstructions(a, text); } catch (e: any) { throw new HttpError(a.builtin ? 403 : 400, e.message); }
   return { ok: true };
 });
 app.get("/api/agents/:id/documents", async (req) => {
@@ -254,6 +258,7 @@ app.post("/api/agents/:id/retire", async (req) => {
 });
 app.delete("/api/agents/:id", async (req) => {
   const a = mustAgent((req.params as any).id);
+  if (a.builtin && !a.base_agent_id) throw new HttpError(403, `${a.name} is built into agentbox and can't be deleted`);
   if (agentStatus(a.id).status === "working" || openTasksOf(a.id).length) throw new HttpError(409, `${a.name} is working; stop its tasks first`);
   const busyReplica = (all(`SELECT id, name FROM agents WHERE base_agent_id = ? AND retired_at IS NULL`, a.id) as any[])
     .find((r) => openTasksOf(r.id).length);
@@ -490,6 +495,9 @@ app.post("/api/attention/:id/seen", async (req) => {
   return item;
 });
 
+// --- integrations, the setup agent and approvals (docs/V2-ARCHITECTURE.md §10) ---------------
+registerIntegrationRoutes(app);
+
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 // Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.
 if (MOBILE) registerDeviceAdmin(app, mobilePort);
@@ -509,6 +517,9 @@ if (fs.existsSync(webDist)) {
 
 migrateToInstances((m) => app.log.info(m));
 seedSkills();
+ensureSetupRole(); // the built-in setup agent (§10.4)
+startSudoSweeper(); // no setup sudo grant survives a restart
+refreshIntegrations(0).catch(() => {});
 startRoutines();
 startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish
 // Push notifications to paired phones (push.ts); wired to "needs you" items below.

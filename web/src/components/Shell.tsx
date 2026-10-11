@@ -164,7 +164,7 @@ function TeamItem({ role, route }: { role: Agent; route: Route }) {
         ) : <span className="tiny-spacer" />}
         <RailLink to={{ name: "agent", id: role.id }} current={route} className="work-link" icon={<Avatar name={role.name} color={role.color} size={18} />}>
           <span className="grow">{role.name}</span>
-          <span className="rail-sub">{working ? `${working} working` : live.length ? `${live.length} idle` : ""}</span>
+          <span className="rail-sub">{working ? `${working} working` : live.length ? `${live.length} idle` : role.builtin ? "built-in" : ""}</span>
         </RailLink>
       </div>
       {open && live.map((a) => (
@@ -216,6 +216,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             <span className="grow">Skills</span>
             {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
           </RailLink>
+          <RailLink to={{ name: "integrations" }} current={route} icon={<Icon name="plug" />}>Integrations</RailLink>
         </div>
 
         <Section id="work" label="Work">

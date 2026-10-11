@@ -7,6 +7,7 @@ import { Avatar, Icon, Markdown, Spinner, StatusGlyph, duration, relTime, useEsc
 import { TaskPanel } from "./AgentPanel.tsx";
 import { RolePage } from "./RolePage.tsx";
 import { LiveBar, useSeenRoom } from "../components/Live.tsx";
+import { ApprovalCard, IntegrationStepsCard, TerminalCtx, TerminalPanel } from "../components/Setup.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -62,9 +63,12 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
 
   const role = everyone.find((a) => a.id === agent.base_agent_id);
   const done = !!agent.retired_at;
+  // The setup agent's tasks get an embedded terminal for logins (§10.4).
+  const isSetup = role?.builtin === "setup";
+  const [term, setTerm] = useState(false);
 
   return (
-    <>
+    <TerminalCtx.Provider value={isSetup && !done ? () => setTerm(true) : null}>
       <section className="chat" aria-label={`Task: ${agent.label ?? agent.name}`}>
         <header className="chat-head">
           <Avatar name={role?.name ?? agent.name} color={agent.color} size={32} />
@@ -80,7 +84,12 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
               </button>
             )}
             {!done && <FinishButton agent={agent} />}
-            <button className="icon-btn" aria-pressed={panel} aria-label="Task details" title="Task details" onClick={() => setPanel(!panel)}>
+            {isSetup && !done && (
+              <button className="btn sm" aria-pressed={term} title="A terminal next to the chat, for logins" onClick={() => setTerm(!term)}>
+                <Icon name="terminal" size={14} />Terminal
+              </button>
+            )}
+            <button className="icon-btn" aria-pressed={panel && !term} aria-label="Task details" title="Task details" onClick={() => { setTerm(false); setPanel(!panel || term); }}>
               <Icon name="panel" />
             </button>
           </div>
@@ -102,8 +111,8 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
           </p>
         )}
       </section>
-      {panel && <TaskPanel agent={agent} onClose={() => setPanel(false)} />}
-    </>
+      {term ? <TerminalPanel onClose={() => setTerm(false)} /> : panel && <TaskPanel agent={agent} onClose={() => setPanel(false)} />}
+    </TerminalCtx.Provider>
   );
 }
 
@@ -244,6 +253,7 @@ function Timeline({ agent, thread, live }: {
 
   // An input is what a turn responds to: your message, a teammate's handoff, or a report coming back.
   const inputs = thread.messages.filter((m) => !(m.task_id && tasks.get(m.task_id)?.agent_id === m.author));
+  const active = thread.tasks.some((t) => t.status === "running" || t.status === "queued");
 
   return (
     <div className="timeline" ref={ref} onScroll={onScroll} aria-live="polite" aria-relevant="additions">
@@ -261,7 +271,7 @@ function Timeline({ agent, thread, live }: {
           const task = m.task_id ? tasks.get(m.task_id) : undefined;
           return (
             <div key={m.id} style={{ display: "contents" }}>
-              <Input message={m} task={task} />
+              <Input message={m} task={task} active={active} />
               {task && (
                 <Turn agent={agent} task={task} steps={stepsByTask.get(task.id) ?? []} reply={replies.get(task.id)} live={live[task.id]} />
               )}
@@ -275,9 +285,18 @@ function Timeline({ agent, thread, live }: {
 
 const SOURCE_LABEL: Record<string, string> = { agent: "handed off a task", message: "sent a message", result: "reported back" };
 
-function Input({ message, task }: { message: Message; task?: Task }) {
-  const { agents, everyone } = useStore();
+function Input({ message, task, active }: { message: Message; task?: Task; active: boolean }) {
+  const { everyone } = useStore();
   const [open, setOpen] = useState(task?.source !== "result");
+  // Setup agent cards: an integration's steps, or a proposal waiting for the owner.
+  if (message.author === "integration" || message.author === "approval") {
+    return (
+      <div className="msg">
+        <span aria-hidden="true" />
+        {message.author === "integration" ? <IntegrationStepsCard id={message.content} active={active} /> : <ApprovalCard id={message.content} />}
+      </div>
+    );
+  }
   if (message.author === "user") {
     return (
       <div className="msg">

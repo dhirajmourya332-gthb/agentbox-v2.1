@@ -43,6 +43,10 @@ export type Agent = {
   workspace?: string | null;
   /** Instances: conversation size after the last turn, in tokens. */
   context_tokens?: number | null;
+  /** Built-in roles (e.g. "setup", setup.ts): can't be deleted or renamed; CLAUDE.md owned by agentbox. */
+  builtin?: string | null;
+  /** Built-in roles: the owner's notes, added to the agent's instructions. */
+  owner_notes?: string | null;
 };
 
 /** Per creator: how many live instances of one role an agent may run at once (role.max_replicas overrides). */
@@ -80,6 +84,13 @@ export function readInstructions(a: Agent) {
   } catch {
     return "";
   }
+}
+
+/** The owner editing a role's CLAUDE.md (the API). Built-in roles' instructions belong to agentbox. */
+export function editInstructions(a: Agent, text: string) {
+  if (a.base_agent_id) throw new Error("Replicas use their base agent's instructions; edit those instead");
+  if (a.builtin) throw new Error(`${a.name}'s instructions are maintained by agentbox; add your notes instead`);
+  writeInstructions(a, text);
 }
 
 export function writeInstructions(a: Agent, text: string) {
@@ -140,6 +151,9 @@ export function updateAgent(
   const a = getAgent(id);
   if (!a) throw new Error("No such agent");
   if (a.base_agent_id) throw new Error("Replicas follow their base agent; change the base agent instead");
+  if (a.builtin && ((patch.title !== undefined && patch.title !== a.title) || (patch.summary !== undefined && patch.summary !== a.summary))) {
+    throw new Error(`${a.name} is built in: its name and description can't change`);
+  }
   if (patch.model && !MODELS.includes(patch.model as any)) throw new Error(`Unknown model ${patch.model}`);
   if (patch.max_replicas !== undefined && !(Number.isInteger(patch.max_replicas) && patch.max_replicas >= 0 && patch.max_replicas <= 6)) {
     throw new Error("Max replicas must be 0–6");
@@ -172,6 +186,8 @@ export function spawnInstance(roleId: string, s: Spawn) {
   const role = getAgent(roleId);
   if (!role || role.retired_at) throw new Error("No such agent");
   if (role.base_agent_id) throw new Error(`${role.name} is an instance; start work on its agent, ${getAgent(role.base_agent_id)?.name}`);
+  // The setup agent gets temporary sudo while it works: only the owner starts its tasks.
+  if (role.builtin === "setup" && s.createdBy !== "owner") throw new Error(`Only the owner starts ${role.name} tasks; ask the owner.`);
   const live = (get<{ n: number }>(`SELECT COUNT(*) AS n FROM agents WHERE base_agent_id IS NOT NULL AND retired_at IS NULL`)?.n ?? 0) as number;
   if (live >= MAX_LIVE_INSTANCES) throw new Error(`There are already ${live} live tasks, the limit. Finish some first.`);
   const byAgent = s.createdBy !== "owner" && !s.createdBy.startsWith("routine:") && !s.createdBy.startsWith("group:")
@@ -301,6 +317,7 @@ export function deleteAgent(id: string) {
   const a = getAgent(id);
   if (!a) throw new Error("No such agent");
   if (a.base_agent_id) return retireReplica(id);
+  if (a.builtin) throw new Error(`${a.name} is built into agentbox and can't be deleted`);
   // A base agent takes its replicas with it (they live in its home).
   const replicas = all<Agent>(`SELECT * FROM agents WHERE base_agent_id = ?`, id);
   run(`DELETE FROM agents WHERE id = ?`, id);
