@@ -242,7 +242,7 @@ Stop work that follows it (don't push, merge or deploy it), report where things 
   }
   if (verdict === "approve") {
     return `The owner approved your plan ${name}.${note ? ` Their note: ${note}` : ""}
-Go ahead and implement it. If you later change direction in a way the diagram wouldn't show, share a revised plan (submit_plan) and carry on.`;
+Go ahead and carry it out: if it has several steps or teammates, start by creating its roadmap (roadmap_create), then do or delegate the work. If you later change direction in a way the diagram wouldn't show, share a revised plan (submit_plan) and carry on.`;
   }
   if (verdict === "changes") {
     return `The owner asks for changes to your plan ${name}: ${note || "(no details given; ask what to change)"}

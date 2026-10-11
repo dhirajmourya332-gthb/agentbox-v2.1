@@ -338,6 +338,8 @@ test("use_repo: binds and returns the worktree; role limits enforced; not for ro
   assert.throws(() => R.bindRepo(writer, "web"), /tasks \(instances\)/);
   // Delegation binds helpers to repos; each gets its own worktree; refused for roles that may not.
   const l = task(lead.id, "Plan it");
+  // An orchestrator lays the work out as a roadmap before it delegates (docs/V2.1-PLAN.md §4).
+  (await import("../src/roadmaps.ts")).createRoadmap(l, null, { title: "Plan it", items: [{ id: "p1", title: "Part 1" }, { id: "p2", title: "Part 2" }] });
   const lt = team(l);
   const d = await call(lt, "delegate_task", { to: "coder", title: "Part 1", instructions: "do it", repos: ["web", "api"] });
   assert.ok(!d.isError, d.content[0].text);

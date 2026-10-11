@@ -139,3 +139,29 @@ test("the setup agent isn't a teammate: not listed, not delegated to (setup requ
   assert.match(d.content[0].text, /request_setup/);
   assert.ok(!/setup/.test(TM.rosterFor(t)));
 });
+
+test("orchestrators create the roadmap before they delegate; others don't need one", async () => {
+  const TM = await import("../src/team.ts");
+  const RM = await import("../src/roadmaps.ts");
+  const { newId, now } = await import("../src/db.ts");
+  const turn = (a: { id: string }) => {
+    const id = newId();
+    run(`INSERT INTO tasks (id, agent_id, thread_id, source, title, prompt, status, created_at) VALUES (?, ?, ?, 'user', 't', 'p', 'done', ?)`, id, a.id, A.dmThreadOf(a.id), now());
+    return id;
+  };
+  const t = task(lead, "Big work");
+  const tools = TM.teamTools(t, turn(t));
+  const call = (name: string, args: any) => (tools.find((x: any) => x.name === name) as any).handler(args, {});
+  let d = await call("delegate_task", { to: "coder", title: "Build it", instructions: "x" });
+  assert.ok(d.isError);
+  assert.match(d.content[0].text, /roadmap first/);
+  RM.createRoadmap(t, null, { title: "Big work", items: [{ id: "build", title: "Build it", owner: "coder" }] });
+  d = await call("delegate_task", { to: "coder", title: "Build it", instructions: "x" });
+  assert.ok(!d.isError, d.content[0].text);
+  // A coder handing a piece to devops needs no roadmap of its own.
+  const c = task(coder, "Solo");
+  const ct = TM.teamTools(c, turn(c));
+  const r = await (ct.find((x: any) => x.name === "delegate_task") as any).handler({ to: "devops", title: "Check CI", instructions: "x" }, {});
+  assert.ok(!r.isError, r.content[0].text);
+  assert.match(RU.instructionLayers(t).find((l) => l.id === "platform")!.text, /Before your first delegation, create the work's roadmap/);
+});

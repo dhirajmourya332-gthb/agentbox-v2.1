@@ -10,6 +10,8 @@ import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutin
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
 import { isSetupAgent } from "./setup.ts";
+import { isOrchestrator } from "./roleGuards.ts";
+import { roadmapsOf } from "./roadmaps.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
 import { LIMITS as PLAN_LIMITS, submitPlan } from "./plans.ts";
 import { LIMITS as RM_LIMITS, STATUSES as RM_STATUSES, createRoadmap, itemsOf as roadmapItems, updateRoadmap } from "./roadmaps.ts";
@@ -93,6 +95,10 @@ function check(h: Handoff): string | Agent {
     target = live[0];
   }
   if (target.id === h.from.id) return "That's you. Do the work yourself or pick a teammate.";
+  // Orchestrators lay out the work before handing it out, so the owner can follow it from the start.
+  if (h.kind === "task" && h.from.base_agent_id && isOrchestrator(h.from) && !roadmapsOf(rootOf(h.from).id).length) {
+    return "Create this work's roadmap first (mcp__team__roadmap_create: the steps, who does each, what depends on what), then delegate, putting each delegate's name as the owner of its step. The owner follows the work there from the start. For a single small task, a 1–3 step roadmap is fine.";
+  }
   if (h.fromTask.source === "agent" && h.fromTask.from_agent_id === target.id) {
     return `${target.name} handed this task to you. Don't hand it back: finish what you can and put questions or blockers in your final reply, which goes to ${target.name} automatically.`;
   }

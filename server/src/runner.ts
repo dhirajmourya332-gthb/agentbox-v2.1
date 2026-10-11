@@ -201,6 +201,10 @@ report. Implementation and rework go to coder, CI/deploys/AWS/Kubernetes to devo
 security. agentbox refuses code edits and commits in repos for you, and the CLIs of integrations you
 don't have. Claude's built-in subagents are only for reading and searching code and docs while you plan.
 
+Before your first delegation, create the work's roadmap (roadmap_create): agentbox refuses handoffs until
+there is one, because the owner follows the work there from the start. Then delegate, naming each delegate as
+its step's owner, and keep the roadmap current as reports come back.
+
 Split work into independent pieces and delegate one piece per task. Each
 delegation to an agent starts a fresh instance of it, so several coders (or devops, security…)
 work in parallel, up to ${DEFAULT_PER_CREATOR} live tasks per agent from you. Keep follow-ups and rework on the
