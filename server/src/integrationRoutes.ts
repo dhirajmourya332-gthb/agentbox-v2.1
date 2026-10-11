@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { dmThreadOf, getAgent, spawnInstance } from "./agents.ts";
 import { sendMessage } from "./runner.ts";
 import {
-  allMappings, cachedIntegrations, integrationStatus, listIntegrations, mappedIntegrations, outputOf, rolesFor,
+  allMappings, cachedIntegrations, integrationStatus, jobOf, listIntegrations, mappedIntegrations, outputOf, rolesFor,
   setIntegrationRoles, setRoleIntegrations, ID_RE,
 } from "./integrations.ts";
 import { approve, getApproval, listApprovals, reject } from "./approvals.ts";
@@ -25,7 +25,8 @@ export function registerIntegrationRoutes(app: FastifyInstance) {
   app.get("/api/integrations", async () => {
     let list = cachedIntegrations() ?? [];
     let error: string | null = null;
-    try { list = await listIntegrations(); } catch (e: any) { error = e.message; }
+    // Checks run in the CLI (a second or two): reuse a very fresh catalog; actions invalidate it.
+    try { list = await listIntegrations({ maxAgeMs: 10_000 }); } catch (e: any) { error = e.message; }
     const maps = allMappings();
     return {
       integrations: list.map((it) => ({ ...it, roles: maps.filter((m) => m.integration_id === it.id).map((m) => m.role_id) })),
@@ -39,7 +40,10 @@ export function registerIntegrationRoutes(app: FastifyInstance) {
     if (!ID_RE.test(id)) throw httpError(404, "No such integration");
     try {
       const it = await integrationStatus(id);
-      return { ...it, roles: rolesFor(id), output: outputOf(id).slice(-40) };
+      // job: the last (or running) connect / verify / disconnect, for the card's live progress;
+      // now: the server's clock, so the page's elapsed time doesn't depend on the browser's.
+      const job = jobOf(id);
+      return { ...it, roles: rolesFor(id), output: outputOf(id).slice(-40), job: job ? { ...job, lines: undefined } : null, now: new Date().toISOString() };
     } catch (e: any) {
       throw httpError(502, e.message);
     }

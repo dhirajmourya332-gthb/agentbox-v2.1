@@ -4,7 +4,10 @@ import { parse } from "yaml";
 
 /**
  * The agentbox config (docs/V2-ARCHITECTURE.md § 2): /etc/agentbox/config.yaml, or the file named by
- * AGENTBOX_CONFIG. Read once at start; it holds no secrets.
+ * AGENTBOX_CONFIG. Read at start; it holds no secrets. `modules.*` is re-read when the file changes
+ * (refreshModules(): a cheap mtime check, throttled), because `agentbox integration connect|disconnect`
+ * flips them without restarting the portal (docs/V2-ARCHITECTURE.md, Changes (integrations)).
+ * Every other key needs a restart.
  *
  * Without a config file (development, the in-process tests) the built-in defaults reproduce the
  * pre-v2 behaviour: data in ./data, every module on, the usual ports.
@@ -15,8 +18,10 @@ import { parse } from "yaml";
  */
 
 export const MODULE_IDS = [
-  "core", "claude", "access", "display", "terminal", "github", "aws", "kubernetes", "db-tunnel", "env-files",
-  "voice", "mobile", "mobile-app", "push",
+  "core", "claude", "access", "display", "terminal",
+  // integrations (§10.2)
+  "github", "gitlab", "bitbucket", "aws", "gcp", "azure", "kubernetes", "db-tunnel", "env-files",
+  "voice", "mobile", "mobile-app", "push", "teams", "slack",
 ] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 /** Always on, whatever the file says. */
@@ -58,8 +63,11 @@ const FILE_DEFAULTS: Omit<Config, "source"> = {
   },
   ports: { portal: 7700, screen: 7701, terminal: 7702, gateway: 7710, guide: 7699 },
   modules: {
-    core: true, claude: true, access: true, display: true, terminal: true, github: true, aws: false, kubernetes: false,
+    core: true, claude: true, access: true, display: true, terminal: true,
+    // Integrations are off until connected (setup/config.default.yaml).
+    github: false, gitlab: false, bitbucket: false, aws: false, gcp: false, azure: false, kubernetes: false,
     "db-tunnel": false, "env-files": false, voice: false, mobile: false, "mobile-app": false, push: false,
+    teams: false, slack: false,
   },
   tailscale: { hostname: "" },
   cloudflare: { hostname: "", team_domain: "", aud: "" },
@@ -161,11 +169,84 @@ export const config: Config = loadConfig();
 export const paths = config.paths;
 export const ports = config.ports;
 
+// --- live module switches ------------------------------------------------------------------------
+
+let stamp = fileStamp(config.source);
+let checkedAt = Date.now();
+/** Every `modules.<id>: true|false` in the file, including ids this build doesn't know. */
+let fileModules: Record<string, boolean> = readFileModules(config.source) ?? {};
+const listeners = new Set<(changed: string[]) => void>();
+
+function fileStamp(file: string) {
+  if (file === "defaults") return null;
+  try { const st = fs.statSync(file); return `${st.mtimeMs}:${st.size}:${st.ino}`; } catch { return null; }
+}
+function readFileModules(file: string): Record<string, boolean> | null {
+  if (file === "defaults") return null;
+  try {
+    const raw = parse(fs.readFileSync(file, "utf8"));
+    const m = isObj(raw) && isObj(raw.modules) ? raw.modules : {};
+    return Object.fromEntries(Object.entries(m).filter(([, v]) => typeof v === "boolean")) as Record<string, boolean>;
+  } catch { return null; }
+}
+
+/** Called with the ids whose `modules.<id>` changed after the file was re-read. */
+export function onModulesChange(fn: (changed: string[]) => void) {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
 /**
- * Whether a module's features are on. Dependencies count: push needs mobile, mobile-app needs
- * mobile, kubernetes needs aws.
+ * Re-read `modules.*` if the config file changed since the last look (mtime/size/inode; at most once
+ * per `minIntervalMs`). Returns the ids that changed. An unreadable or invalid file keeps the
+ * current switches (and logs). No file (development): nothing to watch.
+ */
+export function refreshModules(minIntervalMs = 1000): string[] {
+  if (config.source === "defaults") return [];
+  const t = Date.now();
+  if (t - checkedAt < minIntervalMs) return [];
+  checkedAt = t;
+  const next = fileStamp(config.source);
+  if (next === stamp) return [];
+  let fresh: Record<ModuleId, boolean>;
+  let raw: Record<string, boolean> | null;
+  try {
+    fresh = fromObject(parse(fs.readFileSync(config.source, "utf8"))).modules;
+    raw = readFileModules(config.source);
+  } catch (e: any) {
+    console.error(`config: ${config.source} changed but can't be read; keeping the module switches:`, e?.message ?? e);
+    return [];
+  }
+  stamp = next;
+  const changed = new Set<string>(MODULE_IDS.filter((id) => fresh[id] !== config.modules[id]));
+  for (const id of MODULE_IDS) config.modules[id] = fresh[id];
+  if (raw) {
+    for (const id of new Set([...Object.keys(raw), ...Object.keys(fileModules)])) {
+      if (!(MODULE_IDS as readonly string[]).includes(id) && raw[id] !== fileModules[id]) changed.add(id);
+    }
+    fileModules = raw;
+  }
+  const ids = [...changed];
+  if (ids.length) for (const fn of listeners) { try { fn([...ids]); } catch (e) { console.error("config: listener failed", e); } }
+  return ids;
+}
+
+/**
+ * `modules.<id>`, fresh. Ids this build doesn't know (a newer catalog) come from the file; without a
+ * file (development) they count as on, like every module.
+ */
+export function moduleOn(id: string): boolean {
+  refreshModules();
+  if ((MODULE_IDS as readonly string[]).includes(id)) return config.modules[id as ModuleId] === true;
+  return config.source === "defaults" ? true : fileModules[id] === true;
+}
+
+/**
+ * Whether a module's features are on (re-reads the switches if the file changed). Dependencies
+ * count: push needs mobile, mobile-app needs mobile.
  */
 export function enabled(id: ModuleId): boolean {
+  refreshModules();
   if (!config.modules[id]) return false;
   if (id === "push" || id === "mobile-app") return config.modules.mobile;
   if (id === "mobile") return config.access === "tailscale" || config.source === "defaults";

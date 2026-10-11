@@ -35,7 +35,7 @@ await test("no file: dev defaults (every module on, data in ./data)", () => {
 await test("file: contract defaults for missing keys; required modules forced on", () => {
   const c = fromObject({ modules: { core: false, voice: true } });
   ok(c.modules.core && c.modules.claude && c.modules.access, "required on");
-  ok(c.modules.voice && c.modules.display && c.modules.github && !c.modules.mobile, "module defaults");
+  ok(c.modules.voice && c.modules.display && !c.modules.github && !c.modules.gitlab && !c.modules.slack && !c.modules.mobile, "module defaults (integrations off until connected)");
   ok(c.paths.data === "/opt/agentbox/data" && c.paths.agents === "/agents", "paths");
   ok(c.host === "cloud" && c.access === "tailscale" && c.user === "agentbox", "host/access/user");
 });
@@ -92,8 +92,16 @@ await test("server: GET /api/config/public reports the modules, host and access"
   ok(up, `server didn't start:\n${log.slice(-2000)}`);
   const j: any = await (await fetch(`${base}/api/config/public`)).json();
   ok(j.host === "cloud" && j.access === "ssh-tunnel", JSON.stringify(j));
-  ok(j.modules.core && !j.modules.mobile && !j.modules.voice && !j.modules.push && !j.modules.display && j.modules.github, JSON.stringify(j.modules));
+  ok(j.modules.core && !j.modules.mobile && !j.modules.voice && !j.modules.push && !j.modules.display && !j.modules.github, JSON.stringify(j.modules));
   ok(!("paths" in j) && !("owner" in j), "no paths or owner");
+});
+
+await test("server: modules.<id> changes in the file are picked up without a restart", async () => {
+  // What `agentbox integration connect github` does to the file (it never restarts the portal).
+  fs.writeFileSync(cfg, fs.readFileSync(cfg, "utf8").replace("modules: {", "modules: { github: true,"));
+  await new Promise((r) => setTimeout(r, 1200)); // the re-read is throttled to once a second
+  const j: any = await (await fetch(`${base}/api/config/public`)).json();
+  ok(j.modules.github === true, JSON.stringify(j.modules));
 });
 
 await test("server: disabled modules' routes 404 (devices, voice, display)", async () => {
