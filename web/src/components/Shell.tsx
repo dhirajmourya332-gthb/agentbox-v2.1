@@ -85,15 +85,21 @@ function RailLink({ to, current, icon, children, className }: { to: Route; curre
 }
 
 /** A collapsible sidebar section whose open/closed state is remembered. */
-function Section({ id, label, action, children, defaultOpen = true }: {
+function Section({ id, label, action, children, defaultOpen = true, badge, forceOpen = false }: {
   id: string; label: string; action?: ReactNode; children: ReactNode; defaultOpen?: boolean;
+  /** Shown on the header while the section is closed, so something waiting inside isn't missed. */
+  badge?: ReactNode;
+  /** Open while the current page lives in this section (without changing the remembered choice). */
+  forceOpen?: boolean;
 }) {
-  const [open, setOpen] = useRemembered(`rail.${id}`, defaultOpen);
+  const [remembered, setOpen] = useRemembered(`rail.${id}`, defaultOpen);
+  const open = remembered || forceOpen;
   return (
     <>
-      <div className="rail-section">
+      <div className="rail-section" data-section={id}>
         <button className="rail-label rail-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
           <span className="chev"><Icon name="chevron" size={10} /></span>{label}
+          {!open && badge}
         </button>
         {action}
       </div>
@@ -184,7 +190,15 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const marks = useRoomMarks();
   const needsYou = attention.filter((i) => !i.seen_at).length;
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
-  const roles = agents.filter((a) => !a.base_agent_id);
+  // The built-in setup agent lives under Configure, not in Team or Work.
+  const setupRole = agents.find((a) => !a.base_agent_id && a.builtin === "setup");
+  const setupIds = new Set(setupRole ? [setupRole.id, ...agents.filter((a) => a.base_agent_id === setupRole.id).map((a) => a.id)] : []);
+  const setupWorking = agents.filter((a) => setupIds.has(a.id) && a.status === "working").length;
+  const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
+  const liveWork = work.live.filter((w) => !setupIds.has(w.root.id));
+  const doneWork = work.done.filter((w) => !setupIds.has(w.root.id));
+  const inConfigure = ["setup", "integrations", "repos", "skills", "skill", "new-skill", "draft"].includes(route.name);
+  const inComputer = ["screen", "terminal", "system", "devices"].includes(route.name);
   const [showDone, setShowDone] = useRemembered("work.done", false);
   return (
     <div className="shell">
@@ -214,25 +228,18 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           </RailLink>
           <RailLink to={{ name: "routines" }} current={route} icon={<Icon name="routine" />}>Routines</RailLink>
           <RailLink to={{ name: "documents" }} current={route} icon={<Icon name="doc" />}>Documents</RailLink>
-          <RailLink to={{ name: "skills" }} current={route} icon={<Icon name="skill" />}>
-            <span className="grow">Skills</span>
-            {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
-          </RailLink>
-          <RailLink to={{ name: "integrations" }} current={route} icon={<Icon name="plug" />}>Integrations</RailLink>
-          <RailLink to={{ name: "repos" }} current={route} icon={<Icon name="repo" />}>Repos</RailLink>
-          <RailLink to={{ name: "setup" }} current={route} icon={<Icon name="terminal" />}>Setup</RailLink>
         </div>
 
         <Section id="work" label="Work">
-          {work.live.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
-          {work.live.length === 0 && activeRuns.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
+          {liveWork.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
+          {liveWork.length === 0 && activeRuns.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
           <RailRuns currentRunId={route.name === "routine-run" ? route.runId : undefined} />
-          {work.done.length > 0 && (
+          {doneWork.length > 0 && (
             <>
               <button className="rail-more" aria-expanded={showDone} onClick={() => setShowDone(!showDone)}>
-                <span className={`chev${showDone ? " open" : ""}`}><Icon name="chevron" size={10} /></span>Done ({work.done.length})
+                <span className={`chev${showDone ? " open" : ""}`}><Icon name="chevron" size={10} /></span>Done ({doneWork.length})
               </button>
-              {showDone && work.done.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
+              {showDone && doneWork.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
             </>
           )}
         </Section>
@@ -255,7 +262,25 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           {groups.length === 0 && <p className="empty">No groups yet.</p>}
         </Section>
 
-        <Section id="computer" label="Computer" defaultOpen={false}>
+        <div className="rail-spacer" aria-hidden="true" />
+
+        <Section id="configure" label="Configure" defaultOpen={false} forceOpen={inConfigure}
+          badge={drafts.length > 0 || setupWorking > 0
+            ? <span className="badge" title={[drafts.length ? `${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review` : "", setupWorking ? "setup agent working" : ""].filter(Boolean).join(" · ")}>{drafts.length || "•"}</span>
+            : undefined}>
+          <RailLink to={{ name: "setup" }} current={route} icon={<Icon name="terminal" />}>
+            <span className="grow">Setup</span>
+            {setupWorking > 0 && <span className="rail-sub">working</span>}
+          </RailLink>
+          <RailLink to={{ name: "integrations" }} current={route} icon={<Icon name="plug" />}>Integrations</RailLink>
+          <RailLink to={{ name: "repos" }} current={route} icon={<Icon name="repo" />}>Repos</RailLink>
+          <RailLink to={{ name: "skills" }} current={route} icon={<Icon name="skill" />}>
+            <span className="grow">Skills</span>
+            {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
+          </RailLink>
+        </Section>
+
+        <Section id="computer" label="Computer" defaultOpen={false} forceOpen={inComputer}>
           <RailLink to={{ name: "screen" }} current={route} icon={<Icon name="screen" />}>Screen</RailLink>
           <RailLink to={{ name: "terminal" }} current={route} icon={<Icon name="terminal" />}>Terminal</RailLink>
           <RailLink to={{ name: "system" }} current={route} icon={<Icon name="pulse" />}>System</RailLink>
