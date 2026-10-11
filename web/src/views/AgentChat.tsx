@@ -12,6 +12,7 @@ import { RepoChips, SetupRequestCard } from "../components/Requests.tsx";
 import { PlanCard, PlanChip } from "../components/Plan.tsx";
 import { ChangesButton, ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
+import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -309,6 +310,7 @@ export function Timeline({ agent, thread, live, focus }: {
           );
         })}
       </div>
+      <ScrollToBottom scroller={ref} onJump={() => { stick.current = true; }} />
     </div>
   );
 }

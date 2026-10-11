@@ -1,3 +1,4 @@
+import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -181,6 +182,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
           );
         })}
       </div>
+      <ScrollToBottom scroller={ref} onJump={() => { stick.current = true; }} />
     </div>
   );
 }

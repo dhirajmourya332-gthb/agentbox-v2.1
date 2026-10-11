@@ -1,3 +1,4 @@
+import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 import { PlanCard } from "../components/Plan.tsx";
 import { ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
@@ -210,6 +211,7 @@ export function RoomTimeline({ children }: { children: React.ReactNode }) {
     <div className="timeline" ref={ref} aria-live="polite" aria-relevant="additions"
       onScroll={() => { const el = ref.current!; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
       <div className="timeline-inner">{children}</div>
+      <ScrollToBottom scroller={ref} onJump={() => { stick.current = true; }} />
     </div>
   );
 }
