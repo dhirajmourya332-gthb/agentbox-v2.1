@@ -322,7 +322,8 @@ export function stepViews(steps, results, { enabled, applies = () => true, rende
  *   available     never connected (off, no record)
  *   disconnected  off, after a disconnect
  *   connected     on, every applicable check green, settings saved and complete
- *   error         on, and the last connect / verify failed, or a step failed with no gate open before it
+ *   error         on, and a step failed with no gate open before it, or the last connect / verify
+ *                 failed while no gate waits for the owner
  *   connecting    on, and something still waits (a human gate, missing settings, a step not run yet)
  */
 export function integrationState({ available = true, enabled, steps, settingsSaved, missing = [], errors = [], last = null }) {
@@ -332,6 +333,8 @@ export function integrationState({ available = true, enabled, steps, settingsSav
   const green = live.every((s) => s.state === "done");
   if (green && settingsSaved && missing.length === 0 && errors.length === 0) return "connected";
   if (live.some((s) => s.state === "failed")) return "error";
+  // A gate waiting for the owner explains a failed verify: still connecting, not an error.
+  if (live.some((s) => s.state === "human")) return "connecting";
   if (last && last.ok === false && (last.action === "connect" || last.action === "verify")) return "error";
   return "connecting";
 }

@@ -127,7 +127,9 @@ describe("states", () => {
     assert.equal(integrationState({ enabled: true, steps: all, settingsSaved: true, missing: ["x"] }), "connecting");
     assert.equal(integrationState({ enabled: true, steps: gate, settingsSaved: true }), "connecting");
     assert.equal(integrationState({ enabled: true, steps: broke, settingsSaved: true }), "error");
-    assert.equal(integrationState({ enabled: true, steps: gate, settingsSaved: true, last: { action: "connect", ok: false } }), "error");
+    assert.equal(integrationState({ enabled: true, steps: gate, settingsSaved: true, last: { action: "verify", ok: false } }), "connecting", "a gate explains it");
+    const notRun = views({ install: ok, login: ok });
+    assert.equal(integrationState({ enabled: true, steps: notRun, settingsSaved: true, last: { action: "connect", ok: false } }), "error");
   });
 });
 

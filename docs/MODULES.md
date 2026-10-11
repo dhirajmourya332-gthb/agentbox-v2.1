@@ -144,7 +144,7 @@ Team-specific rules that aren't about a provider go in the owner's own `/team/*.
 | `available` | never connected |
 | `connecting` | on, and something still waits: a human gate, a missing required setting, unsaved settings, a step not run yet |
 | `connected` | on, every applicable check green, the settings saved and valid |
-| `error` | on, and a step fails with no gate open before it, or the last connect / verify failed |
+| `error` | on, and a step fails with no gate open before it, or the last connect / verify failed while no gate waits for the owner |
 | `disconnected` | off, after a disconnect |
 
 Step states (as on the guide's roadmap): `done` (its check passed: the only way), `human` (a gate
