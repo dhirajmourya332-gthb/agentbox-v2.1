@@ -173,6 +173,10 @@ agentbox integration settings <id> [--set k=v]… [--unset k] [--values JSON] [-
                                               show / change (validated; re-renders and re-runs
                                               configure.sh when connected)
 sudo agentbox integration render [<id>]       re-render /team/integrations/* from the settings
+
+agentbox repo list|status [<name>] [--json]   registered repos (calls the portal with the local token)
+agentbox repo add <url> [--name n] [--branch b] [--roles a,b] [--no-map] [--no-wait]
+agentbox repo fetch [<name>] | remap <name> | remove <name> [--keep-unpushed]
 ```
 
 `agentbox module enable|disable|install <id>` refuses an integration and names the `integration`

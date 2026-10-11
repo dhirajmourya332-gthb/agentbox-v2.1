@@ -227,3 +227,14 @@ export function seedSkills() {
   }
   run(`INSERT INTO meta (key, value) VALUES ('skills_seeded', ?)`, now());
 }
+
+/** A starter skill added after the first seeding (e.g. onboard-repo): copied into the library once. */
+export function ensureSeedSkill(name: string) {
+  const key = `seed:${name}`;
+  if (get(`SELECT 1 FROM meta WHERE key = ?`, key)) return;
+  const src = path.join(SEED_DIR, name);
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(SKILLS_ROOT, { recursive: true });
+  if (!fs.existsSync(dirOf(name))) fs.cpSync(src, dirOf(name), { recursive: true });
+  run(`INSERT INTO meta (key, value) VALUES (?, ?)`, key, now());
+}

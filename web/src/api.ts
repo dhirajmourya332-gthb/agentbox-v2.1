@@ -233,6 +233,43 @@ export type GatewayStatus = {
   port: number;
 };
 
+/** server/src/repos.ts › repoView. */
+export type RepoWorktree = {
+  id: string; repo_id: string; instance_id: string; purpose: "task" | "onboard"; path: string | null; branch: string | null;
+  status: "pending" | "active" | "kept" | "removed" | "discarded" | "error"; note: string | null; created_at: string; closed_at: string | null;
+  instance: { id: string; name: string; label: string | null; retired: boolean } | null;
+};
+export type Repo = {
+  id: string; name: string; url: string; provider: "github" | "gitlab" | "bitbucket" | "other"; default_branch: string | null;
+  description: string; test_command: string; protected_branches: string[]; allowed_roles: string[];
+  agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean;
+  status: "cloning" | "ready" | "error" | "archived"; last_fetch_at: string | null; error: string | null;
+  map_status: "none" | "running" | "ready" | "error"; map_updated_at: string | null; map_task_id: string | null; map_error: string | null;
+  archive_path: string | null; archived_at: string | null; created_at: string;
+  path: string | null; map_dir: string; map_files: { file: string; path: string; exists: boolean; size: number; modified: string | null }[];
+  job: { running: boolean; started_at: string; ended_at: string | null; last_output_at: string; ok: boolean | null; lines: { line: string; at: string }[] } | null;
+  worktrees: RepoWorktree[]; users: { id: string; name: string; label: string | null }[];
+};
+export type AccountRepo = {
+  provider: Repo["provider"]; full_name: string; url: string; ssh_url: string | null; description: string;
+  default_branch: string | null; private: boolean; archived: boolean; updated_at: string | null; added: string | null;
+};
+export type RepoBinding = { id: string; repo: string; branch: string | null; path: string | null; status: RepoWorktree["status"]; note: string | null };
+/** server/src/setupRequests.ts › requestView. */
+export type SetupRequest = {
+  id: string; requester_id: string | null; requester_name: string | null; task_id: string | null; thread_id: string | null;
+  title: string; why: string; for_setup_agent: string; integration: string | null; repo: string | null; repo_url: string | null; check_cmd: string | null;
+  status: "pending" | "in_progress" | "done" | "rejected" | "cancelled" | "failed";
+  setup_instance_id: string | null; setup_instance_name: string | null; result_note: string | null;
+  created_at: string; updated_at: string; decided_at: string | null; completed_at: string | null;
+  waiters: { instance_id: string; name: string | null; called_back_at: string | null }[];
+};
+
+/** An API error with what the server attached (409s from repos carry `detail`). */
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public data: any) { super(message); }
+}
+
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -240,7 +277,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as any).error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ApiError((data as any).error ?? `${res.status} ${res.statusText}`, res.status, data);
   return data as T;
 }
 
@@ -248,7 +285,7 @@ export const api = {
   state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
-  newTask: (roleId: string, text: string, title?: string, images?: string[]) => call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images }),
+  newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[]) => call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos }),
   room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
@@ -368,5 +405,29 @@ export const api = {
     call<{ plan: SetupPlan | null; result: PlanCheck | null }>("POST", `/api/setup/plans/${instanceId}/steps/${encodeURIComponent(stepId)}`, { action }),
   terminalInfo: () => call<{ available: boolean; error: string | null }>("GET", "/api/setup/terminal/info"),
   approve: (id: string) => call<Approval>("POST", `/api/approvals/${id}/approve`),
+  // Repos (docs/V2-ARCHITECTURE.md, Changes (repos)).
+  repos: () => call<{ repos: Repo[]; map_routine: { id: string; enabled: boolean } | null }>("GET", "/api/repos"),
+  repo: (name: string) => call<Repo>("GET", `/api/repos/${encodeURIComponent(name)}`),
+  availableRepos: (refresh = false) => call<{ accounts: { provider: string; ok: boolean; error: string | null; count: number }[]; repos: AccountRepo[] }>("GET", `/api/repos/available${refresh ? "?refresh=1" : ""}`),
+  checkRepo: (url: string) => call<{ ok: boolean; default_branch: string | null; error: string | null; provider: string; name: string; taken: boolean }>("POST", "/api/repos/check", { url }),
+  addRepo: (b: { url: string; name?: string; default_branch?: string; allowed_roles?: string[]; description?: string }) => call<Repo>("POST", "/api/repos", b),
+  updateRepo: (name: string, patch: Partial<Pick<Repo, "description" | "test_command" | "default_branch" | "protected_branches" | "allowed_roles" | "agents_may_merge" | "agents_may_deploy" | "propose_map_pr">>) =>
+    call<Repo>("PATCH", `/api/repos/${encodeURIComponent(name)}`, patch),
+  fetchRepo: (name: string) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/fetch`, {}),
+  retryRepo: (name: string) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/retry`, {}),
+  remapRepo: (name: string) => call<{ instance_id: string }>("POST", `/api/repos/${encodeURIComponent(name)}/remap`, {}),
+  archiveRepo: (name: string, confirmUnpushed = false) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/archive`, { confirm_unpushed: confirmUnpushed }),
+  purgeRepo: (name: string) => call<{ purged: string }>("POST", `/api/repos/${encodeURIComponent(name)}/purge`, {}),
+  discardWorktree: (id: string) => call<RepoWorktree>("POST", `/api/repos/worktrees/${id}/discard`, {}),
+  mapRoutine: () => call<{ id: string; created: boolean }>("POST", "/api/repos/map-routine", {}),
+  taskRepos: (instanceId: string) => call<{ repos: RepoBinding[] }>("GET", `/api/agents/${instanceId}/repos`),
+  // Setup requests: agents ask, the owner starts or declines.
+  setupRequest: (id: string) => call<SetupRequest>("GET", `/api/setup-requests/${id}`),
+  setupRequests: (status?: string) => call<{ requests: SetupRequest[] }>("GET", `/api/setup-requests${status ? `?status=${status}` : ""}`),
+  raiseSetupRequest: (b: { title: string; why?: string; for_setup_agent: string; integration?: string; repo?: string; repo_url?: string; check?: string }) =>
+    call<SetupRequest>("POST", "/api/setup-requests", b),
+  startSetupRequest: (id: string) => call<{ instance_id: string; created: boolean; request: SetupRequest }>("POST", `/api/setup-requests/${id}/start`, {}),
+  rejectSetupRequest: (id: string, reason: string) => call<SetupRequest>("POST", `/api/setup-requests/${id}/reject`, { reason }),
+  markSetupRequest: (id: string, status: "done" | "failed", note: string) => call<SetupRequest>("POST", `/api/setup-requests/${id}/mark`, { status, note }),
   reject: (id: string) => call<Approval>("POST", `/api/approvals/${id}/reject`),
 };

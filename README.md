@@ -31,6 +31,14 @@ Bitbucket; AWS, Google Cloud or Azure; Kubernetes…) under rules you write.
 - **Integrations** you connect from the portal: each brings its CLI, a login you do yourself, a few
   settings (default repo, project board, cloud project, writable namespaces…) and rules rendered
   from them into `/team/integrations/<id>.md`, given only to the roles you map it to.
+- **Repos:** add them from a connected GitHub, GitLab or Bitbucket account or by URL. agentbox
+  keeps one read-only partial clone of each and gives every task its own git worktree and branch;
+  pushes to protected branches and deploys are refused unless you allow them per repo. An
+  onboarding task maps each repo (architecture, feature map, verified commands, risk and test
+  readiness) for the other agents.
+- **Setup requests:** an agent that lacks an account, login, tool or access asks for it; you get a
+  card with "Set up now" (the setup agent does it with you) or "Reject", and the agent is called
+  back either way.
 - **Team rules** in `/team/*.md` that you write and every agent reads.
 
 **Working with them**
@@ -168,6 +176,10 @@ connected installs nothing, asks for nothing, and agents don't hear about it.
 | chat | `teams`, `slack` | coming soon | |
 
 How they're built, and how to add one: [docs/MODULES.md](docs/MODULES.md).
+
+**Repos** are added on the portal's Repos page or with `agentbox repo add <url>` (also `repo list`,
+`status`, `fetch`, `remap`, `remove`). Clones live in `/work/repos/<name>`, task worktrees in
+`/work/worktrees/<repo>/<task>`, and each repo's map in agentbox's data folder.
 
 ## FAQ
 

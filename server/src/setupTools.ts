@@ -5,7 +5,9 @@ import { getAgent, type Agent } from "./agents.ts";
 import {
   integrationAction, integrationStatus, listIntegrations, rolesFor, saveSettings, settingText, type Integration,
 } from "./integrations.ts";
-import { proposeMapping, proposeTeamRule } from "./approvals.ts";
+import { proposeMapping, proposeRepo, proposeTeamRule } from "./approvals.ts";
+import { listRepos, worktreesOf } from "./repos.ts";
+import { completeBySetupAgent, getRequest, listRequests } from "./setupRequests.ts";
 import { isSetupAgent, postIntegrationCard } from "./setup.ts";
 import { addSteps, planChecker, planView, setPlan, updateStep, type PlanView, type StepInput } from "./setupPlan.ts";
 import { ownerTerminal } from "./terminal.ts";
@@ -293,6 +295,58 @@ export function setupTools(agent: Agent, taskId: string) {
             return refuse(e.message);
           }
         }),
+
+      tool("list_repos", "The registered repos: status, default branch, last fetch, map, which agents may use them, open worktrees.", {}, async () => {
+        const no = guard();
+        if (no) return no;
+        const repos = listRepos();
+        if (!repos.length) return text("No repos yet. Propose one with add_repo.");
+        return text(repos.map((r) => {
+          const wts = worktreesOf(r.id).filter((w) => w.status === "active" || w.status === "kept");
+          const roles = r.allowed_roles.map((id) => getAgent(id)?.name ?? id);
+          return `- ${r.name} [${r.status}${r.error ? `: ${r.error}` : ""}] ${r.url} · default ${r.default_branch ?? "?"} · fetched ${r.last_fetch_at ?? "never"} · map ${r.map_status} · used by ${roles.join(", ") || "every agent"} · ${wts.length} worktree(s)`;
+        }).join("\n"));
+      }),
+
+      tool("add_repo", "Propose adding a repo (https://, ssh:// or git@host:owner/repo; never a URL with credentials). agentbox checks it can read it first; the owner sees an approval card, and approving clones it and starts its onboarding (map) run. If access fails, plan access first (the provider's login or a deploy key).",
+        {
+          url: z.string(),
+          name: z.string().optional().describe("short slug (default: the repo's name)"),
+          default_branch: z.string().optional(),
+          roles: z.array(z.string()).optional().describe("agents (roles) allowed to use it; empty = every agent"),
+          description: z.string().optional(),
+        },
+        async (args) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const a = await proposeRepo(agent, taskId, args);
+            return text(`Proposed adding ${a.payload.name} (approval ${a.id}). The owner sees a card in this chat; nothing is cloned until they approve.`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        }),
+
+      tool("complete_setup_request", "Mark a setup request done once what it asked for works (verify first). The agents waiting on it are called back with your summary.",
+        { id: z.string().describe("the request id from its prompt"), summary: z.string().describe("one line: what's now available, e.g. \"gcloud is logged in as ops@acme.com, project acme-prod\"") },
+        async ({ id, summary }) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const r = completeBySetupAgent(agent, id, summary);
+            return text(`Request "${r.title}" is done; ${r.requester_id ? "the requesting agents are called back." : "it was the owner's own request."}`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        }),
+
+      tool("list_setup_requests", "Open setup requests from the other agents (what they need, and whether the owner started them).", {}, async () => {
+        const no = guard();
+        if (no) return no;
+        const open = listRequests().filter((r) => r.status === "pending" || r.status === "in_progress");
+        if (!open.length) return text("No open setup requests.");
+        return text(open.map((r) => `- ${r.id}: "${r.title}" [${r.status}]${r.integration ? ` integration ${r.integration}` : ""}${r.repo ? ` repo ${r.repo}` : ""} (asked by ${getAgent(r.requester_id ?? "")?.name ?? "the owner"})`).join("\n"));
+      }),
 
       tool("propose_team_rule", "Propose a new or changed team-rule file in /team (Markdown). Give the complete new file content; the owner sees the diff as an approval card and it's applied only when they approve.",
         {

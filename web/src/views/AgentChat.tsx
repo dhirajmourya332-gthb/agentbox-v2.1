@@ -8,6 +8,7 @@ import { TaskPanel } from "./AgentPanel.tsx";
 import { RolePage } from "./RolePage.tsx";
 import { LiveBar, useSeenRoom } from "../components/Live.tsx";
 import { ApprovalCard, IntegrationStepsCard, TerminalCtx, TerminalPanel } from "../components/Setup.tsx";
+import { RepoChips, SetupRequestCard } from "../components/Requests.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -82,6 +83,7 @@ function TaskChat({ agent, threadParam }: { agent: Agent; threadParam?: string }
           <div className="who" style={{ minWidth: 0 }}>
             <TaskTitle agent={agent} />
             <span><TaskOrigin agent={agent} /></span>
+            <RepoChips instanceId={agent.id} />
           </div>
           <div className="actions">
             {done ? <span className="chip">Done</span> : <StatusGlyph status={agent.status} withLabel />}
@@ -297,11 +299,12 @@ function Input({ message, task, active }: { message: Message; task?: Task; activ
   const { everyone } = useStore();
   const [open, setOpen] = useState(task?.source !== "result");
   // Setup agent cards: an integration's steps, or a proposal waiting for the owner.
-  if (message.author === "integration" || message.author === "approval") {
+  if (message.author === "integration" || message.author === "approval" || message.author === "setup_request") {
     return (
       <div className="msg">
         <span aria-hidden="true" />
-        {message.author === "integration" ? <IntegrationStepsCard id={message.content} active={active} /> : <ApprovalCard id={message.content} />}
+        {message.author === "integration" ? <IntegrationStepsCard id={message.content} active={active} />
+          : message.author === "setup_request" ? <SetupRequestCard id={message.content} /> : <ApprovalCard id={message.content} />}
       </div>
     );
   }

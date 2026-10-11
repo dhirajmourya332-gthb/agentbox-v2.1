@@ -7,6 +7,8 @@ import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, reviveIn
 import { proposeSkill, skillsOf } from "./skills.ts";
 import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
+import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
+import { requestSetup } from "./setupRequests.ts";
 
 /**
  * The internal channel between agents. Agents call these tools; agentbox queues the work,
@@ -37,7 +39,7 @@ export function handoffThread(to: Agent, from: Agent) {
   return id;
 }
 
-type Handoff = { kind: "task" | "message"; from: Agent; fromTask: any; to: string; title: string; body: string; routedTo?: Agent };
+type Handoff = { kind: "task" | "message"; from: Agent; fromTask: any; to: string; title: string; body: string; routedTo?: Agent; repos?: string[] };
 
 const refs = (s: string) => new Set([...s.matchAll(/#(\d{2,})/g)].map((m) => m[1]));
 
@@ -99,6 +101,14 @@ function check(h: Handoff): string | Agent {
 export function handOff(h: Handoff) {
   const checked = check(h);
   if (typeof checked === "string") throw new Error(checked);
+  // Repos to bind: checked before any instance is started.
+  for (const name of h.repos ?? []) {
+    const repo = getRepo(String(name).trim());
+    const role = checked.base_agent_id ? getAgent(checked.base_agent_id) ?? checked : checked;
+    if (!repo || repo.status === "archived") throw new Error(`No repo called "${name}"`);
+    if (repo.status !== "ready") throw new Error(`${repo.name} isn't ready (${repo.status})`);
+    if (!roleAllowed(repo, role)) throw new Error(`${role.name} isn't allowed to use ${repo.name}`);
+  }
   // Delegating to an agent (role) starts a fresh instance for this one task; delegating to an
   // instance sends it a follow-up in its own conversation. A planning agent (tech-lead) is
   // different: each piece of work gets at most one, as its lead, reused for later handoffs.
@@ -108,6 +118,12 @@ export function handOff(h: Handoff) {
     : (h.kind === "task" && authorOf(checked, h)) || spawnHelper(checked, h);
   if (target.id === h.from.id) throw new Error("That's you. Do the work yourself or pick a teammate.");
   h.routedTo = target;
+  // Repos for the helper: each gets its own worktree, created before its first turn.
+  const repoNames = [...new Set((h.repos ?? []).map((r) => String(r).trim()).filter(Boolean))];
+  if (repoNames.length) {
+    for (const r of repoNames) bindRepo(target, r);
+    h.body += `\n\nRepos for this task: ${repoNames.join(", ")}. Your worktree for each is ready when you start (see Repos in your instructions).`;
+  }
   const threadId = dmThreadOf(target.id)!;
   const prompt = h.kind === "task"
     ? `[agentbox] Task from ${h.from.name} (${h.from.title})
@@ -192,12 +208,18 @@ step if needed, and report to the owner as your instructions say.`,
 }
 
 export function teamServer(agent: Agent, taskId: string) {
-  const me = () => taskRow(taskId);
   return createSdkMcpServer({
     name: "team",
     version: "1.0.0",
     instructions: "agentbox team tools: how agents on this team hand work to each other.",
-    tools: [
+    tools: teamTools(agent, taskId),
+  });
+}
+
+/** The tool definitions (handlers callable directly in tests). */
+export function teamTools(agent: Agent, taskId: string) {
+  const me = () => taskRow(taskId);
+  return [
       tool(
         "list_agents",
         "List the agents you can delegate to, with each one's live tasks (instances such as coder#2): what they're doing, status and who started them. Pass pool to see just one agent.",
@@ -277,10 +299,11 @@ export function teamServer(agent: Agent, taskId: string) {
           to: z.string().describe("Teammate's name, e.g. coder"),
           title: z.string().describe("Short imperative title, e.g. 'Fix token refresh on tab blur (#88)'"),
           instructions: z.string().describe("Everything they need: context, links, acceptance criteria, constraints, what to report back"),
+          repos: z.array(z.string()).optional().describe("Registered repos (names) this task works on: the helper gets its own worktree of each"),
         },
         async (args) => {
           try {
-            const h: Handoff = { kind: "task", from: agent, fromTask: me(), to: args.to, title: args.title, body: args.instructions };
+            const h: Handoff = { kind: "task", from: agent, fromTask: me(), to: args.to, title: args.title, body: args.instructions, repos: args.repos };
             const t = handOff(h);
             const to = h.routedTo!;
             const back = to.name !== findAgent(args.to)?.name && !findAgent(args.to)?.base_agent_id;
@@ -351,6 +374,86 @@ export function teamServer(agent: Agent, taskId: string) {
       }),
 
       tool(
+        "use_repo",
+        "Work on a registered repo: binds this task to it and gives you your own git worktree (a branch off origin/<default branch>; the same one again for rework). Returns its path. The canonical clone is read-only.",
+        { name: z.string().describe("The repo's name, from the Repos section of your instructions") },
+        async ({ name }) => {
+          if (!agent.base_agent_id) return refuse("Repos are used by tasks (instances).");
+          let repo: Repo | undefined = getRepo(name);
+          if (repo && repo.status === "ready" && roleAllowed(repo, agent) && (!repo.last_fetch_at || Date.now() - Date.parse(repo.last_fetch_at) > 5 * 60_000)) {
+            // Can agentbox still fetch it? If not, ask for access (the worktree still works from the last fetch).
+            try { repo = await fetchRepo(name); } catch (e: any) {
+              let note = "";
+              try {
+                const r = requestSetup(agent, taskId, {
+                  title: `Access to repo ${name}`, repo: name,
+                  why: `agentbox can't fetch ${name}: ${e.message}`,
+                  for_setup_agent: `agentbox can't fetch the registered repo "${name}" (${repo.url}): ${e.message}\nRestore read access for the agent user (the provider account's login, or a deploy key), then check that \`agentbox repo fetch ${name}\` works.`,
+                });
+                note = ` I raised setup request ${r.request.id} for access; you'll be called back when it's fixed.`;
+              } catch (err: any) { note = ` (Couldn't raise a setup request: ${err.message})`; }
+              try {
+                const wt = await ensureWorktree(agent, name);
+                return text(`Fetching ${name} failed, so your worktree is from the last fetch (${repo.last_fetch_at ?? "unknown"}): ${wt.path} (branch ${wt.branch}).${note}`);
+              } catch (err: any) { return refuse(`${err.message}.${note}`); }
+            }
+          }
+          try {
+            const wt = await ensureWorktree(agent, name);
+            const r = wt.repo;
+            return text([
+              `Your worktree for ${r.name}: ${wt.path}`,
+              `Branch: ${wt.branch} (off origin/${r.default_branch}; push it with \`git push -u origin HEAD\`, then open a PR).`,
+              r.test_command ? `Tests: ${r.test_command}` : "",
+              r.map_status === "ready" ? `Map: ${mapDir(r.name)}/ (read AGENTS.md first)` : "",
+              `Never edit the canonical clone; ${r.agents_may_merge ? "" : `pushes and merges to ${r.protected_branches.join(", ")} are refused; `}${r.agents_may_deploy ? "" : "deploys are refused."}`,
+            ].filter(Boolean).join("\n"));
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        },
+      ),
+
+      tool(
+        "repo_map_done",
+        "Record a repo's knowledge pack as complete (after the onboard-repo skill wrote every file to its map folder). Fills in the repo's description and test command if they're empty.",
+        {
+          name: z.string().describe("The repo's name"),
+          description: z.string().describe("One line: what the repo is"),
+          test_command: z.string().describe("The test command you actually ran and verified"),
+        },
+        async ({ name, description, test_command }) => {
+          try {
+            const r = finishMap(agent, name, { description, test_command });
+            return text(`${r.name}'s map is ready (${mapDir(r.name)}/). Description: ${r.description || "—"}. Tests: ${r.test_command || "—"}.`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        },
+      ),
+
+      tool(
+        "request_setup",
+        "Ask for something this computer lacks (an account, a login, a CLI, cloud or repo access). The owner gets a card to have the setup agent do it; you're called back with a new message when it's done or declined. Don't wait or poll: end your turn, or carry on with other work.",
+        {
+          title: z.string().describe("Short, e.g. \"Connect GCP (project acme-prod)\""),
+          why: z.string().describe("For the owner: what you need it for, in a sentence or two"),
+          for_setup_agent: z.string().describe("For the setup agent: exactly what to set up (account, project, region, scopes, which repo…). The owner can read it."),
+          integration: z.string().optional().describe("An integration id from the catalog (e.g. gcp), if it's one of them"),
+          repo: z.string().optional().describe("A registered repo's name, for repo access"),
+          check: z.string().optional().describe("A read-only shell command that exits 0 once it's done (e.g. gcloud auth list --filter=status:ACTIVE --format=value(account) | grep -q .)"),
+        },
+        async (args) => {
+          try {
+            const { request, joined } = requestSetup(agent, taskId, args);
+            return text(`${joined ? `Joined the open setup request "${request.title}" (${request.id}): someone already asked for it.` : `Setup request ${request.id} raised: the owner sees a card with "Set up now" and "Reject".`} You'll get a new message when it's done or declined. End your turn now, or continue with work that doesn't need it; don't wait in a loop.`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        },
+      ),
+
+      tool(
         "propose_skill",
         "Propose a reusable skill (a procedure you or teammates will need again) for the owner to review and add to the skill library.",
         {
@@ -363,8 +466,7 @@ export function teamServer(agent: Agent, taskId: string) {
           return text(`Proposed skill "${d.name}". The owner will review it in agentbox.`);
         },
       ),
-    ],
-  });
+  ];
 }
 
 export function rosterFor(agent: Agent) {

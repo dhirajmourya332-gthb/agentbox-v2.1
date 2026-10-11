@@ -287,7 +287,7 @@ test("layers: only integrations that are mapped AND connected, with pointers, in
   // kubernetes is connected but mapped to nobody
   await I.refreshIntegrations(0);
   const ls = R.instructionLayers(coderTask);
-  assert.deepEqual(ls.map((l) => l.id), ["platform", "integrations", "team", "role", "work"]);
+  assert.deepEqual(ls.map((l) => l.id), ["platform", "integrations", "repos", "team", "role", "work"]);
   const integ = layer(coderTask, "integrations");
   assert.match(integ, /use `gh` for issues/);
   assert.ok(integ.includes(path.join(dirs.team, "integrations", "github.md")), "pointer to the detailed rules");
@@ -525,7 +525,7 @@ test("tools: list, status (posts a card), settings via the CLI, connect streams 
   const thread = A.dmThreadOf(setupTask.id)!;
   const tools = T.setupTools(setupTask, tid);
   assert.deepEqual(tools.map((t) => t.name).sort(),
-    ["add_steps", "connect", "disconnect", "integration_status", "list_integrations", "propose_mapping", "propose_team_rule", "read_terminal", "save_settings", "set_plan", "update_step", "verify"]);
+    ["add_repo", "add_steps", "complete_setup_request", "connect", "disconnect", "integration_status", "list_integrations", "list_repos", "list_setup_requests", "propose_mapping", "propose_team_rule", "read_terminal", "save_settings", "set_plan", "update_step", "verify"]);
 
   const l = await call(tools, "list_integrations", {});
   assert.match(l.content[0].text, /code-hosting:\n {2}- github: GitHub \[connected\]/);

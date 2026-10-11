@@ -7,6 +7,7 @@ import { paths } from "./config.ts";
 import { getAgent, listAgents, type Agent } from "./agents.ts";
 import { ID_RE, rolesFor, setIntegrationRoles } from "./integrations.ts";
 import { isSetupAgent } from "./setup.ts";
+import { addRepo, checkAccess, checkBranch, checkName, getRepo, listRepos, parseRepoUrl, resolveRoles as resolveRepoRoles, urlKey } from "./repos.ts";
 
 /**
  * Approval cards (docs/V2-ARCHITECTURE.md §10.4): the setup agent proposes a role mapping or a
@@ -15,7 +16,7 @@ import { isSetupAgent } from "./setup.ts";
  * from any other role are refused.
  */
 
-export type ApprovalKind = "mapping" | "team_rule";
+export type ApprovalKind = "mapping" | "team_rule" | "repo_add";
 export type Approval = {
   id: string; kind: ApprovalKind; status: "pending" | "approved" | "rejected" | "failed";
   proposed_by: string; task_id: string | null; thread_id: string | null;
@@ -24,7 +25,7 @@ export type Approval = {
 
 run(`CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,                -- mapping | team_rule
+  kind TEXT NOT NULL,                -- mapping | team_rule | repo_add
   status TEXT NOT NULL,              -- pending | approved | rejected | failed
   proposed_by TEXT NOT NULL,
   task_id TEXT,
@@ -46,7 +47,7 @@ export const listApprovals = (q: { threadId?: string; status?: string } = {}) =>
   ).map((r) => row(r)!);
 
 function mustSetup(agent: Agent) {
-  if (!isSetupAgent(agent)) throw new Error("Only the setup agent can propose integration mappings and team-rule changes.");
+  if (!isSetupAgent(agent)) throw new Error("Only the setup agent can propose integration mappings, team-rule changes and repos.");
 }
 
 function create(agent: Agent, taskId: string | null, kind: ApprovalKind, title: string, payload: unknown): Approval {
@@ -97,6 +98,29 @@ export function proposeMapping(agent: Agent, taskId: string | null, integrationI
   return create(agent, taskId, "mapping", `Which agents use ${title ?? integrationId}`, {
     integration_id: integrationId, integration_title: title ?? integrationId,
     roles: after, before, added: after.filter((r) => !before.includes(r)), removed: before.filter((r) => !after.includes(r)),
+  });
+}
+
+// --- repos ------------------------------------------------------------------------------------
+
+/**
+ * The setup agent proposes adding a repo; the owner's approval registers and clones it. The URL is
+ * validated (no credentials, https / ssh / git@ only) and reachable before the card is made.
+ */
+export async function proposeRepo(agent: Agent, taskId: string | null, input: { url: string; name?: string; default_branch?: string; roles?: string[]; description?: string }) {
+  mustSetup(agent);
+  const p = parseRepoUrl(input.url);
+  const name = checkName(input.name ? String(input.name).trim().toLowerCase() : p.name);
+  if (getRepo(name)) throw new Error(`A repo called "${name}" already exists; pick another name`);
+  const dup = listRepos({ archived: false }).find((r) => urlKey(r.url) === urlKey(p.url));
+  if (dup) throw new Error(`That repository is already added, as "${dup.name}"`);
+  const branch = input.default_branch ? checkBranch(input.default_branch) : null;
+  const roles = resolveRepoRoles(input.roles ?? []);
+  const access = await checkAccess(p.url);
+  if (!access.ok) throw new Error(`agentbox can't read ${p.url}: ${access.error}. Set up access first (the provider's login, or a deploy key), then propose it again.`);
+  return create(agent, taskId, "repo_add", `Add repo ${name}`, {
+    url: p.url, name, provider: p.provider, default_branch: branch ?? access.default_branch, roles,
+    role_names: roles.map((r) => getAgent(r)?.name ?? r), description: String(input.description ?? "").slice(0, 300),
   });
 }
 
@@ -182,6 +206,11 @@ export function approve(id: string): Approval {
   const a = getApproval(id);
   if (!a) throw Object.assign(new Error("No such approval"), { statusCode: 404 });
   if (a.status !== "pending") throw Object.assign(new Error(`Already ${a.status}`), { statusCode: 409 });
+  if (a.kind === "repo_add") {
+    const p = a.payload;
+    addRepo({ url: p.url, name: p.name, default_branch: p.default_branch ?? undefined, allowed_roles: (p.roles as string[]).filter((r) => getAgent(r)), description: p.description });
+    return decide(a, "approved");
+  }
   if (a.kind === "mapping") {
     const roles = (a.payload.roles as string[]).filter((r) => { const x = getAgent(r); return x && !x.base_agent_id && !x.retired_at; });
     setIntegrationRoles(a.payload.integration_id, roles);

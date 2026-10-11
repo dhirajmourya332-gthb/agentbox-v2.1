@@ -219,6 +219,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             {drafts.length > 0 && <span className="badge" title={`${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review`}>{drafts.length}</span>}
           </RailLink>
           <RailLink to={{ name: "integrations" }} current={route} icon={<Icon name="plug" />}>Integrations</RailLink>
+          <RailLink to={{ name: "repos" }} current={route} icon={<Icon name="repo" />}>Repos</RailLink>
           <RailLink to={{ name: "setup" }} current={route} icon={<Icon name="terminal" />}>Setup</RailLink>
         </div>
 

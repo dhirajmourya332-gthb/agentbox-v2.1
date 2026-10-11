@@ -1,7 +1,7 @@
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { api } from "../api.ts";
+import { api, type Repo } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
 import { Avatar, Icon } from "../components/ui.tsx";
@@ -15,6 +15,9 @@ export function NewTask({ roleId }: { roleId?: string }) {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [pickedRepos, setPickedRepos] = useState<string[]>([]);
+  useEffect(() => { api.repos().then((d) => setRepos(d.repos.filter((r) => r.status === "ready"))).catch(() => setRepos([])); }, []);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const att = useAttachments();
@@ -26,12 +29,15 @@ export function NewTask({ roleId }: { roleId?: string }) {
   useEffect(() => ref.current?.focus(), [picked]);
 
   const role = roles.find((r) => r.id === picked);
+  // Only repos the picked agent may use (allowed_roles empty = every agent); never for the setup agent.
+  const usable = role && !role.builtin ? repos.filter((r) => r.allowed_roles.length === 0 || r.allowed_roles.includes(role.id)) : [];
+  const chosenRepos = pickedRepos.filter((n) => usable.some((r) => r.name === n));
   async function start() {
     if (!role || (!text.trim() && !att.paths.length) || att.uploading) return;
     setBusy(true);
     setError(null);
     try {
-      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths);
+      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined);
       att.clear();
       // The setup agent works in its own workspace (chat, terminal and checklist on one screen).
       go(role.builtin === "setup" ? { name: "setup", id: inst.id } : { name: "agent", id: inst.id });
@@ -100,6 +106,19 @@ export function NewTask({ roleId }: { roleId?: string }) {
             ? "It opens in the Setup workspace: your terminal, the chat and a checklist on one screen. Never paste tokens or passwords here."
             : "Paste (⌘V), drop or attach screenshots; the agent can open them."}</span>
         </div>
+        {usable.length > 0 && (
+          <div className="field">
+            <span style={{ fontWeight: 500 }} id="nt-repos">Repos <span className="hint">(optional; each gets its own worktree and branch for this task)</span></span>
+            <div className="choices" role="group" aria-labelledby="nt-repos">
+              {usable.map((r) => (
+                <button key={r.id} className="pill" aria-pressed={chosenRepos.includes(r.name)} title={r.description || r.url}
+                  onClick={() => setPickedRepos(chosenRepos.includes(r.name) ? chosenRepos.filter((x) => x !== r.name) : [...chosenRepos, r.name])}>
+                  <Icon name="repo" size={12} /> {r.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="field">
           <label htmlFor="nt-title">Title <span className="hint">(optional; defaults to the first line)</span></label>
           <input id="nt-title" className="text" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="Partner API keys" />

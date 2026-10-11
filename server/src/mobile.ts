@@ -73,10 +73,12 @@ const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
   // threads/:id and threads/:id/messages. Creating, editing, deleting and continuing groups stay off.
   // Live progress and "needs you" (contract A, B). Routine runs, active and archive (contract G).
   ...["state", "work", `work/${ID}`, `work/${ID}/documents`, `threads/${ID}`, "tasks", "routines", `routines/${ID}`, "documents", "file", "control",
-    "groups", `groups/${ID}/documents`, "progress", "attention", "routine-runs", `routine-runs/${ID}`]
+    "groups", `groups/${ID}/documents`, "progress", "attention", "routine-runs", `routine-runs/${ID}`,
+    // Setup requests from agents: the card's status. ("Set up now" answers web_only: the terminal is on the web.)
+    "setup-requests", `setup-requests/${ID}`]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
   ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe", "voice/clean",
-    `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`]
+    `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`, `setup-requests/${ID}/start`, `setup-requests/${ID}/reject`]
     .map((p) => ({ method: "POST" as const, re: new RegExp(`^${p}$`) })),
 ];
 

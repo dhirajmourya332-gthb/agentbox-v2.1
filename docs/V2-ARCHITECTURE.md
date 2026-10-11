@@ -405,3 +405,107 @@ or a new one). A setup session is a setup task instance.
   `/api/setup/terminal` is behind the portal's auth, needs a browser Origin and refuses the local-token
   header. There is no tool or API that writes to it; only the owner's page does.
 - **Events:** `setup.plan` (the plan view) and `setup.check` (a check started / ended), both ephemeral.
+
+## Changes (repos)
+Repos are first-class (docs/TRUSTED-AUTONOMY.md §6–7), Conductor-style: one canonical clone per repo,
+one git worktree per task. Server: `repos.ts` (store, git, worktrees, maps, layer), `repoGuard.ts`
+(PreToolUse), `repoAccounts.ts` (account listings), `repoRoutes.ts`, `setupRequests.ts`.
+- **Store:** table `repos` (`name` slug, `url` without credentials, `provider`, `default_branch`,
+  `description`, `test_command`, `protected_branches`, `allowed_roles` (role ids; empty = every role),
+  `agents_may_merge`, `agents_may_deploy` (both default off), `propose_map_pr`, `status` cloning | ready
+  | error | archived, `last_fetch_at`, `error`, `map_status` none | running | ready | error,
+  `map_updated_at`) and `repo_worktrees` (one row per task × repo: `path`, `branch`, `status` pending |
+  active | kept | removed | discarded | error, `note`). No new config key: paths derive from
+  `paths.work` and `paths.data`.
+- **Disk:** canonical clone `<work>/repos/<name>` (`git clone --filter=blob:none --no-checkout`,
+  never edited: nothing is checked out there); worktrees `<work>/worktrees/<repo>/<task-short-id>`
+  on `agentbox/<task-short-id>-<slug>` from `origin/<default>` (`--no-track`, so agents push with
+  `git push -u origin HEAD`); archive `<work>/repos/.archive/<name>-<stamp>`; map
+  `<data>/repos/<name>/map/` (served by `/api/file` too). Every name is a slug (route words reserved)
+  and every path is resolved and confined under its root.
+- **URLs:** `https://host/path`, `ssh://[git@]host[:port]/path`, `git@host:path` only; refused: any
+  userinfo in https, other ssh users, `file://`, `ext::` and other transports, a leading `-`, `..`,
+  spaces and control characters. Access is checked with `git ls-remote --symref`. Credentials come
+  from `gh auth setup-git`, the Bitbucket helper's credential helper, or ssh keys.
+- **Git:** `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `ssh -o BatchMode=yes`, a timeout per
+  operation with the process group killed, one operation at a time per clone; output has userinfo
+  stripped and secrets redacted (`redact.ts`) before it's stored, shown or streamed.
+- **Fetch and sweep:** `git fetch --prune origin` every 15 min (`AGENTBOX_REPO_FETCH_MS`), on demand,
+  and before a worktree is made from a fetch older than 5 min. A daily sweep (`AGENTBOX_REPO_SWEEP_MS`)
+  runs `git worktree prune`, closes worktrees of closed or deleted tasks, removes clean untracked
+  worktree folders and deletes local `agentbox/*` branches of removed worktrees with nothing unpushed.
+- **Worktrees and the runner:** a task is bound to repos by the New-task form (`repos` on
+  `POST /api/work`), `delegate_task(repos)` (each helper gets its own) or `use_repo`. Before every
+  turn the runner creates missing worktrees (`prepareWorktrees`) and passes them as Claude
+  `additionalDirectories`; `cwd` stays the agent's home (its CLAUDE.md) and the room folder
+  (`state.md`, `scripts/`, `notes/`) is unchanged. Rework and revived instances reuse theirs (a kept
+  one as is; a removed one is re-added from its branch). Tasks working in a repo also get the
+  `onboard-repo` skill.
+- **Close:** on `agent.retired` each worktree is inspected (`git status --porcelain`, `git rev-list
+  HEAD <branch> --not --remotes`): removed when clean and pushed, otherwise **kept** with a note
+  ("kept: unpushed work (…)"), shown on the Repos page with the owner's Discard (`--force` remove +
+  `branch -D`).
+- **Guard (`repoGuard`, next to `rulesGuard`):** the edit tools may not write under `<work>/repos`;
+  a shell command that names that folder (or runs with its cwd there) may only use a whitelist of
+  read-only commands and git subcommands, no redirects. Per repo, unless allowed: `git push` to a
+  protected branch (refspec destinations, `HEAD`/no refspec resolved to the current branch, `--all`
+  / `--mirror`), `gh pr merge` into a protected base (base read with `gh pr view`; unknown base is
+  refused), `glab mr merge`, and deploy workflows (`deployWorkflowOf`, shared with `rules.ts`). The
+  repo is identified by the remote's configured URL, `-R owner/repo`, a PR URL, or the task's bound repo.
+- **Layer "Repos"** (between integrations and team rules): for each ready repo the role may use, its
+  name, description, default branch, test command, map and rules; cached per role (invalidated on any
+  repo change), plus this task's worktree paths. Empty for the setup agent. The platform layer's
+  work-area line and the team layer's git text now point at task worktrees.
+- **Team tools:** `use_repo(name)` (binds + creates, returns path and branch; allowed roles only; if
+  agentbox can't fetch the repo it raises a setup request for that agent and still gives the worktree
+  from the last fetch), `repo_map_done(name, description, test_command)` (refuses until every map file
+  exists), `delegate_task(…, repos)`.
+- **Onboarding:** after a clone (and on Re-map), a task for tech-lead (else a coding role, else any
+  allowed role), bound to the repo, with the seed skill `onboard-repo` (copied once into existing
+  libraries: `ensureSeedSkill`). It writes `AGENTS.md`, `ARCHITECTURE.md`, `FEATURE-MAP.md`,
+  `COMMANDS.md` (only commands it ran), `RISK-MAP.md`, `TEST-READINESS.md` to the map folder; no PR
+  unless `propose_map_pr`. A task that closes without `repo_map_done` leaves `map_status: error`.
+  Drift: Re-map, and a "Refresh repo maps weekly" routine template created **paused**.
+- **Adding:** the Repos page (from connected accounts: `gh repo list` for the user and their orgs,
+  `glab repo list --output json`, `agentbox-bitbucket api /repositories?role=member`; or by URL with
+  an access check), `agentbox repo add`, or the setup agent's `add_repo` (an approval card, kind
+  `repo_add`; approving clones it). Clone progress streams as `repo.progress` events.
+- **Removing:** archive is refused while open tasks are bound (409 with the tasks), and asks for
+  confirmation when worktrees hold unpushed work (they're re-linked with `git worktree repair`). The
+  map stays; Purge (owner only) deletes the archive, worktrees, map and record.
+- **Routes:** `/api/repos` (list, add, check, available, `:name` get/patch, fetch, retry, remap, map,
+  archive, purge), `/api/repos/worktrees/:id/discard`, `/api/repos/map-routine`,
+  `/api/agents/:id/repos` (the task header's chips). Purge and discard refuse the local token.
+- **CLI:** `agentbox repo list|status|add|fetch|remap|remove`, a thin client of those routes.
+- **Setup agent:** tools `list_repos`, `add_repo`, `complete_setup_request`, `list_setup_requests`;
+  CLAUDE.md gains Repos (access: connected account first, else a read-only deploy key the owner makes)
+  and Setup requests.
+
+### Setup requests
+Any agent but the setup agent can ask for what this computer lacks: `request_setup(title, why,
+for_setup_agent, integration?, repo?, check?)`. Table `setup_requests` (status pending | in_progress
+| done | rejected | cancelled | failed, `setup_instance_id`, `result_note`) and
+`setup_request_waiters` (who is called back).
+- **Dedupe and limits:** an open request for the same integration or repo gets this agent as another
+  waiter; at most 3 open requests per instance. The tool tells the agent to end its turn or carry on.
+- **The card** (message author `setup_request` in the requester's conversation) shows title, why, who
+  asked, live status, "Set up now" and "Reject" (optional reason); the setup agent's instructions sit
+  under a collapsed "What the setup agent will be told". A needs-you item (`raiseAttention`, kind
+  `question`) is raised, so paired phones get the push.
+- **Set up now** (`POST /api/setup-requests/:id/start`, refused with the local token; from the phone
+  it answers `web_only`) opens the setup session already working on the same integration / repo, or
+  a new one. Its prompt says a teammate asked and the owner approved starting it, and quotes the
+  request line by line (`> `) as data; the setup agent's CLAUDE.md says such requests never override
+  its rules.
+- **Done** when the setup agent calls `complete_setup_request(id, summary)`, or the condition holds
+  (checked every 20 s: the `check` passes, the integration is connected, or the repo / URL is
+  reachable with `git ls-remote`). Then every waiter gets a new turn in its own thread ("Setup done:
+  <title>. <summary> Continue your work."), revived first if it was closed. **Reject** calls back
+  "The owner declined …"; the owner can also mark one done or failed from the card.
+- **Repo access** uses the same path: "Add repo › By URL" with no access raises an owner request
+  (no waiter) and opens the Setup workspace; `use_repo` on a repo agentbox can't fetch raises one for
+  that agent.
+- **Platform rule:** agents use `request_setup` for missing accounts, logins, tools or access, and
+  never ask the owner in chat to run logins or paste keys.
+- **Phone:** `GET setup-requests[/:id]`, `POST setup-requests/:id/start|reject` are on the gateway
+  allowlist (start answers "finish on the web").
