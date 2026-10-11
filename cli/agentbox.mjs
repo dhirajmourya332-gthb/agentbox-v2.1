@@ -562,7 +562,8 @@ function applySettings(m, changes) {
   if (v.errors.length) fail(v.errors.map((e) => `${m.id}.${e.key}: ${e.error}`).join("\n"));
   const next = { ...saved };
   for (const [k, val] of Object.entries(changes)) {
-    if (val === null || (Array.isArray(v.values[k]) && !v.values[k].length) || v.values[k] === "") delete next[k];
+    // null / "" clear a setting (back to its default); a list given as [] is kept: an explicit "none".
+    if (val === null || v.values[k] === "") delete next[k];
     else next[k] = v.values[k];
   }
   // Drop keys the schema no longer knows.
@@ -717,7 +718,7 @@ async function integrationCmd(argv) {
       if (!m.settings.length) { console.log(`${id} has no settings.`); return 0; }
       for (const d of m.settings) {
         const has = d.key in v.values;
-        const shown = has ? (Array.isArray(v.values[d.key]) ? v.values[d.key].join(", ") : String(v.values[d.key])) : d.default !== undefined ? dim(`${Array.isArray(d.default) ? d.default.join(", ") : d.default} (default)`) : dim("(not set)");
+        const shown = has ? (Array.isArray(v.values[d.key]) ? (v.values[d.key].join(", ") || "(none)") : String(v.values[d.key])) : d.default !== undefined ? dim(`${Array.isArray(d.default) ? d.default.join(", ") : d.default} (default)`) : dim("(not set)");
         console.log(`  ${(d.required && !has ? red : (x) => x)(d.key.padEnd(22))} ${shown}  ${dim(d.prompt)}`);
       }
       if (v.missing.length) console.log(red(`missing: ${v.missing.join(", ")}`));

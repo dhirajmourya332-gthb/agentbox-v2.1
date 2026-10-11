@@ -230,7 +230,8 @@ export function parseAssignments(list) {
 }
 
 /**
- * The render context for an integration's templates: the defaults, then the saved values; plus,
+ * The render context for an integration's templates: the defaults, then the saved values (a list
+ * saved as empty stays empty: "none", e.g. no writable namespaces, isn't "use the default"); plus,
  * for every enum setting, `<key>_<option>: true` for the chosen option (so a template can say
  * {{#provider_eks}}…{{/provider_eks}}), for every list setting `has_<key>` (non-empty?), plus
  * `paths` and `user` from the config.
@@ -239,7 +240,8 @@ export function renderContext(schema, saved, conf = {}) {
   const ctx = {};
   for (const d of schema) {
     const v = saved?.[d.key];
-    ctx[d.key] = empty(v) ? (d.default ?? (d.type === "list" ? [] : d.type === "boolean" ? false : "")) : v;
+    const explicitNone = d.type === "list" && Array.isArray(v) && v.length === 0;
+    ctx[d.key] = explicitNone ? [] : empty(v) ? (d.default ?? (d.type === "list" ? [] : d.type === "boolean" ? false : "")) : v;
     if (d.type === "enum" && ctx[d.key]) ctx[`${d.key}_${String(ctx[d.key]).replace(/-/g, "_")}`] = true;
     // A section over a list repeats once per item; has_<key> is the plain "is it non-empty?".
     if (d.type === "list") ctx[`has_${d.key}`] = ctx[d.key].length > 0;
