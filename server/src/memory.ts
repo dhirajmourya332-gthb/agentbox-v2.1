@@ -755,6 +755,8 @@ export function startMemory(opts: { log?: (m: string) => void } = {}) {
   fs.mkdirSync(draftsRoot(), { recursive: true });
   const ms = Number(process.env.AGENTBOX_MEMORY_MS ?? 10 * 60_000);
   const tick = () => void memoryTick().then((r) => { if (Object.keys(r.scans).length) log(`memory: ${JSON.stringify(r.scans)}`); }).catch(() => {});
+  // Trees from before the history existed (or edited outside the tools): their current state is the starting point.
+  void (async () => { for (const r of listRepos({ archived: false })) await withLock(r.id, () => record(r, "agentbox: history starts")).catch(() => {}); })();
   if (timer) clearInterval(timer);
   timer = setInterval(tick, ms);
   // A task closed: its drafts are checked soon (after its worktree closes), not at the next pass.
