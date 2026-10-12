@@ -1,3 +1,4 @@
+import { memoryOf } from "./memory.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { LOCAL_TOKEN_HEADER } from "./access.ts";
 import { GATEWAY_HEADER } from "./mobile.ts";
@@ -40,7 +41,7 @@ export const MAP_ROUTINE_NAME = "Refresh repo maps weekly";
 export function registerRepoRoutes(app: FastifyInstance) {
   app.get("/api/repos", async () => {
     const routine = listRoutines().find((r) => r.name === MAP_ROUTINE_NAME);
-    return { repos: listRepos().map(repoView), map_routine: routine ? { id: routine.id, enabled: routine.enabled } : null };
+    return { repos: listRepos().map((r) => ({ ...repoView(r), memory: r.status === "archived" ? null : memoryOf(r) })), map_routine: routine ? { id: routine.id, enabled: routine.enabled } : null };
   });
   app.get("/api/repos/available", async (req) => wrap(() => accountRepos({ refresh: (req.query as any)?.refresh === "1" })));
   app.post("/api/repos/check", async (req) => wrap(async () => {

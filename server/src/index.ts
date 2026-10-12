@@ -44,6 +44,7 @@ import { registerRepoRoutes } from "./repoRoutes.ts";
 import { registerReviewRoutes } from "./reviewRoutes.ts";
 import { registerPdfRoutes } from "./pdf.ts";
 import { registerWakeupRoutes, startWakeups } from "./wakeups.ts";
+import { registerMemoryRoutes, startMemory } from "./memory.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
@@ -528,6 +529,7 @@ registerRepoRoutes(app);
 registerReviewRoutes(app);
 registerPdfRoutes(app);
 registerWakeupRoutes(app);
+registerMemoryRoutes(app);
 
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 // Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.
@@ -561,6 +563,7 @@ app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });
 startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish
 routeHelperPlans(); // helper plans that waited on the owner go to their lead
 startWakeups(); // agents' one-time wake-ups (overdue ones fire now)
+startMemory({ log: (m) => app.log.info(m) }); // repo memory: stale marks when main moves, drafts folded in on merge
 // Push notifications to paired phones (push.ts); wired to "needs you" items below.
 if (PUSH) startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });
 startProgress();

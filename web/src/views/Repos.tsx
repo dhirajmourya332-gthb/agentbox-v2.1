@@ -17,7 +17,7 @@ export function useRepos() {
   const timer = useRef<number | null>(null);
   useEffect(() => { load(); }, []);
   useEffect(() => onEvent((e) => {
-    if (e.type === "repo.updated" || e.type === "agent.retired" || e.type === "agent.created") {
+    if (e.type === "repo.updated" || e.type === "memory.updated" || e.type === "agent.retired" || e.type === "agent.created") {
       if (timer.current) clearTimeout(timer.current);
       timer.current = window.setTimeout(load, 250);
     }
@@ -137,6 +137,22 @@ function RepoCard({ repo: r, onChange, open }: { repo: Repo; onChange: () => voi
           {r.map_status === "ready" && r.map_updated_at && <span className="hint"> · {relTime(r.map_updated_at)}</span>}
           {r.map_status === "running" && r.map_task_id && <> · <a href={`#/agents/${r.map_task_id}`}>open the task</a></>}
         </dd>
+        {r.memory && (
+          <>
+            <dt>Memory</dt>
+            <dd>
+              {r.memory.notes
+                ? <a href={fileUrl(r.memory.index ?? r.memory.dir)} data-file-path={r.memory.index ?? undefined}>{r.memory.notes} note{r.memory.notes === 1 ? "" : "s"}</a>
+                : <span className="hint">none yet</span>}
+              {r.memory.stale > 0 && <span className="hint"> · {r.memory.stale} may be stale (re-checked when an agent needs them)</span>}
+              {r.memory.drafts.length > 0 && (
+                <span className="hint"> · {r.memory.drafts.map((d, i) => (
+                  <span key={d.id}>{i ? ", " : ""}<a href={`#/agents/${d.instance_id}`}>{d.agent_name ?? "a task"}</a>{d.status === "promoting" ? " folding in its notes" : ` has ${d.notes} draft note${d.notes === 1 ? "" : "s"}${d.note ? ` (${d.note})` : " waiting for its PR to merge"}`}</span>
+                ))}</span>
+              )}
+            </dd>
+          </>
+        )}
         <dt>Used by</dt><dd>{roleNames.length ? roleNames.join(", ") : "every agent"}</dd>
         {r.test_command && <><dt>Tests</dt><dd><code>{r.test_command}</code></dd></>}
         <dt>Rules</dt>

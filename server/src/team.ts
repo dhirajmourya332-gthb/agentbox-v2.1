@@ -11,6 +11,7 @@ import { leadFor as delegatorOf, raiseAttention } from "./attention.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
+import { deleteNote, finishPromotion, moveNote, writeNote } from "./memory.ts";
 import { isSetupAgent } from "./setup.ts";
 import { isOrchestrator } from "./roleGuards.ts";
 import { roadmapsOf } from "./roadmaps.ts";
@@ -497,6 +498,47 @@ export function teamTools(agent: Agent, taskId: string) {
           } catch (e: any) {
             return refuse(e.message);
           }
+        },
+      ),
+
+      tool(
+        "memory_write",
+        "Write a note in a repo's memory tree (the Repo memory section of your instructions). Updating a note: read it first and pass the rev from its header (refused if someone changed it since; read again and merge). New notes are added only while you fold in merged work; before that, write them to your task's draft folder. Frontmatter `anchors:` lists the code the note describes (path or path#symbol on the default branch); agentbox hashes them and clears `stale:`.",
+        {
+          repo: z.string().describe("The repo's name"),
+          path: z.string().describe("Path inside the repo's memory, e.g. portal-b/auth.md or portal-b/INDEX.md (you choose the layout)"),
+          content: z.string().describe("The whole note: optional frontmatter (anchors: [...]) and markdown"),
+          rev: z.number().optional().describe("The note's current rev (from its header) when it exists"),
+        },
+        async (args) => {
+          try { return text(await writeNote(agent, args)); } catch (e: any) { return refuse(e.message); }
+        },
+      ),
+
+      tool(
+        "memory_move",
+        "Move or rename a note or a folder in a repo's memory tree (to reorganise it). Update the INDEX.md files that list it.",
+        { repo: z.string(), from: z.string(), to: z.string() },
+        async (args) => {
+          try { return text(await moveNote(agent, args)); } catch (e: any) { return refuse(e.message); }
+        },
+      ),
+
+      tool(
+        "memory_delete",
+        "Delete a note or a folder from a repo's memory tree (wrong, obsolete, or merged into another note). Update the INDEX.md that listed it.",
+        { repo: z.string(), path: z.string() },
+        async (args) => {
+          try { return text(await deleteNote(agent, args)); } catch (e: any) { return refuse(e.message); }
+        },
+      ),
+
+      tool(
+        "memory_promoted",
+        "After your PR merged: say you've folded this task's draft notes into the repo's memory (or that nothing was worth keeping). Removes the drafts.",
+        { repo: z.string() },
+        async ({ repo }) => {
+          try { return text(finishPromotion(agent, repo)); } catch (e: any) { return refuse(e.message); }
         },
       ),
 

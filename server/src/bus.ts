@@ -37,6 +37,7 @@ export type BusEvent =
   | { type: "setup.check"; instanceId: string; stepId: string; running: boolean; at: string; ok?: boolean } // a step's check started / ended
   | { type: "repo.updated"; repoId: string | null } // repos.ts: a repo, its clone, map or worktrees changed: refetch
   | { type: "repo.progress"; repoId: string; line: string } // a clone's progress line
+  | { type: "memory.updated"; repo?: string; draft?: any } // memory.ts: a repo's memory tree or a task's draft changed
   | { type: "setup_request.updated"; request: any } // setupRequests.ts: a request was raised, started, finished or declined
   | { type: "plan.updated"; plan: any } // plans.ts: a plan was submitted, decided or replaced
   | { type: "plan_gate.updated"; rootId: string; required: boolean } // plans.ts: a task's "approve a plan first" changed

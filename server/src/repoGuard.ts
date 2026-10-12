@@ -6,12 +6,14 @@ import type { Agent } from "./agents.ts";
 import { deployWorkflowOf } from "./rules.ts";
 import { isOrchestrator } from "./roleGuards.ts";
 import { getRepoById, git, listRepos, reposRoot, urlKey, worktreesFor, type Repo } from "./repos.ts";
+import { memoryRoot } from "./memory.ts";
 
 /**
  * The repos' PreToolUse rules (docs/V2-ARCHITECTURE.md, Changes (repos)), in the style of rulesGuard:
  * - the canonical clones (<paths.work>/repos/…) are read-only: the edit tools may not write there, and
  *   shell commands that touch them may only read (a whitelist of read-only commands and git
- *   subcommands);
+ *   subcommands); the same for the repos' memory trees (<paths.work>/memory/…), which change only
+ *   through the memory_* tools (memory.ts);
  * - pushes to a repo's protected branches and merges of PRs into them are refused unless the repo
  *   allows agents to merge; deploy workflows are refused unless it allows agents to deploy.
  */
@@ -87,9 +89,8 @@ export function readOnlyCommand(command: string): boolean {
   });
 }
 
-/** Does a shell command (or its working directory) reach into the canonical clones? */
-export function touchesCanonical(command: string, cwd: string | undefined): boolean {
-  const root = reposRoot();
+/** Does a shell command (or its working directory) reach into the canonical clones (or another root)? */
+export function touchesCanonical(command: string, cwd: string | undefined, root = reposRoot()): boolean {
   if (cwd && under(path.resolve(cwd), root)) return true;
   return new RegExp(`(^|[\\s'"=:(;&|])${escape(root)}(/|$|[\\s'";)|&])`).test(command);
 }
@@ -97,6 +98,9 @@ export function touchesCanonical(command: string, cwd: string | undefined): bool
 const CANON_MSG = (wt: string[]) =>
   `The canonical clones in ${reposRoot()}/ are read-only (agentbox keeps them fetched; every task works in its own worktree). ` +
   (wt.length ? `Work in your worktree: ${wt.join(", ")}.` : "Call mcp__team__use_repo(name) to get your worktree, then work there.");
+
+const MEMORY_MSG = `Repo memory (${memoryRoot()}/) changes only through mcp__team__memory_write, memory_move and memory_delete ` +
+  "(an existing note needs the rev from its header). Notes about work that hasn't merged yet go to your task's draft folder.";
 
 // --- protected branches and deploys ---------------------------------------------------------------
 
@@ -184,12 +188,14 @@ export async function repoViolation(agent: Agent, tool: string, input: any, cwd?
     const f = String(input?.file_path ?? input?.notebook_path ?? "");
     if (!f) return null;
     const abs = realish(path.resolve(cwd ?? "/", f));
+    if (under(abs, realish(memoryRoot())) || under(path.resolve(cwd ?? "/", f), memoryRoot())) return MEMORY_MSG;
     const root = realish(reposRoot());
     return under(abs, root) || under(path.resolve(cwd ?? "/", f), reposRoot()) ? CANON_MSG(myWorktrees) : null;
   }
   if (tool !== "Bash") return null;
   const command = String(input?.command ?? "");
   if (touchesCanonical(command, cwd) && !readOnlyCommand(command)) return CANON_MSG(myWorktrees);
+  if (touchesCanonical(command, cwd, memoryRoot()) && !readOnlyCommand(command)) return MEMORY_MSG;
 
   // Walk the command, following `cd`, for pushes, merges and deploys.
   let dir = cwd;

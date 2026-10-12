@@ -20,6 +20,7 @@ import { setupServer } from "./setupTools.ts";
 import { grantSetupSudo, releaseSetupSudo, sudoActive } from "./sudo.ts";
 import { prepareWorktrees, reposLayer, setSender, worktreeDirs, worktreesFor } from "./repos.ts";
 import { repoGuard } from "./repoGuard.ts";
+import { memoryLayer } from "./memory.ts";
 import { planGuard, planNote } from "./plans.ts";
 import { roadmapNote } from "./roadmaps.ts";
 import { integrationGuard, orchestratorGuard } from "./roleGuards.ts";
@@ -238,7 +239,7 @@ export function instructionLayers(agent: Agent, sudo?: SudoGrant, repoProblems: 
   return [
     { id: "platform", text: platformLayer(agent, sudo) },
     { id: "integrations", text: integrationsLayer(agent) },
-    { id: "repos", text: `${reposLayer(agent)}${repoNote}`.trim() },
+    { id: "repos", text: [`${reposLayer(agent)}${repoNote}`.trim(), memoryLayer(agent)].filter(Boolean).join("\n\n") },
     { id: "team", text: teamLayer() },
     { id: "role", text: roleLayer(agent) },
     { id: "work", text: [`${workNote(agent)}${rulesNote(agent)}`.trim(), planNote(agent), roadmapNote(agent)].filter(Boolean).join("\n\n") },

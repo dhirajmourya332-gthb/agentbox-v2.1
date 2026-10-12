@@ -252,6 +252,8 @@ export type Repo = {
   map_status: "none" | "running" | "ready" | "error"; map_updated_at: string | null; map_task_id: string | null; map_error: string | null;
   archive_path: string | null; archived_at: string | null; created_at: string;
   path: string | null; map_dir: string; map_files: { file: string; path: string; exists: boolean; size: number; modified: string | null }[];
+  /** Repo memory (agent-owned notes): count, stale ones, task drafts waiting for their PR to merge. */
+  memory?: { dir: string; index: string | null; notes: number; stale: number; scanned_at: string | null; drafts: { id: string; agent_name: string | null; instance_id: string; status: "open" | "promoting"; notes: number; note: string | null; pr_number: number | null }[] } | null;
   job: { running: boolean; started_at: string; ended_at: string | null; last_output_at: string; ok: boolean | null; lines: { line: string; at: string }[] } | null;
   worktrees: RepoWorktree[]; users: { id: string; name: string; label: string | null }[];
 };
