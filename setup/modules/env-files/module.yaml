@@ -2,12 +2,12 @@ id: env-files
 kind: integration
 category: extras
 title: Environment files
-description: Per-repo .env files for agents, kept in <secrets>/<repo>/ (0600), never in the repos
+description: Per-repo .env files for agents, kept in <secrets>/<repo>/ (mirroring the repo's folders, 0600), never in the repos
 optional: true
 depends: [core]
 instructions:
   summary: |
-    Environment files: each repo's `.env` lives in {{paths.secrets}}/<repo>/.env; symlink it into your worktree, never print or commit it.
+    Environment files: each repo's env files live in {{paths.secrets}}/<repo>/ (same folders as the repo, e.g. frontend/.env.local); symlink the ones you need into your worktree, never print or commit them.
     Rules: /team/integrations/env-files.md
   file: instructions.md
 skills: []
@@ -24,7 +24,7 @@ steps:
       or paste it: `agentbox secret set <repo>/.env`, paste, then Ctrl-D.
       Agents symlink or copy them into their worktrees; they never commit them.
     copy: "agentbox secret set example-repo/.env"
-    check: "find \"$(agentbox config get paths.secrets)\" -mindepth 2 -name '*.env' -type f | grep -q ."
+    check: "find \"$(agentbox config get paths.secrets)\" -mindepth 2 \\( -name '*.env' -o -name '.env.*' \\) -type f | grep -q ."
   - id: verify
     title: Files present and private (0600)
     run: verify.sh
