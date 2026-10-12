@@ -261,6 +261,79 @@ test("plan gate: edits in worktrees and commits wait for an approved plan; the w
 });
 
 // --- diff review ---------------------------------------------------------------------------------------
+test("helper plans go to the lead that delegated, never to the owner; the lead decides with decide_plan", async () => {
+  const lead = mk("tech-lead");
+  run(`UPDATE agents SET can_scale = 1 WHERE id = ?`, lead.id);
+  const root = task(lead.id, "Subdomain validation");
+  P.setGate(root.id, true);
+  const helper = A.spawnInstance(coder.id, { label: "Fix #5383", createdBy: root.id, parentInstanceId: root.id });
+  assert.equal(P.leadOf(helper)?.id, root.id);
+  assert.equal(P.leadOf(root), null, "the work's lead answers to the owner");
+  // The helper's turn is a delegation from the lead: its reply reaches the lead as a report, so no extra notice.
+  const hTask = newId();
+  run(`INSERT INTO tasks (id, agent_id, thread_id, source, title, prompt, status, created_at, from_agent_id) VALUES (?, ?, ?, 'agent', 't', 'p', 'running', ?, ?)`,
+    hTask, helper.id, A.dmThreadOf(helper.id), now(), root.id);
+  const before = queued(root.id).length;
+  const r = await call(TM.teamTools(helper, hTask), "submit_plan", LOGGER);
+  assert.ok(!r.isError, r.content[0].text);
+  assert.match(r.content[0].text, /with tech-lead.* to decide, not the owner/);
+  const hp = P.plansOf(root.id).find((x) => x.instance_id === helper.id)!;
+  assert.equal(hp.status, "pending");
+  assert.equal(hp.reviewer_id, root.id);
+  assert.equal(hp.attention_id, null, "no needs-you item for the owner");
+  assert.equal(queued(root.id).length, before, "the report carries it");
+  assert.match(P.planNote(root), /## Plans for you to decide[\s\S]*decide_plan[\s\S]*Add a logger service[\s\S]*fold theirs into yours/);
+  assert.match(P.planNote(helper), /Your plan goes to tech-lead/);
+
+  // The work is "plan first" and the lead's own plan isn't approved: it can't wave the helper through.
+  const leadTools = TM.teamTools(root, fakeTask(root.id));
+  let d = await call(leadTools, "decide_plan", { verdict: "approve" });
+  assert.ok(d.isError);
+  assert.match(d.content[0].text, /Fold this helper's plan into your own/);
+  // The lead's own plan goes to the owner and doesn't replace the helper's.
+  await call(leadTools, "submit_plan", { ...LOGGER, title: "Validate root domains" });
+  const lp = P.plansOf(root.id).find((x) => x.instance_id === root.id)!;
+  assert.equal(lp.reviewer_id, null);
+  assert.equal(P.getPlan(hp.id)!.status, "pending", "still open");
+  P.decidePlan(lp.id, "approve", "");
+  assert.ok(!P.planBlocks(helper), "the owner's approval of the work's plan clears its helpers");
+
+  // Someone else can't decide it; the lead can.
+  const other = task(coder.id, "Other work");
+  assert.throws(() => P.decidePlan(hp.id, "approve", "", { by: other }), /isn't yours to decide/);
+  d = await call(leadTools, "decide_plan", { plan_id: hp.id, verdict: "changes", note: "Reuse the existing domain check" });
+  assert.ok(!d.isError, d.content[0].text);
+  const back = queued(helper.id).at(-1);
+  assert.equal(back.source, "agent");
+  assert.equal(back.from_agent_id, root.id, "the helper's next reply goes back to the lead");
+  assert.match(back.prompt, /tech-lead#\d+ asks for changes.*Reuse the existing domain check/s);
+
+  // On a work without the gate, a helper's plan is just shared with its lead.
+  const free = task(lead.id, "Free work");
+  const h2 = A.spawnInstance(coder.id, { label: "Helper", createdBy: free.id, parentInstanceId: free.id });
+  await call(TM.teamTools(h2, fakeTask(h2.id)), "submit_plan", LOGGER);
+  const sp = P.plansOf(free.id)[0];
+  assert.equal(sp.status, "shared");
+  assert.equal(sp.reviewer_id, free.id);
+});
+
+test("helper plans that were waiting on the owner are routed to their lead at startup", async () => {
+  const lead = mk("lead-two");
+  const root = task(lead.id, "Old work");
+  P.setGate(root.id, true);
+  const helper = A.spawnInstance(coder.id, { label: "Old helper", createdBy: root.id, parentInstanceId: root.id });
+  await call(TM.teamTools(helper, fakeTask(helper.id)), "submit_plan", LOGGER);
+  const p = P.plansOf(root.id)[0];
+  // As stored before this change: the owner's, with a needs-you item.
+  const { raiseAttention } = await import("../src/attention.ts");
+  const item = raiseAttention("question", helper.id, null, root.id, "old plan for you");
+  run(`UPDATE plans SET reviewer_id = NULL, attention_id = ? WHERE id = ?`, item.id, p.id);
+  P.routeHelperPlans();
+  assert.equal(P.getPlan(p.id)!.reviewer_id, root.id);
+  assert.ok(get<any>(`SELECT seen_at FROM attention WHERE id = ?`, item.id).seen_at);
+  assert.match(queued(root.id).at(-1).prompt, /sent you a plan to decide.*decide_plan/s);
+});
+
 test("changes: committed, uncommitted, deleted and new files against the branch point, with line numbers", async () => {
   const url = makeRemote("diffy");
   R.addRepo({ url } as any, { onboard: () => {} });

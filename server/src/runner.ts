@@ -311,6 +311,8 @@ Hand work to teammates with the team tools, never with Teams, email or GitHub co
   comes back to you automatically as a new message, often minutes later. Don't wait, sleep or
   poll for it: finish your turn and say what you handed off.
 - \`mcp__team__retire_instance\`: close a task you started once its report is in.
+- \`mcp__team__decide_plan\`: decide a plan an agent you delegated to sent you (approve / changes / reject). It's
+  your call, not the owner's; only the work's own plan, on a "plan first" work, goes to the owner.
 - \`mcp__team__get_task\`: check a delegated task. \`mcp__team__find_work\`: who's on issue #N / a
   branch. \`mcp__team__list_agents\`: each agent's live tasks (pool="coder" for one agent).
 - \`mcp__team__send_message\`: an FYI to a live instance that needs no action.
@@ -417,6 +419,7 @@ function classify(name: string, input: any): { kind: string; label: string; summ
   if (name === "mcp__team__use_repo") return { kind: "meta", label: "Repo", summary: str(input?.name) };
   if (name === "mcp__team__request_setup") return { kind: "meta", label: "Setup request", summary: str(input?.title) };
   if (name === "mcp__team__submit_plan") return { kind: "meta", label: "Plan", summary: str(input?.title) };
+  if (name === "mcp__team__decide_plan") return { kind: "meta", label: "Plan decision", summary: str(input?.verdict) };
   if (name === "mcp__team__roadmap_create") return { kind: "meta", label: "Roadmap", summary: str(input?.title) };
   if (name === "mcp__team__roadmap_update") return { kind: "meta", label: "Roadmap update", summary: (input?.items ?? []).map((i: any) => `${i?.id}${i?.status ? ` → ${i.status}` : ""}`).join(", ").slice(0, 120) };
   return { kind: "tool", label: name, summary: first(JSON.stringify(input ?? {})) };

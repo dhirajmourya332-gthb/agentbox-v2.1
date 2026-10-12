@@ -13,7 +13,7 @@ import { isSetupAgent } from "./setup.ts";
 import { isOrchestrator } from "./roleGuards.ts";
 import { roadmapsOf } from "./roadmaps.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
-import { LIMITS as PLAN_LIMITS, submitPlan } from "./plans.ts";
+import { LIMITS as PLAN_LIMITS, decidePlan, getPlan, plansFor, submitPlan, type Decision } from "./plans.ts";
 import { LIMITS as RM_LIMITS, STATUSES as RM_STATUSES, createRoadmap, itemsOf as roadmapItems, updateRoadmap } from "./roadmaps.ts";
 
 /**
@@ -493,11 +493,42 @@ export function teamTools(agent: Agent, taskId: string) {
         async (args) => {
           try {
             const p = submitPlan(agent, taskId, args);
+            const lead = p.reviewer_id ? getAgent(p.reviewer_id) : null;
+            if (lead) {
+              return text(p.status === "pending"
+                ? `Plan "${p.title}" (v${p.version}) is with ${lead.name} (who delegated this to you) to decide, not the owner. End your turn now with a short summary of the plan; you'll get a message with ${lead.name}'s decision.`
+                : `Plan "${p.title}" (v${p.version}) is shared with ${lead.name}. Carry on with the work now; don't wait for a reply.`);
+            }
             return text(p.status === "pending"
               ? `Plan "${p.title}" (v${p.version}) is with the owner for approval (this work is "plan first"). End your turn now; you'll get a message with their decision.`
               : `Plan "${p.title}" (v${p.version}) is shared with the owner. Carry on with the work now; don't wait for a reply. If the owner wants a different direction, you'll get a message.`);
           } catch (e: any) {
             return refuse(`Plan not submitted: ${e.message}`);
+          }
+        },
+      ),
+      tool(
+        "decide_plan",
+        "Decide a plan that an agent you delegated to sent you (they wait for you, not the owner). approve: they go ahead. changes: they revise it (say what to change). reject: they stop that approach. Judge it against the work's goal and prefer the simplest solution. Leave plan_id out when only one waits for you.",
+        {
+          plan_id: z.string().optional().describe("The plan's id (from the notice or your instructions)"),
+          verdict: z.enum(["approve", "changes", "reject"]),
+          note: z.string().optional().describe("For changes: what to change. Otherwise optional guidance."),
+        },
+        async ({ plan_id, verdict, note }) => {
+          const waiting = plansFor(agent.id);
+          const p = plan_id ? getPlan(plan_id) : waiting.length === 1 ? waiting[0] : null;
+          if (!p) {
+            return refuse(waiting.length
+              ? `Several plans wait for you; pass plan_id: ${waiting.map((w) => `${w.id} ("${w.title}" from ${getAgent(w.instance_id)?.name ?? "?"})`).join(", ")}`
+              : "No plan waits for your decision.");
+          }
+          try {
+            const d = decidePlan(p.id, verdict as Decision, note ?? "", { by: agent, byTaskId: taskId });
+            const who = getAgent(d.instance_id)?.name ?? "The agent";
+            return text(`${verdict === "approve" ? "Approved" : verdict === "changes" ? "Sent back for changes" : "Rejected"}: "${d.title}". ${who} gets your decision now${verdict === "approve" ? " and goes ahead" : ""}; their reply comes back to you as a report.`);
+          } catch (e: any) {
+            return refuse(e.message);
           }
         },
       ),

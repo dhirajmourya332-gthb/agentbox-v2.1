@@ -272,6 +272,8 @@ export type Plan = {
   version: number; status: "shared" | "pending" | "approved" | "changes" | "rejected" | "superseded"; title: string;
   body: { title: string; summary: string; diagram: { before: PlanGraph; after: PlanGraph }; changes: string[]; checks: string[]; risks: string[]; details: string };
   feedback: string | null; created_at: string; decided_at: string | null;
+  /** Who decides: null = the owner; otherwise the lead that delegated to this agent. */
+  reviewer_id: string | null; reviewer_name: string | null;
 };
 export type PlanGate = { required: boolean; approved: { id: string; version: number; title: string } | null };
 /** server/src/roadmaps.ts › roadmapView (docs/V2.1-PLAN.md §3). */

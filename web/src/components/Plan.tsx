@@ -23,6 +23,7 @@ export function PlanCard({ id }: { id: string }) {
   const [mode, setMode] = useState<null | "approve" | "changes" | "reject">(null);
   const [note, setNote] = useState("");
   const [open, setOpen] = useState(true);
+  const [showOwner, setShowOwner] = useState(false);
   useEffect(() => { api.plan(id).then(setP).catch((e) => setError(e.message)); }, [id]);
   useEffect(() => onEvent((e) => { if (e.type === "plan.updated" && e.plan?.id === id) setP(e.plan); }), [id, onEvent]);
   useEffect(() => { if (p && p.status === "superseded") setOpen(false); }, [p?.status]);
@@ -35,10 +36,13 @@ export function PlanCard({ id }: { id: string }) {
   };
   const shared = p.status === "shared";
   const pending = p.status === "pending" || shared;
+  // A helper's plan: its lead decides; the owner may step in but isn't asked.
+  const lead = !!p.reviewer_id;
+  const stepIn = showOwner || mode !== null;
   return (
     <div className={`approval-card plan-card pl-${p.status}`} aria-label={`Plan: ${p.title}`}>
       <div className="approval-head">
-        <span className="approval-kicker">{STATUS[p.status]}{p.version > 1 ? ` · v${p.version}` : ""}</span>
+        <span className="approval-kicker">{lead && p.status === "pending" ? `Plan · ${p.reviewer_name ?? "its lead"} decides` : STATUS[p.status]}{p.version > 1 ? ` · v${p.version}` : ""}</span>
         <button className="plan-title" onClick={() => setOpen(!open)} aria-expanded={open}>
           <strong>{b.title}</strong>
           {!open && <Icon name="chevron" size={12} />}
@@ -62,9 +66,15 @@ export function PlanCard({ id }: { id: string }) {
           )}
         </>
       )}
-      {p.feedback && !pending && <p className="hint">{p.status === "approved" ? "Your note" : "Your feedback"}: {p.feedback}</p>}
+      {p.feedback && !pending && <p className="hint">{p.status === "approved" ? "Note" : "Feedback"}{lead ? ` from ${p.reviewer_name ?? "its lead"}` : ""}: {p.feedback}</p>}
+      {lead && pending && !stepIn && (
+        <div className="approval-actions">
+          <span className="hint">{p.reviewer_name ?? "Its lead"} decides this one; nothing waits on you.</span>
+          <button className="btn sm ghost" onClick={() => setShowOwner(true)}>Step in…</button>
+        </div>
+      )}
       {error && <div className="error-box">{error}</div>}
-      {shared && !mode && (
+      {shared && !mode && (!lead || stepIn) && (
         <div className="approval-actions">
           <button className="btn sm" disabled={busy} onClick={() => decide("approve")}><Icon name="check" size={14} />Looks good</button>
           <button className="btn sm ghost" disabled={busy} onClick={() => setMode("changes")}>Redirect…</button>
@@ -72,7 +82,7 @@ export function PlanCard({ id }: { id: string }) {
           <span className="hint">Nothing waits on you; use these only to change course.</span>
         </div>
       )}
-      {pending && !shared && !mode && (
+      {pending && !shared && !mode && (!lead || stepIn) && (
         <div className="approval-actions">
           <button className="btn sm primary" disabled={busy} onClick={() => decide("approve")}><Icon name="check" size={14} />Approve</button>
           <button className="btn sm" disabled={busy} onClick={() => setMode("changes")}>Request changes</button>
@@ -110,7 +120,7 @@ export function PlanChip({ instanceId }: { instanceId: string }) {
   const [s, setS] = useState<{ gate: PlanGate; pending: Plan | null } | null>(null);
   useEffect(() => {
     let alive = true;
-    const load = () => api.taskPlans(instanceId).then((r) => alive && setS({ gate: r.gate, pending: r.plans.find((p) => p.status === "pending") ?? null })).catch(() => {});
+    const load = () => api.taskPlans(instanceId).then((r) => alive && setS({ gate: r.gate, pending: r.plans.find((p) => p.status === "pending" && !p.reviewer_id) ?? null })).catch(() => {});
     load();
     const off = onEvent((e) => { if (e.type === "plan.updated" || e.type === "plan_gate.updated") load(); });
     return () => { alive = false; off(); };
@@ -118,6 +128,7 @@ export function PlanChip({ instanceId }: { instanceId: string }) {
   if (!s) return null;
   const { gate, pending } = s;
   if (pending) return <span className="chip warn" title={pending.title}><Icon name="flow" size={13} />Plan waiting for you</span>;
+  // (helper plans wait for their lead, not for you: they don't count here)
   if (gate.approved) return <span className="chip ok" title={gate.approved.title}><Icon name="flow" size={13} />Plan approved{gate.approved.version > 1 ? ` (v${gate.approved.version})` : ""}</span>;
   if (gate.required) return <span className="chip" title="Edits and commits are held until you approve a plan"><Icon name="flow" size={13} />Plan first</span>;
   return null;

@@ -43,7 +43,7 @@ import { registerSetupRoutes, startSetupWorkspace } from "./setupRoutes.ts";
 import { registerRepoRoutes } from "./repoRoutes.ts";
 import { registerReviewRoutes } from "./reviewRoutes.ts";
 import { registerPdfRoutes } from "./pdf.ts";
-import { setGate } from "./plans.ts";
+import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
 
@@ -557,6 +557,7 @@ const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, da
 const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true
 app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });
 startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish
+routeHelperPlans(); // helper plans that waited on the owner go to their lead
 // Push notifications to paired phones (push.ts); wired to "needs you" items below.
 if (PUSH) startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m) });
 startProgress();

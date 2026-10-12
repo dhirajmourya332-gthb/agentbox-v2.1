@@ -15,6 +15,8 @@ import { worktreesRoot } from "./repos.ts";
  * - Approve first (the task's plan gate, the owner's opt-in per task): the plan waits for the owner
  *   ("needs you"), and until one is approved, edits inside repo worktrees and git commits/pushes are
  *   refused. The agent is called back with the decision.
+ * The owner only ever answers the work's own plan (its lead's). A helper's plan (an agent someone
+ * delegated to) goes to that delegator, which decides it with `decide_plan`; the owner can still step in.
  * The diagram must stay simple: the server refuses plans that are too big or show parts that don't change.
  */
 
@@ -34,6 +36,8 @@ run(`CREATE TABLE IF NOT EXISTS plans (
   decided_at TEXT
 )`);
 run(`CREATE INDEX IF NOT EXISTS plans_root ON plans(root_id, created_at)`);
+// Who decides: NULL = the owner (the work's own plan); otherwise the delegating agent (a helper's plan).
+if (!all<{ name: string }>(`PRAGMA table_info(plans)`).some((c) => c.name === "reviewer_id")) run(`ALTER TABLE plans ADD COLUMN reviewer_id TEXT`);
 run(`CREATE TABLE IF NOT EXISTS plan_gates (root_id TEXT PRIMARY KEY, created_at TEXT NOT NULL)`);
 
 export const LIMITS = {
@@ -52,6 +56,7 @@ export type PlanStatus = "shared" | "pending" | "approved" | "changes" | "reject
 export type Plan = {
   id: string; root_id: string; instance_id: string; task_id: string | null; thread_id: string | null; version: number;
   status: PlanStatus; title: string; body: PlanBody; feedback: string | null; attention_id: string | null; created_at: string; decided_at: string | null;
+  reviewer_id: string | null;
 };
 
 const httpError = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
@@ -156,9 +161,17 @@ const toPlan = (r: any): Plan => ({ ...r, body: JSON.parse(r.body) });
 export const getPlan = (id: string) => { const r = get<any>(`SELECT * FROM plans WHERE id = ?`, id); return r ? toPlan(r) : null; };
 export const plansOf = (rootId: string) => all<any>(`SELECT * FROM plans WHERE root_id = ? ORDER BY created_at DESC, version DESC LIMIT 50`, rootId).map(toPlan);
 export const approvedPlan = (rootId: string) => {
-  const r = get<any>(`SELECT * FROM plans WHERE root_id = ? AND status = 'approved' ORDER BY version DESC LIMIT 1`, rootId);
+  const r = get<any>(`SELECT * FROM plans WHERE root_id = ? AND status = 'approved' AND reviewer_id IS NULL ORDER BY version DESC LIMIT 1`, rootId);
   return r ? toPlan(r) : null;
 };
+/** A helper's own approved plan (by its lead, or by the owner stepping in). */
+const helperApproved = (instanceId: string) =>
+  !!get(`SELECT 1 FROM plans WHERE instance_id = ? AND reviewer_id IS NOT NULL AND status = 'approved'`, instanceId);
+/** The agent that decides this agent's plans: whoever delegated to it, or null (the owner) for the work's lead. */
+export function leadOf(agent: Agent): Agent | null {
+  if (!agent.base_agent_id || !agent.parent_instance_id || agent.id === rootOf(agent).id) return null;
+  return getAgent(agent.parent_instance_id) ?? null;
+}
 export const gateRequired = (rootId: string) => !!get(`SELECT 1 FROM plan_gates WHERE root_id = ?`, rootId);
 
 export function setGate(rootId: string, required: boolean) {
@@ -180,12 +193,12 @@ export function gateState(rootId: string) {
 export function planBlocks(agent: Agent): boolean {
   if (!agent.base_agent_id) return false;
   const root = rootOf(agent);
-  return gateRequired(root.id) && !approvedPlan(root.id);
+  return gateRequired(root.id) && !approvedPlan(root.id) && !(leadOf(agent) && helperApproved(agent.id));
 }
 
 export function planView(p: Plan) {
   const who = getAgent(p.instance_id);
-  return { ...p, instance_name: who?.name ?? null };
+  return { ...p, instance_name: who?.name ?? null, reviewer_name: p.reviewer_id ? getAgent(p.reviewer_id)?.name ?? null : null };
 }
 function announce(id: string) {
   const p = getPlan(id)!;
@@ -207,18 +220,28 @@ export function submitPlan(agent: Agent, taskId: string | null, input: any): Pla
   const body = validatePlan(input);
   const root = rootOf(agent);
   const threadId = (taskId ? get<{ thread_id: string }>(`SELECT thread_id FROM tasks WHERE id = ?`, taskId)?.thread_id : null) ?? dmThreadOf(agent.id);
-  // It waits for the owner when the work is gated, or when the owner asked for a plan in so many words.
-  const gated = (gateRequired(root.id) && !approvedPlan(root.id)) || input?.wait_for_owner === true;
-  for (const old of all<any>(`SELECT * FROM plans WHERE root_id = ? AND status IN ('pending', 'shared')`, root.id)) {
+  // A helper's plan goes to its lead, never to the owner.
+  const lead = leadOf(agent);
+  // It waits when the work is gated (and this agent isn't cleared yet), or when a plan was asked for in so many words.
+  const gated = planBlocks(agent) || input?.wait_for_owner === true;
+  // A new version replaces this agent's own open plan (a helper's plan never replaces its lead's).
+  for (const old of all<any>(`SELECT * FROM plans WHERE root_id = ? AND instance_id = ? AND status IN ('pending', 'shared')`, root.id, agent.id)) {
     run(`UPDATE plans SET status = 'superseded', decided_at = ? WHERE id = ?`, now(), old.id);
     if (old.attention_id) markSeen(old.attention_id);
     announce(old.id);
   }
   const version = ((get<{ v: number | null }>(`SELECT MAX(version) AS v FROM plans WHERE root_id = ?`, root.id)?.v ?? 0) as number) + 1;
   const id = newId();
-  run(`INSERT INTO plans (id, root_id, instance_id, task_id, thread_id, version, status, title, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id, root.id, agent.id, taskId, threadId, version, gated ? "pending" : "shared", body.title, JSON.stringify(body), now());
+  run(`INSERT INTO plans (id, root_id, instance_id, task_id, thread_id, version, status, title, body, created_at, reviewer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, root.id, agent.id, taskId, threadId, version, gated ? "pending" : "shared", body.title, JSON.stringify(body), now(), lead?.id ?? null);
   if (threadId) postCard(threadId, id);
+  if (lead) {
+    // The lead hears of a plan it must decide. A delegated turn's reply reaches the lead as its report anyway;
+    // otherwise (a follow-up turn) tell it now.
+    const t = taskId ? get<{ source: string; from_agent_id: string | null }>(`SELECT source, from_agent_id FROM tasks WHERE id = ?`, taskId) : null;
+    if (gated && !(t?.source === "agent" && t.from_agent_id === lead.id)) notifyLead(lead, getPlan(id)!);
+    return announce(id);
+  }
   // Only a plan the work is waiting on needs the owner; a shared one is there to look at, not to answer.
   if (gated) {
     const item = raiseAttention("question", agent.id, taskId, root.created_by === "owner" ? root.id : null, `${agent.name} has a plan for you: ${body.title}`);
@@ -229,30 +252,35 @@ export function submitPlan(agent: Agent, taskId: string | null, input: any): Pla
 
 export type Decision = "approve" | "changes" | "reject";
 
-export function decisionPrompt(p: Plan, verdict: Decision, note: string, shared = false) {
+export function decisionPrompt(p: Plan, verdict: Decision, note: string, shared = false, by = "The owner") {
   const name = `"${p.title}" (v${p.version})`;
+  const them = by === "The owner" ? "the owner" : by;
   if (shared) {
     // The agent didn't wait for this: it's a course correction to work already under way.
     if (verdict === "changes") {
-      return `The owner looked at the plan you shared, ${name}, and wants a different approach: ${note}
+      return `${by} looked at the plan you shared, ${name}, and wants a different approach: ${note}
 Adjust your work to that: undo or stop what conflicts with it, then carry on. Don't wait for approval; share a revised plan only if the approach changes a lot.`;
     }
-    return `The owner looked at the plan you shared, ${name}, and wants you to stop this approach${note ? `: ${note}` : "."}
-Stop work that follows it (don't push, merge or deploy it), report where things stand, and wait for the owner.`;
+    return `${by} looked at the plan you shared, ${name}, and wants you to stop this approach${note ? `: ${note}` : "."}
+Stop work that follows it (don't push, merge or deploy it), report where things stand, and wait for ${them}.`;
   }
   if (verdict === "approve") {
-    return `The owner approved your plan ${name}.${note ? ` Their note: ${note}` : ""}
+    return `${by} approved your plan ${name}.${note ? ` Note: ${note}` : ""}
 Go ahead and carry it out: if it has several steps or teammates, start by creating its roadmap (roadmap_create), then do or delegate the work. If you later change direction in a way the diagram wouldn't show, share a revised plan (submit_plan) and carry on.`;
   }
   if (verdict === "changes") {
-    return `The owner asks for changes to your plan ${name}: ${note || "(no details given; ask what to change)"}
+    return `${by} asks for changes to your plan ${name}: ${note || "(no details given; ask what to change)"}
 Revise it and call \`mcp__team__submit_plan\` again (keep the diagram simple), then end your turn. Don't start implementing yet.`;
   }
-  return `The owner rejected your plan ${name}${note ? `: ${note}` : "."}
-Don't implement it. Report what you'd need to know or do differently, and wait for the owner.`;
+  return `${by} rejected your plan ${name}${note ? `: ${note}` : "."}
+Don't implement it. Report what you'd need to know or do differently, and wait for ${them}.`;
 }
 
-export type DecideDeps = { send?: (a: Agent, p: Plan, content: string, prompt: string) => void };
+export type DecideDeps = {
+  send?: (a: Agent, p: Plan, content: string, prompt: string) => void;
+  /** A lead deciding its helper's plan (decide_plan), in its turn byTaskId. Absent: the owner. */
+  by?: Agent; byTaskId?: string | null;
+};
 
 /**
  * The owner's decision. On a plan the work waits for (pending), the submitter always gets a new turn.
@@ -263,6 +291,14 @@ export function decidePlan(id: string, verdict: Decision, noteIn: unknown, deps:
   const p = getPlan(id);
   if (!p) throw httpError(404, "No such plan");
   if (p.status !== "pending" && p.status !== "shared") throw httpError(409, `This plan is already ${p.status === "changes" ? "sent back for changes" : p.status}`);
+  const by = deps.by;
+  if (by) {
+    if (p.reviewer_id !== by.id) throw httpError(403, "That plan isn't yours to decide: only plans from agents you delegated to are.");
+    // On a "plan first" work, the owner approves the lead's plan before anything changes; a lead can't wave its helpers past that.
+    if (verdict === "approve" && p.status === "pending" && planBlocks(by)) {
+      throw httpError(409, "The owner asked to approve this work's plan before anything changes, and yours isn't approved yet. Fold this helper's plan into your own, submit it with submit_plan and end your turn; once the owner approves it, the helper can go ahead.");
+    }
+  }
   const shared = p.status === "shared";
   if (!["approve", "changes", "reject"].includes(verdict)) throw httpError(400, "verdict: approve, changes or reject");
   const note = block(noteIn, 4000);
@@ -274,16 +310,18 @@ export function decidePlan(id: string, verdict: Decision, noteIn: unknown, deps:
   const content = (shared
     ? { approve: `Plan looks good: ${p.title}`, changes: `Redirected: ${p.title}`, reject: `Stop: ${p.title}` }
     : { approve: `Plan approved: ${p.title}`, changes: `Plan sent back: ${p.title}`, reject: `Plan rejected: ${p.title}` })[verdict] + (note ? `\n\n${note}` : "");
+  const who = by ? by.name : "The owner";
   // "Looks good" on a shared plan needs no turn (the agent is already on it), unless there's a note.
   if (!(shared && verdict === "approve" && !note)) {
-    const prompt = shared && verdict === "approve" ? `The owner looked at the plan you shared, ${JSON.stringify(p.title)}, and it's fine. Their note: ${note}` : decisionPrompt(next, verdict, note, shared);
-    (deps.send ?? deliver)(getAgent(p.instance_id)!, next, content, prompt);
+    const prompt = shared && verdict === "approve" ? `${who} looked at the plan you shared, ${JSON.stringify(p.title)}, and it's fine. Note: ${note}` : decisionPrompt(next, verdict, note, shared, who);
+    if (deps.send) deps.send(getAgent(p.instance_id)!, next, content, prompt);
+    else deliver(getAgent(p.instance_id)!, next, content, prompt, by ? { by, taskId: deps.byTaskId ?? null } : undefined);
   }
   if (verdict === "approve") publish({ type: "plan_gate.updated", rootId: p.root_id, required: gateRequired(p.root_id) });
   return announce(id);
 }
 
-function deliver(agent: Agent | undefined, p: Plan, content: string, prompt: string) {
+function deliver(agent: Agent | undefined, p: Plan, content: string, prompt: string, from?: { by: Agent; taskId: string | null }) {
   let a = agent;
   if (!a) return;
   if (a.retired_at) {
@@ -295,11 +333,58 @@ function deliver(agent: Agent | undefined, p: Plan, content: string, prompt: str
   }
   const threadId = (p.thread_id && get(`SELECT 1 FROM threads WHERE id = ?`, p.thread_id) ? p.thread_id : null) ?? dmThreadOf(a.id);
   if (!threadId) return;
+  if (from) {
+    // From the lead: like a handoff, so the helper's reply goes back to the lead as its report.
+    const parent = from.taskId ? get<{ id: string; depth: number | null }>(`SELECT id, depth FROM tasks WHERE id = ?`, from.taskId) : undefined;
+    enqueueTask({
+      agentId: a.id, threadId, source: "agent", title: content.split("\n")[0].slice(0, 120),
+      prompt: `[agentbox] ${prompt}\n\nYour final reply goes back to ${from.by.name} as your report.`,
+      fromAgentId: from.by.id, parentTaskId: parent?.id ?? p.task_id, depth: (parent?.depth ?? 0) + 1,
+      input: { author: from.by.id, content },
+    });
+    return;
+  }
   enqueueTask({
     agentId: a.id, threadId, source: "user", title: content.split("\n")[0].slice(0, 120), prompt: `[agentbox] ${prompt}`,
     parentTaskId: p.task_id, input: { author: "user", content },
   });
 }
+
+/** Tell a lead that a helper's plan waits for its decision. */
+function notifyLead(lead: Agent, p: Plan) {
+  let a = lead;
+  if (a.retired_at) { try { a = reviveInstance(a.id, a.created_by ?? "owner") ?? a; } catch { /* still tell it */ } }
+  const threadId = dmThreadOf(a.id);
+  if (!threadId) return;
+  const from = getAgent(p.instance_id);
+  enqueueTask({
+    agentId: a.id, threadId, source: "message", title: `Plan to decide: ${p.title}`.slice(0, 120),
+    prompt: `[agentbox] ${from?.name ?? "A helper"} sent you a plan to decide (plan ${p.id}, v${p.version}): "${p.title}"
+
+${p.body.summary}
+${p.body.changes.map((c) => `- ${c}`).join("\n")}${p.body.risks.length ? `\nRisks: ${p.body.risks.join("; ")}` : ""}
+
+Decide it yourself with decide_plan (approve, changes with what to change, or reject). It's your call, not the owner's: weigh it against the work's goal and keep it simple.`,
+    fromAgentId: from?.id, input: { author: from?.id ?? "system", content: `Plan to decide: ${p.title}` },
+  });
+}
+
+/** Older helper plans waiting on the owner go to their lead instead (run once at startup). */
+export function routeHelperPlans() {
+  for (const r of all<any>(`SELECT * FROM plans WHERE status = 'pending' AND reviewer_id IS NULL`)) {
+    const a = getAgent(r.instance_id);
+    const lead = a ? leadOf(a) : null;
+    if (!lead) continue;
+    run(`UPDATE plans SET reviewer_id = ? WHERE id = ?`, lead.id, r.id);
+    if (r.attention_id) markSeen(r.attention_id);
+    notifyLead(lead, getPlan(r.id)!);
+    announce(r.id);
+  }
+}
+
+/** Plans waiting for this agent's decision (from agents it delegated to). */
+export const plansFor = (agentId: string) =>
+  all<any>(`SELECT * FROM plans WHERE reviewer_id = ? AND status = 'pending' ORDER BY created_at`, agentId).map(toPlan);
 
 // --- enforcement and instructions -------------------------------------------------------------------------
 
@@ -327,7 +412,7 @@ export function planGuard(agent: Agent) {
       hookSpecificOutput: {
         hookEventName: "PreToolUse" as const,
         permissionDecision: "deny" as const,
-        permissionDecisionReason: "This work needs an approved plan first. Explore and read freely, then call mcp__team__submit_plan and end your turn; you'll get a message when the owner decides.",
+        permissionDecisionReason: `This work needs an approved plan first. Explore and read freely, then call mcp__team__submit_plan and end your turn; you'll get a message when ${leadOf(agent)?.name ?? "the owner"} decides.`,
       },
     };
   };
@@ -336,7 +421,18 @@ export function planGuard(agent: Agent) {
 /** The work layer's plan section: only when the owner asked to approve a plan first (or did approve one). */
 export function planNote(agent: Agent): string {
   if (!agent.base_agent_id || isSetupAgent(agent)) return "";
+  const toDecide = plansFor(agent.id);
+  const decide = toDecide.length ? `## Plans for you to decide
+Agents you delegated to sent these; decide each with \`mcp__team__decide_plan\` (it's your call, not the owner's):
+${toDecide.map((p) => `- ${getAgent(p.instance_id)?.name ?? "?"}: "${p.title}" (plan ${p.id})`).join("\n")}${planBlocks(agent)
+    ? "\nThis work is \"plan first\" and your own plan isn't approved yet: fold theirs into yours (submit_plan) first; you can approve theirs once the owner approves yours."
+    : ""}` : "";
+  return [planSection(agent), decide].filter(Boolean).join("\n\n");
+}
+
+function planSection(agent: Agent): string {
   const root = rootOf(agent);
+  const lead = leadOf(agent);
   const plan = approvedPlan(root.id);
   if (plan) {
     return `## Approved plan (v${plan.version}): ${plan.title}
@@ -344,11 +440,12 @@ ${plan.body.summary}
 ${plan.body.changes.map((c) => `- ${c}`).join("\n")}${plan.body.checks.length ? `\nChecks: ${plan.body.checks.join("; ")}` : ""}
 Stay within it. If you change direction in a way the diagram wouldn't show, share a revised plan (submit_plan) and carry on.`;
   }
-  if (!gateRequired(root.id)) return "";
-  const pending = get<{ title: string; version: number }>(`SELECT title, version FROM plans WHERE root_id = ? AND status = 'pending' ORDER BY version DESC LIMIT 1`, root.id);
+  if (!gateRequired(root.id) || !planBlocks(agent)) return "";
+  const pending = get<{ title: string; version: number }>(`SELECT title, version FROM plans WHERE instance_id = ? AND status = 'pending' ORDER BY version DESC LIMIT 1`, agent.id);
+  const who = lead ? lead.name : "the owner";
   return `## Plan first
-The owner wants to approve a plan before anything changes in this work. Read and explore as much as you need, but
+${lead ? `This work is "plan first". Your plan goes to ${lead.name} (who delegated this to you), not to the owner.` : "The owner wants to approve a plan before anything changes in this work."} Read and explore as much as you need, but
 don't edit repo files, commit or push yet (agentbox refuses it). ${pending
-    ? `Your plan "${pending.title}" (v${pending.version}) is waiting for the owner: end your turn unless you're revising it.`
+    ? `Your plan "${pending.title}" (v${pending.version}) is waiting for ${who}: end your turn unless you're revising it.`
     : "When you know what to do, call `mcp__team__submit_plan` and end your turn."}`;
 }
