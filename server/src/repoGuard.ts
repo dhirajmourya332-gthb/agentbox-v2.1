@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Agent } from "./agents.ts";
 import { deployWorkflowOf } from "./rules.ts";
+import { isOrchestrator } from "./roleGuards.ts";
 import { getRepoById, git, listRepos, reposRoot, urlKey, worktreesFor, type Repo } from "./repos.ts";
 
 /**
@@ -131,14 +132,25 @@ const boundRepos = (agent: Agent) =>
   worktreesFor(agent.id).filter((w) => ["active", "pending", "kept"].includes(w.status)).map((w) => getRepoById(w.repo_id)).filter((r): r is Repo => !!r && r.status !== "archived");
 
 /** The base of the PR a `gh pr merge` names (run in its directory), or null. */
-async function prBaseIn(command: string, dir: string | undefined): Promise<string | null> {
+type PrInfo = { number: number; base: string; head: string; draft: boolean; failing: string[]; pending: string[] };
+/** The PR a `gh pr merge` names: base, head, draft and its checks (null: couldn't look it up). */
+async function prInfo(command: string, dir: string | undefined): Promise<PrInfo | null> {
   const t = command.match(/gh\s+pr\s+merge\b(.*)/)?.[1] ?? "";
   const num = t.match(/(?:^|\s)#?(\d+)(?:\s|$)/)?.[1] ?? command.match(/\/pull\/(\d+)/)?.[1];
   const repo = command.match(/(?:-R|--repo)[\s=]+["']?([\w.-]+\/[\w.-]+)/)?.[1] ?? command.match(/github\.com\/([\w.-]+\/[\w.-]+)\/pull\//)?.[1];
-  const args = ["pr", "view", ...(num ? [num] : []), ...(repo ? ["-R", repo] : []), "--json", "baseRefName", "-q", ".baseRefName"];
+  const args = ["pr", "view", ...(num ? [num] : []), ...(repo ? ["-R", repo] : []), "--json", "number,baseRefName,headRefName,isDraft,statusCheckRollup"];
   try {
     const { stdout } = await runFile(process.env.AGENTBOX_GH ?? "gh", args, { timeout: 20_000, cwd: dir && fs.existsSync(dir) ? dir : undefined });
-    return stdout.trim() || null;
+    const j = JSON.parse(stdout);
+    if (!j?.baseRefName) return null;
+    const checks: any[] = Array.isArray(j.statusCheckRollup) ? j.statusCheckRollup : [];
+    const state = (c: any) => String(c.conclusion || c.state || c.status || "").toUpperCase();
+    const label = (c: any) => String(c.name ?? c.context ?? "check");
+    return {
+      number: Number(j.number), base: String(j.baseRefName), head: String(j.headRefName ?? ""), draft: !!j.isDraft,
+      failing: checks.filter((c) => ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(state(c))).map(label),
+      pending: checks.filter((c) => ["PENDING", "IN_PROGRESS", "QUEUED", "EXPECTED", "WAITING", ""].includes(state(c))).map(label),
+    };
   } catch { return null; }
 }
 
@@ -202,9 +214,19 @@ export async function repoViolation(agent: Agent, tool: string, input: any, cwd?
     if (cmd === "gh" && t[1] === "pr" && t[2] === "merge") {
       const repo = cmdRepo(line) ?? (dir ? await remoteRepo(dir) : undefined) ?? (boundRepos(agent).length === 1 ? boundRepos(agent)[0] : undefined);
       if (!repo || repo.agents_may_merge) continue;
-      const base = await prBaseIn(line, dir);
-      if (base === null) return `${repo.name} doesn't let agents merge into ${repo.protected_branches.join(", ")}, and the PR's base couldn't be confirmed. Name it (-R owner/repo <number>) so it can be checked, or leave the merge to the owner.`;
-      if (repo.protected_branches.includes(base)) return `${repo.name} doesn't let agents merge into "${base}" (protected). Leave the PR open with your conclusion for the owner.`;
+      const pr = await prInfo(line, dir);
+      if (!pr) return `${repo.name} doesn't let agents merge into ${repo.protected_branches.join(", ")} unchecked, and the PR couldn't be looked up. Name it (-R owner/repo <number>) so it can be checked.`;
+      if (!repo.protected_branches.includes(pr.base)) continue;
+      const lead = repo.lead_may_merge && isOrchestrator(agent);
+      if (!lead) {
+        return repo.lead_may_merge
+          ? `Merging into "${pr.base}" is the work's lead's call in ${repo.name}. Report the PR, its CI and your verdict to your lead.`
+          : `${repo.name} doesn't let agents merge into "${pr.base}" (protected). Leave the PR open with your conclusion for the owner.`;
+      }
+      if (/^epic\//i.test(pr.head)) return `PR #${pr.number} merges an epic (${pr.head}) into "${pr.base}": that one is the owner's. Leave it open with your summary.`;
+      if (pr.draft) return `PR #${pr.number} is a draft. Mark it ready once it's reviewed, then merge.`;
+      if (pr.failing.length) return `PR #${pr.number} has failing checks (${pr.failing.slice(0, 4).join(", ")}). Get them green first; if they're unrelated flakes, re-run them.`;
+      if (pr.pending.length) return `PR #${pr.number} still has checks running (${pr.pending.slice(0, 4).join(", ")}). Merge once they pass (set a wake-up with schedule_wakeup instead of polling).`;
       continue;
     }
     if (cmd === "glab" && t[1] === "mr" && t[2] === "merge") {

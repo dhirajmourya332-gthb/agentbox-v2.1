@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Routine, type RoutineInput, type RoutineRunRow } from "../api.ts";
+import { api, type Routine, type RoutineInput, type RoutineRunRow, type Wakeup } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
 import { Avatar, Icon, relTime } from "../components/ui.tsx";
@@ -97,9 +97,57 @@ export function RoutinesList() {
             })}
           </div>
         )}
+        <Wakeups />
         {routines.length > 0 && <RunHistory />}
       </div>
     </div>
+  );
+}
+
+/** One-time wake-ups agents set for themselves (schedule_wakeup): apart from the schedules. */
+function Wakeups() {
+  const { agents, onEvent } = useStore();
+  const [list, setList] = useState<Wakeup[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.wakeups().then((r) => alive && setList(r.wakeups)).catch(() => {});
+    load();
+    const off = onEvent((e) => { if (e.type === "wakeup.updated") load(); });
+    return () => { alive = false; off(); };
+  }, [onEvent]);
+  if (!list?.length) return null;
+  const pending = list.filter((w) => w.status === "pending");
+  const recent = list.filter((w) => w.status !== "pending").slice(0, 10);
+  const row = (w: Wakeup) => {
+    const a = agents.find((x) => x.id === w.agent_id);
+    return (
+      <div key={w.id} className="row routine-row">
+        <a className="routine-main" href={`#/agents/${w.agent_id}`}>
+          {a && <Avatar name={a.name} color={a.color} size={24} />}
+          <span className="routine-text">
+            <strong>{w.note.split("\n")[0].slice(0, 120)}</strong>
+            <span className="hint">{w.agent_name ?? "deleted"} · set {relTime(w.created_at)}</span>
+          </span>
+        </a>
+        <span className="routine-next">
+          {w.status === "pending" ? <>Wakes {untilText(w.due_at)}</> : <span className="hint">{w.status === "fired" ? `Woke ${relTime(w.done_at ?? w.due_at)}` : "Cancelled"}</span>}
+        </span>
+        {w.status === "pending" && <button className="btn sm ghost" onClick={() => api.cancelWakeup(w.id).catch(() => {})}>Cancel</button>}
+      </div>
+    );
+  };
+  return (
+    <>
+      <h2>One-time wake-ups</h2>
+      <p className="hint" style={{ marginTop: -4 }}>Agents set these themselves to check back later (CI, a deploy, a rate limit) instead of waiting in a loop. Each fires once.</p>
+      {pending.length > 0 ? <div className="rows">{pending.map(row)}</div> : <p className="hint">None waiting.</p>}
+      {recent.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary className="hint">Last day: {recent.length} done or cancelled</summary>
+          <div className="rows">{recent.map(row)}</div>
+        </details>
+      )}
+    </>
   );
 }
 

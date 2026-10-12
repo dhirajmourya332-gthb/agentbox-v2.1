@@ -24,9 +24,9 @@ const dirs = Object.fromEntries(["data", "agents", "work", "skills", "team", "se
 }));
 const gitconfig = path.join(tmp, "gitconfig");
 fs.writeFileSync(gitconfig, `[user]\n\tname = Test\n\temail = test@example.test\n[init]\n\tdefaultBranch = main\n[url "${dirs.remotes}/"]\n\tinsteadOf = https://example.test/\n[uploadpack]\n\tallowFilter = true\n[protocol "file"]\n\tallow = always\n`);
-// A fake gh: `pr view` answers the base branch in $FAKE_GH_BASE; `repo list` prints $FAKE_GH_JSON.
+// A fake gh: `pr view` answers the base ($FAKE_GH_BASE), head ($FAKE_GH_HEAD) and checks ($FAKE_GH_CHECKS); `repo list` prints $FAKE_GH_JSON.
 const fakeGh = path.join(dirs.bin, "gh");
-fs.writeFileSync(fakeGh, `#!/bin/sh\ncase "$1 $2" in\n  "pr view") echo "\${FAKE_GH_BASE:-main}" ;;\n  "repo list") if [ -n "$2" ] && [ "$3" != "--limit" ] && [ "$3" != "" ]; then echo '[]'; else cat "$FAKE_GH_JSON"; fi ;;\n  "api user/orgs") echo "" ;;\n  *) echo '[]' ;;\nesac\n`, { mode: 0o755 });
+fs.writeFileSync(fakeGh, `#!/bin/sh\ncase "$1 $2" in\n  "pr view") case " $* " in *" -q "*) echo "\${FAKE_GH_BASE:-main}" ;; *) printf '{"number":12,"baseRefName":"%s","headRefName":"%s","isDraft":false,"statusCheckRollup":%s}\\n' "\${FAKE_GH_BASE:-main}" "\${FAKE_GH_HEAD:-feature/x}" "\${FAKE_GH_CHECKS:-[]}" ;; esac ;;\n  "repo list") if [ -n "$2" ] && [ "$3" != "--limit" ] && [ "$3" != "" ]; then echo '[]'; else cat "$FAKE_GH_JSON"; fi ;;\n  "api user/orgs") echo "" ;;\n  *) echo '[]' ;;\nesac\n`, { mode: 0o755 });
 const portalPort = 20000 + Math.floor(Math.random() * 20000);
 const configFile = path.join(tmp, "config.yaml");
 fs.writeFileSync(configFile, `host: lima\naccess: ssh-tunnel\nuser: ${os.userInfo().username}\nagent_sudo: true\npaths: { data: ${dirs.data}, work: ${dirs.work}, agents: ${dirs.agents}, skills: ${dirs.skills}, team: ${dirs.team}, secrets: ${dirs.secrets}, integrations: ${dirs.integrations} }\nports: { portal: ${portalPort} }\n`);
@@ -213,7 +213,7 @@ test("worktrees: created per task off origin/<default>, reused for rework, layer
   assert.match(layer, /\*\*api\*\*.*default branch `trunk`/);
   assert.match(layer, /read-only/);
   assert.ok(layer.includes(wt.path!), "its own worktree");
-  assert.match(layer, /no pushes or merges to main/);
+  assert.match(layer, /no pushes to main; the work.s lead merges routine PRs/);
   assert.ok(!layer.includes("nope"), "only ready repos");
   const order = RU.instructionLayers(fix).map((l) => l.id);
   assert.deepEqual(order, ["platform", "integrations", "repos", "team", "role", "work"]);
@@ -305,7 +305,24 @@ test("guard: protected branches (push, gh pr merge) and deploys refused unless t
   assert.match((await v("git push", tmpWt))!, /protected/);
   // gh pr merge: base checked through gh (fake: main).
   process.env.FAKE_GH_BASE = "main";
+  // Not the work's lead: the merge is the lead's call (or the owner's when the repo says so).
+  assert.match((await v("gh pr merge 12 --squash -R acme/web"))!, /the work's lead's call/);
+  R.updateRepo("web", { lead_may_merge: false });
   assert.match((await v("gh pr merge 12 --squash -R acme/web"))!, /merge into "main"/);
+  R.updateRepo("web", { lead_may_merge: true });
+  // The lead merges routine PRs into main: CI green, not a draft, not an epic.
+  const li = A.spawnInstance(lead.id, { label: "Lead work", createdBy: "owner", asLead: true });
+  const lv = (command: string) => G.repoViolation(li, "Bash", { command }, "/");
+  assert.equal(await lv("gh pr merge 12 --squash -R acme/web"), null);
+  process.env.FAKE_GH_CHECKS = '[{"name":"tests","conclusion":"FAILURE"}]';
+  assert.match((await lv("gh pr merge 12 --squash -R acme/web"))!, /failing checks \(tests\)/);
+  process.env.FAKE_GH_CHECKS = '[{"name":"tests","status":"IN_PROGRESS","conclusion":""}]';
+  assert.match((await lv("gh pr merge 12 --squash -R acme/web"))!, /still has checks running/);
+  process.env.FAKE_GH_CHECKS = '[{"name":"tests","conclusion":"SUCCESS"},{"context":"lint","state":"SUCCESS"}]';
+  assert.equal(await lv("gh pr merge 12 --squash -R acme/web"), null);
+  process.env.FAKE_GH_HEAD = "epic/5257-census";
+  assert.match((await lv("gh pr merge 12 --squash -R acme/web"))!, /epic.*owner's/);
+  delete process.env.FAKE_GH_HEAD; delete process.env.FAKE_GH_CHECKS;
   process.env.FAKE_GH_BASE = "epic/9-thing";
   assert.equal(await v("gh pr merge 12 --squash -R acme/web"), null, "into an unprotected branch");
   assert.match((await v("gh workflow run deploy.yml -R acme/web"))!, /deploy/);

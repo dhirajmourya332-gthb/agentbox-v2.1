@@ -5,7 +5,9 @@ import { helperLimitError } from "./rules.ts";
 import { publish } from "./bus.ts";
 import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, reviveInstance, rootOf, spawnInstance, type Agent } from "./agents.ts";
 import { proposeSkill, skillsOf } from "./skills.ts";
-import { agentStatus, enqueueTask, openTasksOf, taskRow } from "./runner.ts";
+import { agentStatus, enqueueTask, openTasksOf, stopTask, taskRow } from "./runner.ts";
+import { cancelWakeup, LIMITS as WAKE_LIMITS, pendingFor as pendingWakeups, scheduleWakeup } from "./wakeups.ts";
+import { leadFor as delegatorOf, raiseAttention } from "./attention.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
@@ -340,6 +342,57 @@ export function teamTools(agent: Agent, taskId: string) {
           } catch (e: any) {
             return refuse(e.message);
           }
+        },
+      ),
+
+      tool(
+        "schedule_wakeup",
+        `Wake yourself up later, once: a new turn in ${WAKE_LIMITS.minMinutes}–${WAKE_LIMITS.maxMinutes} minutes with your note. Use it instead of sleeping or polling in a shell loop: to check CI or a deploy, retry after a rate limit resets, or follow up on something slow. Then end your turn (or carry on with other work). If you're on a delegated task, the woken turn's reply goes back to whoever delegated it.`,
+        {
+          in_minutes: z.number().describe("Minutes from now"),
+          note: z.string().describe("What to do when you wake, self-contained, e.g. 'Check CI on PR #5363; merge if green, else ask coder#2 to fix'"),
+        },
+        async (args) => {
+          try {
+            const w = scheduleWakeup(agent, taskId, args);
+            return text(`Wake-up set for ${w.due_at} (id ${w.id}). End your turn when you're done for now; you'll be woken with your note.`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        },
+      ),
+
+      tool("cancel_wakeup", "Cancel a wake-up you set (no longer needed).", { wakeup_id: z.string().optional().describe("Leave out when you have just one") }, async ({ wakeup_id }) => {
+        const mine = pendingWakeups(agent.id);
+        const id = wakeup_id ?? (mine.length === 1 ? mine[0].id : null);
+        if (!id) return refuse(mine.length ? `Pass wakeup_id: ${mine.map((w) => `${w.id} (${w.due_at}: ${w.note.slice(0, 60)})`).join(", ")}` : "You have no wake-ups waiting.");
+        try { cancelWakeup(id, agent); return text("Cancelled."); } catch (e: any) { return refuse(e.message); }
+      }),
+
+      tool(
+        "ask_owner",
+        "Ask the owner for something only they can give: a decision that's theirs (spend, a breaking or critical change, product direction), access or a credential, or a merge or deploy you aren't allowed to do. This is what reaches them ('needs you'); a plain reply is only read when they look. Don't ask about routine work: decide it yourself, or ask your lead.",
+        { question: z.string().describe("One short question, with the options and your recommendation") },
+        async ({ question }) => {
+          const q = String(question ?? "").trim();
+          if (!q) return refuse("Say what you need.");
+          const root = rootOf(agent);
+          raiseAttention("question", agent.id, taskId, root.created_by === "owner" ? root.id : null, `${agent.name} asks: ${q}`);
+          return text("The owner has it in 'needs you'. Put the same question, with context, in your reply, then carry on with anything that doesn't depend on the answer, or end your turn.");
+        },
+      ),
+
+      tool(
+        "stop_task",
+        "Stop a task you handed out (a helper that's stuck, going in circles, or no longer needed). Its report comes back to you as 'stopped'; then re-delegate with clearer instructions, or close it.",
+        { task_id: z.string().describe("The task's id (from delegate_task, get_task or a 'may be stuck' notice)") },
+        async ({ task_id }) => {
+          const t = taskRow(task_id);
+          if (!t) return refuse("No task with that id.");
+          if (delegatorOf(t)?.id !== agent.id) return refuse("You can only stop tasks you handed out.");
+          if (t.status !== "running" && t.status !== "queued") return refuse(`That task is already ${t.status}.`);
+          stopTask(task_id);
+          return text(`Stopping "${t.title}". Its report reaches you shortly.`);
         },
       ),
 

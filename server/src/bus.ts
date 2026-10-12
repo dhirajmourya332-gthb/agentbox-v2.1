@@ -41,7 +41,8 @@ export type BusEvent =
   | { type: "plan.updated"; plan: any } // plans.ts: a plan was submitted, decided or replaced
   | { type: "plan_gate.updated"; rootId: string; required: boolean } // plans.ts: a task's "approve a plan first" changed
   | { type: "review.updated"; rootId: string; review: any } // changes.ts: the owner reviewed a task's changes
-  | { type: "roadmap.updated"; roadmap: any }; // roadmaps.ts: a roadmap was created, changed or archived
+  | { type: "roadmap.updated"; roadmap: any } // roadmaps.ts: a roadmap was created, changed or archived
+  | { type: "wakeup.updated"; wakeup: any }; // wakeups.ts: a one-time wake-up was set, fired or cancelled
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 

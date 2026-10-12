@@ -140,7 +140,7 @@ function RepoCard({ repo: r, onChange, open }: { repo: Repo; onChange: () => voi
         <dt>Used by</dt><dd>{roleNames.length ? roleNames.join(", ") : "every agent"}</dd>
         {r.test_command && <><dt>Tests</dt><dd><code>{r.test_command}</code></dd></>}
         <dt>Rules</dt>
-        <dd>{r.agents_may_merge ? "agents may merge" : `no pushes or merges to ${r.protected_branches.join(", ") || "—"}`} · {r.agents_may_deploy ? "agents may deploy" : "no deploys"}</dd>
+        <dd>{r.agents_may_merge ? "agents may merge" : `no pushes to ${r.protected_branches.join(", ") || "—"}${r.lead_may_merge ? " · lead merges routine PRs" : " · you merge"}`} · {r.agents_may_deploy ? "agents may deploy" : "no deploys"}</dd>
       </dl>
       {r.error && <div className="error-box">{r.error}</div>}
       {r.map_error && r.map_status === "error" && <div className="hint">Map: {r.map_error}</div>}
@@ -216,7 +216,7 @@ function RepoSettings({ repo: r, onSaved, onArchive, busy }: { repo: Repo; onSav
   const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
   const [v, setV] = useState({
     description: r.description, test_command: r.test_command, default_branch: r.default_branch ?? "", protected_branches: r.protected_branches.join(", "),
-    allowed_roles: r.allowed_roles, agents_may_merge: r.agents_may_merge, agents_may_deploy: r.agents_may_deploy, propose_map_pr: r.propose_map_pr,
+    allowed_roles: r.allowed_roles, agents_may_merge: r.agents_may_merge, agents_may_deploy: r.agents_may_deploy, propose_map_pr: r.propose_map_pr, lead_may_merge: r.lead_may_merge,
   });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -246,6 +246,7 @@ function RepoSettings({ repo: r, onSaved, onArchive, busy }: { repo: Repo; onSav
         <span className="hint">{v.allowed_roles.length ? "Only these agents see it and get worktrees." : "None picked: every agent may use it."}</span>
       </div>
       <Toggle label="Agents may push and merge to protected branches" hint="Off: pushes to them and merges of PRs into them are refused; agents open PRs for you." value={v.agents_may_merge} onChange={(x) => setV({ ...v, agents_may_merge: x })} />
+      {!v.agents_may_merge && <Toggle label="The work's lead merges routine PRs" hint="On: the lead (e.g. tech-lead) merges minor/medium, non-breaking PRs into protected branches once CI is green. Epics, failing or running checks and drafts are refused; those stay yours." value={v.lead_may_merge} onChange={(x) => setV({ ...v, lead_may_merge: x })} />}
       <Toggle label="Agents may deploy" hint="Off: deploy workflows (gh workflow run deploy…, release, rollout) are refused." value={v.agents_may_deploy} onChange={(x) => setV({ ...v, agents_may_deploy: x })} />
       <Toggle label="Propose the map to the repo as a PR" hint="Off: the knowledge pack stays in agentbox's store; nothing is added to the repo." value={v.propose_map_pr} onChange={(x) => setV({ ...v, propose_map_pr: x })} />
       <div className="repo-settings-actions">

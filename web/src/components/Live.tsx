@@ -196,16 +196,21 @@ export function useRoomMarks() {
 }
 
 export function MarkDot({ mark, title }: { mark: Mark; title: string }) {
-  return <span className={`attn-dot ${mark}`} title={`Needs you: ${title}`} aria-label="Needs you" role="img" />;
+  const label = mark === "info" ? "Unread" : "Needs you";
+  return <span className={`attn-dot ${mark}`} title={`${label}: ${title}`} aria-label={label} role="img" />;
 }
 
-const KIND_LABEL: Record<Attention["kind"], string> = { reply: "Replied", failed: "Failed", stalled: "Possibly stuck", question: "Question" };
+const KIND_LABEL: Record<Attention["kind"], string> = { reply: "Replied", failed: "Failed", stalled: "Possibly stuck", question: "Asks you" };
 
-/** The Overview's "Needs you": unseen items, newest first, each linking to its room. */
+/** What actually needs the owner: everything but plain replies (those are just unread). */
+export const needsOwner = (i: Attention) => !i.seen_at && i.kind !== "reply";
+
+/** The Overview's "Needs you": unseen asks, failures and stalls, newest first; then unread replies, quieter. */
 export function NeedsYou() {
   const { attention, groups, work } = useStore();
-  const unseen = attention.filter((i) => !i.seen_at);
-  if (!unseen.length) return null;
+  const unseen = attention.filter(needsOwner);
+  const unread = attention.filter((i) => !i.seen_at && i.kind === "reply");
+  if (!unseen.length && !unread.length) return null;
   const hrefOf = (i: Attention) => {
     if (i.room_id && groups.some((g) => g.id === i.room_id)) return `#/groups/${i.room_id}`;
     const room = i.room_id ? [...work.live, ...work.done].find((w) => w.root.id === i.room_id) : undefined;
@@ -215,6 +220,7 @@ export function NeedsYou() {
   const shown = unseen.slice(0, 12);
   return (
     <>
+      {unseen.length > 0 && <>
       <div className="section-head">
         <h2>Needs you <span className="count">{unseen.length}</span></h2>
         <button className="btn sm ghost" onClick={() => api.attentionSeenAll().catch(() => {})}>Mark all seen</button>
@@ -234,6 +240,23 @@ export function NeedsYou() {
         ))}
       </div>
       {unseen.length > shown.length && <p className="hint" style={{ marginTop: 6 }}>And {unseen.length - shown.length} more.</p>}
+      </>}
+      {unread.length > 0 && (
+        <details className="unread-replies" style={{ marginTop: unseen.length ? 12 : 0 }}>
+          <summary className="hint">{unread.length} unread repl{unread.length > 1 ? "ies" : "y"} · nothing waits on you</summary>
+          <div className="rows">
+            {unread.slice(0, 20).map((i) => (
+              <div key={i.id} className="row attn-row">
+                <span className="attn-dot info" aria-hidden="true" />
+                <a className="attn-main" href={hrefOf(i)} onClick={() => api.attentionSeen(i.id).catch(() => {})}>
+                  <span className="attn-title">{i.title}</span>
+                  <span className="hint">{relTime(i.created_at)}</span>
+                </a>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </>
   );
 }

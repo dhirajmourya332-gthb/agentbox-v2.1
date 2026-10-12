@@ -213,7 +213,14 @@ title names the same issue or PR is routed back to it automatically). It already
 and the PR, so it's far cheaper than a fresh instance. Retire an instance
 (\`mcp__team__retire_instance\`) only when its work is really finished: its PR merged (or closed),
 or nothing of it is still open. Never retire one whose PR is still in review just to make room; at
-the limit, wait for a merge or ask the owner.`;
+the limit, wait for a merge (set a wake-up to check on it).
+
+**Merging into main is your call** for routine work: a minor or medium change with no breaking change
+visible (API, schema, config or behaviour other services rely on), its diff reviewed by you, and CI green.
+Squash-merge it yourself (\`gh pr merge <n> --squash --delete-branch\`) and carry on; agentbox refuses the
+merge while checks fail or run, for drafts, and for epics. Leave it to the owner, with your summary, when
+it's an epic → main, a breaking change, or critical (auth, billing, data migrations or deletes, production
+infrastructure).`;
 }
 
 export type Layer = { id: "platform" | "integrations" | "repos" | "team" | "role" | "work"; text: string };
@@ -318,6 +325,13 @@ Hand work to teammates with the team tools, never with Teams, email or GitHub co
 - \`mcp__team__send_message\`: an FYI to a live instance that needs no action.
 - \`mcp__team__schedule_routine\` / \`list_routines\` / \`cancel_routine\`: recurring jobs (e.g. a
   check every 2 hours), when the owner asks for something to happen regularly.
+- \`mcp__team__schedule_wakeup\` / \`cancel_wakeup\`: wake yourself once, later (check CI in 20 min, retry
+  after a rate limit, follow up on something slow). Use it instead of sleeping or polling in a shell loop.
+- \`mcp__team__stop_task\`: stop a task you handed out that's stuck or going in circles; then re-delegate.
+  When a helper may be stuck you're told (not the owner): check on it and unblock it yourself.
+- \`mcp__team__ask_owner\`: the only way to reach the owner ("needs you"). Only for what's truly theirs: a
+  decision on spend, a breaking or critical change, access or credentials, a merge or deploy you may not
+  do. Everything else you decide yourself (or with your lead); a plain reply is read when they look.
 Delegate only work that fits a teammate's job. Chains are limited to ${LIMITS.depth} handoffs deep.
 If your current task came from a teammate, your final reply is your report to them.
 
@@ -412,6 +426,8 @@ function classify(name: string, input: any): { kind: string; label: string; summ
   if (name === "mcp__team__delegate_task") return { kind: "delegate", label: "Delegate", summary: `→ ${str(input?.to)}: ${str(input?.title)}` };
   if (name === "mcp__team__send_message") return { kind: "delegate", label: "Message", summary: `→ ${str(input?.to)}: ${first(str(input?.text))}` };
   if (name === "mcp__team__get_task") return { kind: "meta", label: "Check task", summary: str(input?.task_id) };
+  if (name === "mcp__team__schedule_wakeup") return { kind: "routine", label: "Wake-up", summary: `in ${str(input?.in_minutes)} min · ${str(input?.note)}` };
+  if (name === "mcp__team__ask_owner") return { kind: "meta", label: "Asks you", summary: str(input?.question) };
   if (name === "mcp__team__schedule_routine") return { kind: "routine", label: "Schedule", summary: `${str(input?.name)} · ${str(input?.cron)}` };
   if (name === "mcp__team__retire_instance") return { kind: "agent", label: "Retire", summary: str(input?.name) };
   if (name === "mcp__team__find_work") return { kind: "meta", label: "Find work", summary: str(input?.query) };
@@ -558,9 +574,9 @@ async function runTask(taskId: string) {
   let sudo: SudoGrant | undefined;
   if (setup) sudo = grantSetupSudo(taskId);
 
-  const runOnce = async (resume: string | undefined) => {
-    const q = query({
-      prompt: task.source === "group" ? groupPrompt(task, agent) : task.prompt,
+  const runOnce = async (resume: string | undefined, promptOverride?: string) => {
+    const q = queryImpl({
+      prompt: promptOverride ?? (task.source === "group" ? groupPrompt(task, agent) : task.prompt),
       // (A compaction task's prompt is the /compact command itself.)
       options: {
         cwd: homeOf(agent),
@@ -593,17 +609,33 @@ async function runTask(taskId: string) {
     return result;
   };
 
+  // Hitting the step limit (max_turns) isn't a failure: the turn carries on in the same session.
+  const attempt = async (resume: string | undefined, prompt?: string) => {
+    try { return await runOnce(resume, prompt); } catch (err: any) {
+      if (!abort.signal.aborted && /maximum number of turns/i.test(String(err?.message))) return { subtype: "error_max_turns" };
+      throw err;
+    }
+  };
   try {
     let result: any;
     try {
-      result = await runOnce(sessionId);
+      result = await attempt(sessionId);
     } catch (err: any) {
       // A session whose transcript is gone can't be resumed: start a fresh one.
       if (sessionId && !abort.signal.aborted && /session|conversation/i.test(String(err?.message))) {
-        result = await runOnce(undefined);
+        result = await attempt(undefined);
       } else {
         throw err;
       }
+    }
+    let continued = 0;
+    while (result?.subtype === "error_max_turns" && continued < MAX_CONTINUATIONS && !abort.signal.aborted && task.source !== "compact") {
+      continued++;
+      postSystemNote(task.thread_id, `Reached the ${agent.max_turns}-step limit for one turn; carrying on automatically (${continued}/${MAX_CONTINUATIONS}).`);
+      result = await attempt(sessionId, CONTINUE_PROMPT);
+    }
+    if (result?.subtype === "error_max_turns") {
+      result = { ...result, subtype: `Reached the ${agent.max_turns}-step limit ${continued + 1} times in a row and stopped. Split the work into smaller tasks, or raise this agent's max turns.` };
     }
     if (abort.signal.aborted && result?.subtype !== "success") throw new Error("aborted");
     let content = texts.join("\n\n") || result?.result || "";
@@ -646,6 +678,14 @@ async function runTask(taskId: string) {
     if (setup) releaseSetupSudo(taskId);
   }
 }
+
+/** The SDK's query, replaceable in tests (they can't run Claude). */
+let queryImpl: typeof query = query;
+export const setQueryForTests = (q: typeof query) => { queryImpl = q; };
+
+/** How many times a turn that hits the step limit carries on by itself, and what it's told. */
+const MAX_CONTINUATIONS = 3;
+const CONTINUE_PROMPT = `[agentbox] You reached the step limit for one turn, so agentbox continued it for you. Carry on where you left off: same task, same plan. Don't repeat work that's done. If you're going in circles, stop and write your reply with where things stand and what's blocking you.`;
 
 // GUI work goes through the shared screen lock: the browser tools, and shell commands that drive
 // the display. Headless work (git, gh, tests, curl) never needs it.

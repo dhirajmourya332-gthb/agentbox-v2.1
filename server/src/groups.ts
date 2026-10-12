@@ -11,7 +11,9 @@ import { enqueueTask } from "./runner.ts";
  * own session per group and is shown the messages it missed since its last reply.
  */
 
-export const TURN_LIMIT = 12; // agent turns per owner message, before pausing for the owner
+// Agent turns per owner message before the group pauses for the owner: none by default (agents stop on
+// their own; nothing should wait on the owner). Set AGENTBOX_GROUP_TURN_LIMIT to bring a cap back.
+export const TURN_LIMIT = Number(process.env.AGENTBOX_GROUP_TURN_LIMIT) > 0 ? Number(process.env.AGENTBOX_GROUP_TURN_LIMIT) : Infinity;
 /** What an agent replies when it has nothing to add; agentbox posts nothing. */
 export const NO_REPLY = "NO_REPLY";
 export const isNoReply = (text: string) => text.trim().replace(/[`*.]/g, "") === NO_REPLY;

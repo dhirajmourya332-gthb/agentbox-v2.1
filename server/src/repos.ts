@@ -61,13 +61,16 @@ run(`CREATE TABLE IF NOT EXISTS repo_worktrees (
   UNIQUE (repo_id, instance_id)
 )`);
 run(`CREATE INDEX IF NOT EXISTS repo_worktrees_instance ON repo_worktrees(instance_id)`);
+// The work's lead (an orchestrator role) may merge PRs into protected branches when CI is green (not epics):
+// on by default, so routine, non-breaking fixes don't wait for the owner.
+if (!all<{ name: string }>(`PRAGMA table_info(repos)`).some((c) => c.name === "lead_may_merge")) run(`ALTER TABLE repos ADD COLUMN lead_may_merge INTEGER NOT NULL DEFAULT 1`);
 
 export type Provider = "github" | "gitlab" | "bitbucket" | "other";
 export type RepoStatus = "cloning" | "ready" | "error" | "archived";
 export type Repo = {
   id: string; name: string; url: string; provider: Provider; default_branch: string | null;
   description: string; test_command: string; protected_branches: string[]; allowed_roles: string[];
-  agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean;
+  agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean; lead_may_merge: boolean;
   status: RepoStatus; last_fetch_at: string | null; error: string | null;
   map_status: "none" | "running" | "ready" | "error"; map_updated_at: string | null; map_task_id: string | null; map_error: string | null;
   archive_path: string | null; archived_at: string | null; created_at: string;
@@ -82,6 +85,7 @@ const parseList = (s: unknown): string[] => { try { const v = JSON.parse(String(
 const toRepo = (r: any): Repo => ({
   ...r, protected_branches: parseList(r.protected_branches), allowed_roles: parseList(r.allowed_roles),
   agents_may_merge: !!r.agents_may_merge, agents_may_deploy: !!r.agents_may_deploy, propose_map_pr: !!r.propose_map_pr,
+  lead_may_merge: r.lead_may_merge === undefined ? true : !!r.lead_may_merge,
 });
 
 export const listRepos = (opts: { archived?: boolean } = {}) =>
@@ -433,7 +437,7 @@ export async function fetchAll() {
 
 export type RepoPatch = Partial<{
   description: string; test_command: string; default_branch: string; protected_branches: unknown; allowed_roles: unknown;
-  agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean;
+  agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean; lead_may_merge: boolean;
 }>;
 
 export function updateRepo(name: string, patch: RepoPatch): Repo {
@@ -450,14 +454,14 @@ export function updateRepo(name: string, patch: RepoPatch): Repo {
     next.protected_branches = [...new Set(patch.protected_branches.map((b) => checkBranch(String(b).trim())))];
   }
   if (patch.allowed_roles !== undefined) next.allowed_roles = resolveRoles(patch.allowed_roles);
-  for (const k of ["agents_may_merge", "agents_may_deploy", "propose_map_pr"] as const) {
+  for (const k of ["agents_may_merge", "agents_may_deploy", "propose_map_pr", "lead_may_merge"] as const) {
     if (patch[k] !== undefined) next[k] = patch[k] === true;
   }
   run(
     `UPDATE repos SET description = ?, test_command = ?, default_branch = ?, protected_branches = ?, allowed_roles = ?,
-       agents_may_merge = ?, agents_may_deploy = ?, propose_map_pr = ? WHERE id = ?`,
+       agents_may_merge = ?, agents_may_deploy = ?, propose_map_pr = ?, lead_may_merge = ? WHERE id = ?`,
     next.description, next.test_command, next.default_branch, JSON.stringify(next.protected_branches), JSON.stringify(next.allowed_roles),
-    next.agents_may_merge ? 1 : 0, next.agents_may_deploy ? 1 : 0, next.propose_map_pr ? 1 : 0, repo.id,
+    next.agents_may_merge ? 1 : 0, next.agents_may_deploy ? 1 : 0, next.propose_map_pr ? 1 : 0, next.lead_may_merge ? 1 : 0, repo.id,
   );
   changed(repo.id);
   return getRepoById(repo.id)!;
@@ -861,7 +865,7 @@ branch off origin/<default branch>; reused if you're asked for rework). The cano
 before exploring it.
 ${repos.map((r) => {
   const map = r.map_status === "ready" ? `map: ${mapDir(r.name)}/ (start with AGENTS.md)` : r.map_status === "running" ? "map: being written" : "no map yet";
-  const rules = [r.agents_may_merge ? "" : `no pushes or merges to ${r.protected_branches.join(", ") || r.default_branch}`, r.agents_may_deploy ? "" : "no deploys"].filter(Boolean).join("; ");
+  const rules = [r.agents_may_merge ? "" : `no pushes to ${r.protected_branches.join(", ") || r.default_branch}; ${r.lead_may_merge ? "the work's lead merges routine PRs into it (CI green, no breaking changes; epics and risky changes go to the owner)" : "merges into it are the owner's"}`, r.agents_may_deploy ? "" : "no deploys"].filter(Boolean).join("; ");
   return `- **${r.name}**${r.description ? `: ${r.description}` : ""} · default branch \`${r.default_branch}\`${r.test_command ? ` · tests: \`${r.test_command}\`` : ""} · ${map}${rules ? ` · ${rules}` : ""}`;
 }).join("\n")}` : "";
     cached = { version, text };

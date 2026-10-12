@@ -158,6 +158,11 @@ export type RunDetail = {
   run: RoutineRun; members: InstanceSummary[]; threads: { id: string; agent_id: string; kind: string }[];
   messages: Message[]; tasks: Task[]; steps: Step[];
 };
+/** server/src/wakeups.ts: a one-time wake-up an agent set for itself. */
+export type Wakeup = {
+  id: string; agent_id: string; agent_name: string | null; task_id: string | null; note: string; due_at: string;
+  status: "pending" | "fired" | "cancelled"; created_at: string; done_at: string | null;
+};
 export type Routine = {
   id: string; agent_id: string; thread_id: string; name: string; cron: string; timezone: string; prompt: string;
   enabled: boolean; created_by: string; created_at: string; next_runs: string[]; describe: string; last_run: RoutineRunRow | null;
@@ -242,7 +247,7 @@ export type RepoWorktree = {
 export type Repo = {
   id: string; name: string; url: string; provider: "github" | "gitlab" | "bitbucket" | "other"; default_branch: string | null;
   description: string; test_command: string; protected_branches: string[]; allowed_roles: string[];
-  agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean;
+  agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean; lead_may_merge: boolean;
   status: "cloning" | "ready" | "error" | "archived"; last_fetch_at: string | null; error: string | null;
   map_status: "none" | "running" | "ready" | "error"; map_updated_at: string | null; map_task_id: string | null; map_error: string | null;
   archive_path: string | null; archived_at: string | null; created_at: string;
@@ -374,6 +379,8 @@ export const api = {
   deleteGroup: (id: string) => call("DELETE", `/api/groups/${id}`),
   continueGroup: (id: string) => call("POST", `/api/groups/${id}/continue`),
   routines: () => call<Routine[]>("GET", "/api/routines"),
+  wakeups: () => call<{ wakeups: Wakeup[] }>("GET", "/api/wakeups"),
+  cancelWakeup: (id: string) => call<Wakeup>("POST", `/api/wakeups/${id}/cancel`),
   routine: (id: string) => call<{ routine: Routine; runs: RoutineRunRow[] }>("GET", `/api/routines/${id}`),
   routineRuns: (q: { state?: "active" | "archive"; routine_id?: string; before?: string; limit?: number }) => {
     const p = new URLSearchParams();
@@ -447,7 +454,7 @@ export const api = {
   availableRepos: (refresh = false) => call<{ accounts: { provider: string; ok: boolean; error: string | null; count: number }[]; repos: AccountRepo[] }>("GET", `/api/repos/available${refresh ? "?refresh=1" : ""}`),
   checkRepo: (url: string) => call<{ ok: boolean; default_branch: string | null; error: string | null; provider: string; name: string; taken: boolean }>("POST", "/api/repos/check", { url }),
   addRepo: (b: { url: string; name?: string; default_branch?: string; allowed_roles?: string[]; description?: string }) => call<Repo>("POST", "/api/repos", b),
-  updateRepo: (name: string, patch: Partial<Pick<Repo, "description" | "test_command" | "default_branch" | "protected_branches" | "allowed_roles" | "agents_may_merge" | "agents_may_deploy" | "propose_map_pr">>) =>
+  updateRepo: (name: string, patch: Partial<Pick<Repo, "description" | "test_command" | "default_branch" | "protected_branches" | "allowed_roles" | "agents_may_merge" | "agents_may_deploy" | "propose_map_pr" | "lead_may_merge">>) =>
     call<Repo>("PATCH", `/api/repos/${encodeURIComponent(name)}`, patch),
   fetchRepo: (name: string) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/fetch`, {}),
   retryRepo: (name: string) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/retry`, {}),

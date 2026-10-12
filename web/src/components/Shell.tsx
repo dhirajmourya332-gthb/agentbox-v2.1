@@ -4,7 +4,7 @@ import { useStore } from "../store.tsx";
 import { href, type Route } from "../router.ts";
 import { Avatar, Icon, StatusGlyph } from "./ui.tsx";
 import { PauseControl, PausedBar, ScreenPip, ThemeSwitch } from "./Controls.tsx";
-import { MarkDot, useRoomMarks, type Mark } from "./Live.tsx";
+import { MarkDot, needsOwner, useRoomMarks, type Mark } from "./Live.tsx";
 import { RailRuns } from "./Runs.tsx";
 
 function UsageChip({ usage }: { usage: Usage | null }) {
@@ -188,7 +188,7 @@ function TeamItem({ role, route }: { role: Agent; route: Route }) {
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const { agents, usage, drafts, board, groups, work, attention, activeRuns } = useStore();
   const marks = useRoomMarks();
-  const needsYou = attention.filter((i) => !i.seen_at).length;
+  const needsYou = attention.filter(needsOwner).length;
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
   // The built-in setup agent lives under Configure, not in Team or Work.
   const setupRole = agents.find((a) => !a.base_agent_id && a.builtin === "setup");

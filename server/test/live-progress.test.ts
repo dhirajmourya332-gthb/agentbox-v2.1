@@ -243,12 +243,13 @@ async function main() {
     ok(it && it.title === "tech-lead#5 replied in #release", JSON.stringify(it));
   });
 
-  await test("failed: a task in an owner room fails → item (once); routine failures don't", () => {
+  await test("failed: the owner room's lead fails → item (once); a helper's failure goes to its lead, routine failures don't", () => {
     publish({ type: "task.updated", task: { id: "t-child", agent_id: "c3", thread_id: "ho-c3", status: "failed", source: "agent", error: "boom" } });
-    publish({ type: "task.updated", task: { id: "t-child", agent_id: "c3", thread_id: "ho-c3", status: "failed", source: "agent", error: "boom" } });
+    publish({ type: "task.updated", task: { id: "t-lead", agent_id: "tl1", thread_id: "dm-tl1", status: "failed", source: "user", error: "boom" } });
+    publish({ type: "task.updated", task: { id: "t-lead", agent_id: "tl1", thread_id: "dm-tl1", status: "failed", source: "user", error: "boom" } });
     publish({ type: "task.updated", task: { id: "t-rt", agent_id: "rt1", thread_id: "dm-rt1", status: "failed", source: "cron", error: "x" } });
     const f = A.listAttention().filter((i) => i.kind === "failed");
-    eq(f.map((i) => [i.room_id, i.title]), [["tl1", "coder#3 failed: Partner API keys (boom)"]]);
+    eq(f.map((i) => [i.room_id, i.title]), [["tl1", "tech-lead#1 failed: Partner API keys (boom)"]]);
   });
 
   await test("seen: one, a room, all; unseen listed first", () => {

@@ -244,6 +244,8 @@ async function flush(ids: string[]) {
  */
 export async function sendAttentionPush(item: Attention) {
   if (!item || typeof item.id !== "string" || item.seen_at) return;
+  // Replies are "unread", not "needs you": no push for them.
+  if (item.kind === "reply") return;
   const t = Date.now();
   for (const [id, at] of queued) if (t - at > DEDUPE_MS) queued.delete(id);
   const key = `${item.id}@${item.created_at}`; // a refreshed reply keeps its id but gets a new time
