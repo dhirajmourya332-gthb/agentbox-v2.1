@@ -6,10 +6,10 @@ import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import YAML from "yaml";
 import { all, get, newId, now, run } from "./db.ts";
-import { publish } from "./bus.ts";
+import { publish, subscribe } from "./bus.ts";
 import { paths } from "./config.ts";
-import { dmThreadOf, getAgent, reviveInstance, spawnInstance, type Agent } from "./agents.ts";
-import { enqueueTask } from "./runner.ts";
+import { dmThreadOf, getAgent, retireReplica, reviveInstance, spawnInstance, type Agent } from "./agents.ts";
+import { enqueueTask, openTasksOf } from "./runner.ts";
 import { clonePath, getRepo, getRepoById, git, inside, listRepos, roleAllowed, urlKey, worktreesFor, type Repo } from "./repos.ts";
 
 /**
@@ -48,6 +48,8 @@ run(`CREATE TABLE IF NOT EXISTS memory_drafts (
   updated_at TEXT NOT NULL,
   UNIQUE (repo_id, instance_id)
 )`);
+// The agent was reopened to fold its notes in (it's closed again when done).
+if (!all<{ name: string }>(`PRAGMA table_info(memory_drafts)`).some((c) => c.name === "revived")) run(`ALTER TABLE memory_drafts ADD COLUMN revived INTEGER NOT NULL DEFAULT 0`);
 run(`CREATE TABLE IF NOT EXISTS memory_scans (
   repo_id TEXT PRIMARY KEY,
   head TEXT NOT NULL,                  -- origin/<default> when the notes were last checked
@@ -60,7 +62,7 @@ export const LIMITS = { noteBytes: 24_000, depth: 8, anchors: 20, blockLines: 40
 export type Draft = {
   id: string; repo_id: string; instance_id: string; role_id: string | null; branch: string | null; watch_branch: string | null;
   status: "open" | "promoting" | "promoted" | "discarded" | "empty"; pr_number: number | null; pr_url: string | null;
-  merge_commit: string | null; note: string | null; created_at: string; updated_at: string;
+  merge_commit: string | null; note: string | null; created_at: string; updated_at: string; revived: number;
 };
 
 // --- paths ---------------------------------------------------------------------------------------------
@@ -452,6 +454,17 @@ async function mergedByGit(repo: Repo, branch: string, since: string): Promise<b
   return false;
 }
 
+/** The branch has no commits of its own (a task that only read the code): nothing of it is unmerged. */
+async function noOwnCommits(repo: Repo, branch: string): Promise<boolean> {
+  const canon = clonePath(repo.name);
+  for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
+    if ((await git(["rev-parse", "--verify", "--quiet", ref], { cwd: canon })).code !== 0) continue;
+    const n = await git(["rev-list", "--count", ref, "--not", `refs/remotes/origin/${repo.default_branch}`], { cwd: canon });
+    if (n.code !== 0 || n.stdout.trim() !== "0") return false;
+  }
+  return true;
+}
+
 const remoteHas = async (repo: Repo, branch: string) =>
   (await git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`], { cwd: clonePath(repo.name) })).code === 0;
 
@@ -497,6 +510,9 @@ export async function checkDraft(d: Draft): Promise<Draft> {
   if (live(d.instance_id)) return d;
   // The task is closed and its work isn't merged.
   if (pr?.closed && !pr.open) { discard(d, repo, `the PR from ${branch} was closed without merging`); return draftOf(d.repo_id, d.instance_id)!; }
+  // Closed, and it changed no code (it read the default branch, e.g. to learn how something works): what it
+  // learned already describes the default branch, so it's folded in now.
+  if (notes && !pr?.open && await noOwnCommits(repo, branch)) return promote(d, repo, "read-only");
   if (!pr?.open && !(await remoteHas(repo, branch)) && worktreesFor(d.instance_id).every((w) => w.status !== "kept")) {
     if (!notes) return setDraft(d.id, { status: "empty", note: "closed without a pushed branch" });
     discard(d, repo, `${branch} was never pushed and the task is closed`);
@@ -506,11 +522,14 @@ export async function checkDraft(d: Draft): Promise<Draft> {
   return d;
 }
 
-export function promotionPrompt(repo: Repo, d: Draft) {
+export function promotionPrompt(repo: Repo, d: Draft, why: "merged" | "read-only" = "merged") {
   const drafts = draftDir(repo.name, d.instance_id);
   const tree = repoMemoryDir(repo.name);
   const what = d.pr_number ? `PR #${d.pr_number}` : `Your branch ${d.branch}`;
-  return `[agentbox] ${what} merged into ${repo.default_branch}${d.merge_commit ? ` (${d.merge_commit.slice(0, 12)})` : ""}. Fold your working notes into ${repo.name}'s memory, so the next agent finds them.
+  const head = why === "read-only"
+    ? `[agentbox] This task is closed and changed no code, so what you learned describes ${repo.default_branch} as it is.`
+    : `[agentbox] ${what} merged into ${repo.default_branch}${d.merge_commit ? ` (${d.merge_commit.slice(0, 12)})` : ""}.`;
+  return `${head} Fold your working notes into ${repo.name}'s memory, so the next agent finds them.
 
 - Your drafts: ${drafts}/
 - The repo's memory: ${tree}/ (start with INDEX.md; it may be empty)
@@ -525,16 +544,18 @@ export function promotionPrompt(repo: Repo, d: Draft) {
 Keep it brief: a few precise notes beat many long ones.`;
 }
 
-function promote(d: Draft, repo: Repo): Draft {
+function promote(d: Draft, repo: Repo, why: "merged" | "read-only" = "merged"): Draft {
   let a = getAgent(d.instance_id);
+  let revived = 0;
   try {
-    if (a?.retired_at) a = reviveInstance(a.id, a.created_by ?? "owner") ?? a;
+    if (a?.retired_at) { a = reviveInstance(a.id, a.created_by ?? "owner") ?? a; revived = a.retired_at ? 0 : 1; }
   } catch { /* at its limit: a fresh instance of the role does it below */ a = undefined; }
   if (!a || a.retired_at) {
     const role = d.role_id ? getAgent(d.role_id) : undefined;
     if (!role || role.retired_at) return setDraft(d.id, { note: "merged, but neither the task nor its role exists to fold the notes in" });
     try {
       a = spawnInstance(role.id, { label: `Memory: ${repo.name}${d.pr_number ? ` #${d.pr_number}` : ""}`, createdBy: "owner" });
+      revived = 1;
       run(`UPDATE memory_drafts SET instance_id = ? WHERE id = ?`, a.id, d.id);
       const from = draftDir(repo.name, d.instance_id), to = draftDir(repo.name, a.id);
       if (exists(from)) { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); }
@@ -545,11 +566,14 @@ function promote(d: Draft, repo: Repo): Draft {
   }
   const threadId = dmThreadOf(a.id);
   if (!threadId) return d;
-  const out = setDraft(d.id, { status: "promoting", note: null });
+  const out = setDraft(d.id, { status: "promoting", note: null, revived });
   enqueueTask({
-    agentId: a.id, threadId, source: "message", title: `Memory: fold in notes from ${d.pr_number ? `PR #${d.pr_number}` : d.branch}`.slice(0, 120),
-    prompt: promotionPrompt(repo, out),
-    input: { author: "system", content: `${d.pr_number ? `PR #${d.pr_number}` : d.branch} merged into ${repo.default_branch}: fold the task's notes into ${repo.name}'s memory.` },
+    agentId: a.id, threadId, source: "message",
+    title: (why === "read-only" ? `Memory: fold in what this task learned` : `Memory: fold in notes from ${d.pr_number ? `PR #${d.pr_number}` : d.branch}`).slice(0, 120),
+    prompt: promotionPrompt(repo, out, why),
+    input: { author: "system", content: why === "read-only"
+      ? `Task closed with no code changes: fold what it learned into ${repo.name}'s memory.`
+      : `${d.pr_number ? `PR #${d.pr_number}` : d.branch} merged into ${repo.default_branch}: fold the task's notes into ${repo.name}'s memory.` },
   });
   return out;
 }
@@ -562,7 +586,19 @@ export function finishPromotion(agent: Agent, repoName: unknown): string {
   if (!d || d.status !== "promoting") throw new Error(`You have no merged notes to fold into ${repo.name}`);
   try { fs.rmSync(draftDir(repo.name, agent.id), { recursive: true, force: true }); } catch { /* gone */ }
   setDraft(d.id, { status: "promoted", note: null });
+  // Reopened only for this: closed again once its turn ends (unless something else is waiting for it).
+  if (d.revived) closeWhenIdle(agent.id);
   return `Done: your drafts for ${repo.name} are removed; the tree has what you kept.`;
+}
+
+function closeWhenIdle(id: string, tries = 0) {
+  setTimeout(() => {
+    const a = getAgent(id);
+    if (!a || a.retired_at) return;
+    const busy = openTasksOf(id).length > 0 || all<Draft>(`SELECT * FROM memory_drafts WHERE instance_id = ? AND status = 'promoting'`, id).length > 0;
+    if (!busy) { try { retireReplica(id); } catch { /* gone */ } return; }
+    if (tries < 120) closeWhenIdle(id, tries + 1);
+  }, Number(process.env.AGENTBOX_MEMORY_CLOSE_MS ?? 30_000)).unref?.();
 }
 
 // --- the instruction layer --------------------------------------------------------------------------------
@@ -594,7 +630,8 @@ ${trees.join("\n")}
   (memory_write with its rev). That's how notes stay true; don't sweep notes your task doesn't need.
 - **Be specific:** when the memory shows several variants (three portals with three auth setups), name the one you
   mean, and ask whoever gave you the task when it's ambiguous which one they mean.
-- **New knowledge lands when work merges** to the default branch. While you work, write what you learn as notes in
+- **New knowledge lands when work merges** to the default branch, or, for a task that changes no code (e.g.
+  learning how something works), when the task is closed. While you work, write what you learn as notes in
   this task's draft folder for the repo (listed above; plain files, yours; mirror the tree's paths where you can). When your PR merges you'll
   be asked to fold them in. Only what the code can't tell quickly: decisions and why, gotchas, where things live,
   conventions, dead code to avoid. Not restatements of code.
@@ -636,6 +673,7 @@ export async function memoryTick() {
 }
 
 let timer: NodeJS.Timeout | null = null;
+let unsub: (() => void) | null = null;
 export function startMemory(opts: { log?: (m: string) => void } = {}) {
   const log = opts.log ?? ((m: string) => console.log(m));
   fs.mkdirSync(memoryRoot(), { recursive: true });
@@ -644,9 +682,17 @@ export function startMemory(opts: { log?: (m: string) => void } = {}) {
   const tick = () => void memoryTick().then((r) => { if (Object.keys(r.scans).length) log(`memory: ${JSON.stringify(r.scans)}`); }).catch(() => {});
   if (timer) clearInterval(timer);
   timer = setInterval(tick, ms);
+  // A task closed: its drafts are checked soon (after its worktree closes), not at the next pass.
+  unsub?.();
+  unsub = subscribe((e) => {
+    if (e.type !== "agent.retired") return;
+    setTimeout(() => {
+      for (const d of all<Draft>(`SELECT * FROM memory_drafts WHERE instance_id = ? AND status = 'open'`, e.agentId)) void checkDraft(d).catch(() => {});
+    }, Number(process.env.AGENTBOX_MEMORY_RETIRE_MS ?? 15_000)).unref?.();
+  });
   timer.unref();
   setTimeout(tick, 60_000).unref();
-  return { stop: () => { if (timer) clearInterval(timer); timer = null; } };
+  return { stop: () => { if (timer) clearInterval(timer); timer = null; unsub?.(); unsub = null; } };
 }
 
 // --- views ----------------------------------------------------------------------------------------------------

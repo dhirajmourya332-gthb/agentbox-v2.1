@@ -31,7 +31,7 @@ Object.assign(process.env, {
   GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: "1", AGENTBOX_GH: fakeGh, FAKE_GH_PRS: prsFile,
   AGENTBOX_CONFIG: configFile, AGENTBOX_DATA: dirs.data, AGENTBOX_AGENTS: dirs.agents, AGENTBOX_WORK: dirs.work, AGENTBOX_SKILLS: dirs.skills,
   AGENTBOX_TEAM: dirs.team, AGENTBOX_SECRETS: dirs.secrets, AGENTBOX_INTEGRATIONS: dirs.integrations, AGENTBOX_CLI: "/nonexistent/agentbox",
-  AGENTBOX_PROGRESS_TICK_MS: "3600000", AGENTBOX_REPO_FETCH_MS: "3600000", NO_COLOR: "1",
+  AGENTBOX_PROGRESS_TICK_MS: "3600000", AGENTBOX_REPO_FETCH_MS: "3600000", AGENTBOX_MEMORY_CLOSE_MS: "50", NO_COLOR: "1",
 });
 
 const sh = (cmd: string, args: string[], cwd?: string) => {
@@ -370,6 +370,43 @@ test("closed unmerged: drafts discarded once the task is closed; a closed task's
   RU.instructionLayers(v);
   assert.equal((await M.checkDraft(draftRow(v.id))).status, "empty");
   assert.equal(all<any>(`SELECT * FROM tasks WHERE agent_id = ?`, v.id).length, 0);
+});
+
+test("read-only tasks: closed with no code changes, what they learned is folded in, then they're closed again", async () => {
+  fs.writeFileSync(prsFile, "[]");
+  // Earlier tests' tasks are done (reviving is limited to a few live tasks per role and creator).
+  run(`UPDATE agents SET retired_at = ? WHERE base_agent_id IS NOT NULL AND retired_at IS NULL`, new Date().toISOString());
+  const t = task(coder.id, "Learn how the scraper works");
+  await R.ensureWorktree(t, repo.name);
+  RU.instructionLayers(t);
+  const dd = M.draftDir(repo.name, t.id);
+  fs.mkdirSync(path.join(dd, "scraper"), { recursive: true });
+  fs.writeFileSync(path.join(dd, "scraper", "overview.md"), "Five deployments on one image.\n");
+  assert.equal((await M.checkDraft(draftRow(t.id))).status, "open", "nothing while the task is open");
+  A.retireReplica(t.id);
+  const d = await M.checkDraft(draftRow(t.id));
+  assert.equal(d.status, "promoting");
+  assert.equal(d.revived, 1);
+  assert.equal(A.getAgent(t.id)!.retired_at, null, "reopened to fold in");
+  const q = all<any>(`SELECT * FROM tasks WHERE agent_id = ? AND status = 'queued'`, t.id);
+  assert.match(q[0].prompt, /changed no code/);
+  run(`UPDATE tasks SET status = 'done' WHERE id = ?`, q[0].id);
+  const r = await call(t, "memory_write", { repo: repo.name, path: "scraper/overview.md", content: "---\nanchors: [README.md]\n---\nFive deployments on one image.\n" });
+  assert.ok(!r.isError, out(r));
+  assert.ok(!(await call(t, "memory_promoted", { repo: repo.name })).isError);
+  await waitFor(() => !!A.getAgent(t.id)!.retired_at, 5000);
+  // A task with commits of its own isn't read-only: closed unmerged, its drafts are discarded.
+  const c = task(coder.id, "Unmerged change");
+  const wt = await R.ensureWorktree(c, repo.name);
+  RU.instructionLayers(c);
+  const cd = M.draftDir(repo.name, c.id);
+  fs.mkdirSync(cd, { recursive: true });
+  fs.writeFileSync(path.join(cd, "n.md"), "x\n");
+  fs.writeFileSync(path.join(wt.path!, "README.md"), "# changed\n");
+  sh("git", ["commit", "-q", "-am", "local change"], wt.path!);
+  run(`UPDATE agents SET retired_at = ? WHERE id = ?`, new Date().toISOString(), c.id);
+  run(`UPDATE repo_worktrees SET status = 'removed' WHERE instance_id = ?`, c.id);
+  assert.equal((await M.checkDraft(draftRow(c.id))).status, "discarded");
 });
 
 test("summary: per repo notes, stale count and drafts", async () => {

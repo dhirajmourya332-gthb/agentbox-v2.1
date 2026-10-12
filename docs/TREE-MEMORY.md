@@ -49,6 +49,9 @@ This is separate from:
      - the branch was never pushed;
      - nothing has merged after 30 days.
    - Merges with no draft notes wake nobody.
+   - **Read-only tasks** (learning how something works; no commits of their own, no open PR): when the task
+     is closed, what it learned already describes the default branch, so it's folded in then. The agent is
+     reopened for that and closed again afterwards.
 2. **Notes are anchored to code, and staleness costs no tokens.**
    - **Anchors:** a note lists the code it describes in its frontmatter,
      `anchors: [portal-a/auth.ts#refreshToken, portal-a/roles.ts]`. Each anchor is a file, or a file plus a
