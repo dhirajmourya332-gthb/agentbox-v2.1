@@ -11,7 +11,7 @@ import { leadFor as delegatorOf, raiseAttention } from "./attention.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
-import { deleteNote, finishPromotion, moveNote, writeNote } from "./memory.ts";
+import { deleteNote, draftDir, ensureDrafts, finishPromotion, moveNote, repoMemoryDir, writeNote } from "./memory.ts";
 import { isSetupAgent } from "./setup.ts";
 import { isOrchestrator } from "./roleGuards.ts";
 import { roadmapsOf } from "./roadmaps.ts";
@@ -470,11 +470,13 @@ export function teamTools(agent: Agent, taskId: string) {
           try {
             const wt = await ensureWorktree(agent, name);
             const r = wt.repo;
+            try { ensureDrafts(agent); } catch { /* the next turn tracks it */ }
             return text([
               `Your worktree for ${r.name}: ${wt.path}`,
               `Branch: ${wt.branch} (off origin/${r.default_branch}; push it with \`git push -u origin HEAD\`, then open a PR).`,
               r.test_command ? `Tests: ${r.test_command}` : "",
               r.map_status === "ready" ? `Map: ${mapDir(r.name)}/ (read AGENTS.md first)` : "",
+              `Repo memory: ${repoMemoryDir(r.name)}/ (read INDEX.md first). Write what you learn to your draft folder ${draftDir(r.name, agent.id)}/; it's folded in when your work merges.`,
               `Never edit the canonical clone; ${r.agents_may_merge ? "" : `pushes and merges to ${r.protected_branches.join(", ")} are refused; `}${r.agents_may_deploy ? "" : "deploys are refused."}`,
             ].filter(Boolean).join("\n"));
           } catch (e: any) {

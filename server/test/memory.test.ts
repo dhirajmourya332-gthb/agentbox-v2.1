@@ -148,6 +148,13 @@ test("layer: every task sees the trees it may use and its own draft folder; how 
   assert.match(layer, /stale:/);
   assert.match(layer, /name the one you\s+mean/);
   assert.equal(draftRow(fix.id).status, "open");
+  // A task that hasn't picked a repo yet still knows where its drafts for each repo go.
+  const fresh = task(coder.id, "Not bound yet");
+  assert.ok(RU.instructionLayers(fresh).find((l) => l.id === "repos")!.text.includes(M.draftDir(repo.name, fresh.id)));
+  // use_repo mid-turn: the result names the tree and the draft folder, and the draft is tracked right away.
+  const r = await call(fresh, "use_repo", { name: repo.name });
+  assert.ok(out(r).includes(M.draftDir(repo.name, fresh.id)) && out(r).includes(tree), out(r));
+  assert.equal(draftRow(fresh.id)?.status, "open");
   // Roles (not tasks) get no memory section.
   assert.ok(!RU.instructionLayers(coder).find((l) => l.id === "repos")!.text.includes("Repo memory"));
 });

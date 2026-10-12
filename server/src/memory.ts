@@ -577,7 +577,7 @@ export function memoryLayer(agent: Agent): string {
     const dir = repoMemoryDir(r.name);
     const n = listNotes(dir).length;
     const stale = get<{ stale: number }>(`SELECT stale FROM memory_scans WHERE repo_id = ?`, r.id)?.stale ?? 0;
-    return `- **${r.name}**: ${dir}/ ${n ? `(${n} note${n === 1 ? "" : "s"}${stale ? `, ${stale} marked stale` : ""}; start with INDEX.md)` : "(empty so far)"}`;
+    return `- **${r.name}**: ${dir}/ ${n ? `(${n} note${n === 1 ? "" : "s"}${stale ? `, ${stale} marked stale` : ""}; start with INDEX.md)` : "(empty so far)"} · your drafts for it: ${draftDir(r.name, agent.id)}/`;
   });
   const mine = drafts.map((d) => {
     const r = getRepoById(d.repo_id)!;
@@ -595,7 +595,7 @@ ${trees.join("\n")}
 - **Be specific:** when the memory shows several variants (three portals with three auth setups), name the one you
   mean, and ask whoever gave you the task when it's ambiguous which one they mean.
 - **New knowledge lands when work merges** to the default branch. While you work, write what you learn as notes in
-  this task's draft folder (plain files, yours; mirror the tree's paths where you can). When your PR merges you'll
+  this task's draft folder for the repo (listed above; plain files, yours; mirror the tree's paths where you can). When your PR merges you'll
   be asked to fold them in. Only what the code can't tell quickly: decisions and why, gotchas, where things live,
   conventions, dead code to avoid. Not restatements of code.
 - **Anchors:** a note that describes code lists it in its frontmatter (\`anchors:\` with \`path/in/repo\` or
