@@ -200,9 +200,31 @@ async function showFile(canon: string, ref: string, file: string, cache?: Map<st
   return v;
 }
 
-/** The anchor's hash at `ref` (null: the file or symbol isn't there). */
+/** blob | tree | null (not at that ref). */
+async function objType(canon: string, ref: string, p: string, cache?: Map<string, string | null>): Promise<string | null> {
+  const key = `type:${ref}:${p}`;
+  if (cache?.has(key)) return cache.get(key)!;
+  const r = await git(["cat-file", "-t", `${ref}:${p}`], { cwd: canon, timeoutMs: 30_000 });
+  const v = r.code === 0 ? r.stdout.trim() : null;
+  cache?.set(key, v);
+  return v;
+}
+
+/**
+ * The anchor's hash at `ref` (null: the file, folder or symbol isn't there). A folder anchor (`path/`) hashes the
+ * list of files under it: adding, removing or renaming a file changes it, edits inside files don't.
+ */
 export async function anchorHash(canon: string, ref: string, a: Anchor, cache?: Map<string, string | null>): Promise<string | null> {
-  const src = await showFile(canon, ref, a.file, cache);
+  const p = a.file.replace(/\/+$/, "");
+  const type = await objType(canon, ref, p, cache);
+  if (!type) return null;
+  if (type === "tree") {
+    if (a.symbol) return null;
+    const r = await git(["ls-tree", "-r", "--name-only", ref, "--", p], { cwd: canon, timeoutMs: 60_000 });
+    return r.code === 0 ? sha(`tree\n${r.stdout.trim()}`) : null;
+  }
+  if (a.file.endsWith("/")) return null;
+  const src = await showFile(canon, ref, p, cache);
   if (src === null) return null;
   if (!a.symbol) return sha(normalize(src));
   const block = symbolBlock(src, a.symbol);
@@ -232,6 +254,22 @@ function writeAtomic(file: string, text: string) {
 }
 
 const changed = (repo: Repo) => publish({ type: "memory.updated", repo: repo.name });
+
+/**
+ * Every change to a repo's tree is a commit in its own local git history (<tree>/.git): who changed what, and
+ * an earlier version to restore when a rewrite went wrong (`git -C <tree> log -p -- <note>`). Never pushed.
+ */
+async function record(repo: Repo, message: string) {
+  const dir = repoMemoryDir(repo.name);
+  if (!exists(dir)) return;
+  const g = (args: string[]) => git(["-c", "user.name=agentbox", "-c", "user.email=agentbox@localhost", "-c", "commit.gpgsign=false", ...args], { cwd: dir, timeoutMs: 30_000 });
+  if (!exists(path.join(dir, ".git"))) {
+    if ((await g(["init", "-q", "-b", "main"])).code !== 0) return;
+  }
+  await g(["add", "-A"]);
+  if ((await g(["diff", "--cached", "--quiet"])).code === 0) return;
+  await g(["commit", "-q", "-m", message.slice(0, 500)]);
+}
 
 function usableRepo(agent: Agent, name: string): Repo {
   const repo = getRepo(String(name ?? "").trim());
@@ -290,12 +328,38 @@ export function writeNote(agent: Agent, input: { repo: unknown; path: unknown; c
     const rev = (current?.rev ?? 0) + 1;
     const verified = head ? `${head.slice(0, 12)} ${now().slice(0, 10)} by ${agent.name}` : `${now().slice(0, 10)} by ${agent.name}`;
     writeAtomic(file, renderNote(note, { rev, verified, anchors }));
+    await record(repo, `${agent.name}: ${current ? "update" : "add"} ${rel} (rev ${rev})`);
     changed(repo);
     const hints = [
       anchors.length ? `anchored to ${anchors.length} place(s) at ${head!.slice(0, 12)}` : "no anchors (it never goes stale; anchor notes that describe code)",
       indexMentions(dir, rel) ? "" : `${path.dirname(rel) === "." ? "INDEX.md" : `${path.dirname(rel)}/INDEX.md`} doesn't list it yet: add a line`,
     ].filter(Boolean);
     return `Saved ${rel} (rev ${rev}; ${hints.join("; ")}).`;
+  });
+}
+
+/** memory_confirm: the agent checked a note against the code and it's still right: re-stamp it at origin/<default>. */
+export function confirmNote(agent: Agent, input: { repo: unknown; path: unknown; rev: unknown }): Promise<string> {
+  const repo = usableRepo(agent, String(input.repo ?? ""));
+  const rel = notePath(input.path, { repo: repo.name });
+  return withLock(repo.id, async () => {
+    const file = inside(repoMemoryDir(repo.name), ...rel.split("/"));
+    if (!exists(file)) throw new Error(`${rel} doesn't exist`);
+    const note = parseNote(fs.readFileSync(file, "utf8"));
+    if (Number(input.rev) !== note.rev) throw new Error(`${rel} changed since you read it (rev ${note.rev}): read it again`);
+    const head = await headOf(repo);
+    if (!head) throw new Error(`Can't read origin/${repo.default_branch} in ${repo.name}'s clone`);
+    const cache = new Map<string, string | null>();
+    const anchors: Anchor[] = [];
+    for (const a of note.anchors) {
+      const h = await anchorHash(clonePath(repo.name), head, a, cache);
+      if (h === null) throw new Error(`${anchorText({ ...a, hash: null })} isn't on ${repo.default_branch} any more: rewrite the note (memory_write) instead`);
+      anchors.push({ ...a, hash: h });
+    }
+    writeAtomic(file, renderNote(note, { rev: note.rev, verified: `${head.slice(0, 12)} ${now().slice(0, 10)} by ${agent.name}`, anchors }));
+    await record(repo, `${agent.name}: confirm ${rel} at ${head.slice(0, 12)}`);
+    changed(repo);
+    return `Confirmed ${rel}: verified at ${head.slice(0, 12)}${note.stale ? "; the stale mark is cleared" : ""}.`;
   });
 }
 
@@ -315,6 +379,7 @@ export function moveNote(agent: Agent, input: { repo: unknown; from: unknown; to
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.renameSync(src, dst);
     pruneEmpty(dir, path.dirname(src));
+    await record(repo, `${agent.name}: move ${from} → ${to}`);
     changed(repo);
     return `Moved ${from} → ${to}. Update the INDEX.md files that listed it.`;
   });
@@ -330,6 +395,7 @@ export function deleteNote(agent: Agent, input: { repo: unknown; path: unknown }
     if (!exists(p)) throw new Error(`${rel} doesn't exist`);
     fs.rmSync(p, { recursive: true, force: true });
     pruneEmpty(dir, path.dirname(p));
+    await record(repo, `${agent.name}: delete ${rel}`);
     changed(repo);
     return `Deleted ${rel}. Update the INDEX.md that listed it.`;
   });
@@ -385,7 +451,7 @@ export async function scanRepo(repo: Repo, opts: { force?: boolean } = {}): Prom
     }
     run(`INSERT INTO memory_scans (repo_id, head, scanned_at, stale) VALUES (?, ?, ?, ?)
          ON CONFLICT(repo_id) DO UPDATE SET head = excluded.head, scanned_at = excluded.scanned_at, stale = excluded.stale`, repo.id, head, now(), stale);
-    if (marked) changed(repo);
+    if (marked) { await record(repo, `agentbox: ${stale} stale at ${head.slice(0, 12)}`); changed(repo); }
     return { checked, stale, marked };
   });
 }
@@ -536,7 +602,7 @@ export function promotionPrompt(repo: Repo, d: Draft, why: "merged" | "read-only
 
 1. Read the tree's INDEX.md files along the paths that matter, and the notes your drafts overlap with.
 2. Keep only what the code can't tell quickly and is now true on ${repo.default_branch}: decisions and why, gotchas, where things live, conventions, dead code. Drop task chatter and restatements of code.
-3. Prefer extending an existing note (memory_write with its rev) over a new one; put new ones where the tree's structure says they belong (you may reorganise with memory_move). Be specific in names when there are several variants (portal-a/auth.md, not auth.md).
+3. Drafts that correct an existing note (same path, or say so) are merged into that note. Prefer extending an existing note (memory_write with its rev) over a new one; put new ones where the tree's structure says they belong (you may reorganise with memory_move). Be specific in names when there are several variants (portal-a/auth.md, not auth.md).
 4. Anchor each note that describes code (\`anchors:\` in its frontmatter: path or path#symbol on ${repo.default_branch}).
 5. Keep the INDEX.md of every folder you touched current: one line per note or subfolder.
 6. Call mcp__team__memory_promoted with repo "${repo.name}" when done (or if nothing is worth keeping). It removes the drafts.
@@ -625,9 +691,15 @@ choose the folders, names and layout). Look before you explore: read INDEX.md, t
 notes your task needs. You can read it any time, at the start or in the middle of a task.
 ${trees.join("\n")}
 
-- **Stale notes:** a note with \`stale:\` in its header describes code that changed on the default branch since it
-  was verified. Re-check it against the code before relying on it; if your task depends on it, fix it
-  (memory_write with its rev). That's how notes stay true; don't sweep notes your task doesn't need.
+- **Trust, but verify what you act on:** before you rely on a claim from a note (to plan, delegate or change code),
+  check that one claim in the code; the note's anchors point to where. A few targeted reads, not a fresh
+  exploration; don't verify what you only skimmed. A note marked \`stale:\` (its anchored code changed since it was
+  verified) must be re-checked before you rely on it.
+- **What you found, write it down now** (a stopped task loses nothing):
+  - still right: \`memory_confirm\` (path, rev) re-stamps it as verified on the default branch;
+  - wrong about the default branch as it is today: fix it now with \`memory_write\` (its rev);
+  - your own change will make it wrong: put the correction in your draft folder at the note's path; it lands when
+    your work merges. Don't sweep notes your task doesn't need.
 - **Be specific:** when the memory shows several variants (three portals with three auth setups), name the one you
   mean, and ask whoever gave you the task when it's ambiguous which one they mean.
 - **New knowledge lands when work merges** to the default branch, or, for a task that changes no code (e.g.
@@ -635,10 +707,13 @@ ${trees.join("\n")}
   this task's draft folder for the repo (listed above; plain files, yours; mirror the tree's paths where you can). When your PR merges you'll
   be asked to fold them in. Only what the code can't tell quickly: decisions and why, gotchas, where things live,
   conventions, dead code to avoid. Not restatements of code.
-- **Anchors:** a note that describes code lists it in its frontmatter (\`anchors:\` with \`path/in/repo\` or
-  \`path/in/repo#symbol\`); agentbox hashes them and marks the note stale when that code changes.
+- **Anchors:** a note that describes code lists it in its frontmatter (\`anchors:\` with \`path/in/repo\`,
+  \`path/in/repo#symbol\` or a folder \`path/in/repo/\`); agentbox hashes them and marks the note stale when that code
+  changes. A folder anchor flags the note when files are added, removed or renamed under it (not edits): use it
+  for overview and architecture notes, next to their entry points.
 - **Writing the tree:** it's read-only to file tools and shell writes. Use mcp__team__memory_write (an existing note
-  needs the \`rev\` from its header), memory_move and memory_delete. Reuse existing folders and names before making
+  needs the \`rev\` from its header), memory_confirm, memory_move and memory_delete; every change is kept in the
+  tree's own git history (\`git -C <tree> log -p -- <note>\` shows earlier versions). Reuse existing folders and names before making
   new ones, and keep each folder's INDEX.md current (one line per note or subfolder).${mine.length ? `\n\nThis task's draft folders:\n${mine.join("\n")}` : ""}`;
 }
 

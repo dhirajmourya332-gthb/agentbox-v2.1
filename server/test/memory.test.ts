@@ -147,6 +147,10 @@ test("layer: every task sees the trees it may use and its own draft folder; how 
   assert.ok(layer.includes(draftsDir), "its draft folder");
   assert.match(layer, /stale:/);
   assert.match(layer, /name the one you\s+mean/);
+  assert.match(layer, /Trust, but verify what you act on/);
+  assert.match(layer, /memory_confirm/);
+  assert.match(layer, /your own change will make it wrong: put the correction in your draft folder/);
+  assert.match(layer, /folder `path\/in\/repo\/`/);
   assert.equal(draftRow(fix.id).status, "open");
   // A task that hasn't picked a repo yet still knows where its drafts for each repo go.
   const fresh = task(coder.id, "Not bound yet");
@@ -302,6 +306,71 @@ test("staleness: no tokens; an edit elsewhere in the file or reformatting doesn'
   assert.equal(fresh.stale, null);
   assert.equal(fresh.rev, st.rev + 1);
   assert.equal((await M.scanRepo(R.getRepo(repo.name)!, { force: true }))?.stale, 0);
+});
+
+test("confirm: a checked note is re-stamped at main (rev kept, stale cleared); a stale read or a gone anchor is refused", async () => {
+  const rel = path.join(tree, "portal-a", "auth.md");
+  const base = sh("git", ["show", "origin/main:portal-a/auth.ts"], canon);
+  const head = commit("portal-a/auth.ts", base.replace("jwt.rotate(token, { ttl: 90 })", "jwt.rotate(token, { ttl: 95 })"), "ttl 95");
+  await fetchNow();
+  await M.scanRepo(R.getRepo(repo.name)!);
+  const n = M.parseNote(fs.readFileSync(rel, "utf8"));
+  assert.ok(n.stale);
+  let r = await call(fix, "memory_confirm", { repo: repo.name, path: "portal-a/auth.md", rev: n.rev - 1 });
+  assert.equal(r.isError, true);
+  assert.match(out(r), /changed since you read it/);
+  r = await call(fix, "memory_confirm", { repo: repo.name, path: "portal-a/auth.md", rev: n.rev });
+  assert.ok(!r.isError, out(r));
+  assert.match(out(r), /stale mark is cleared/);
+  const c = M.parseNote(fs.readFileSync(rel, "utf8"));
+  assert.equal(c.rev, n.rev, "confirming isn't a rewrite");
+  assert.equal(c.stale, null);
+  assert.match(String(c.meta.verified), new RegExp(`^${head.slice(0, 12)} `));
+  assert.equal(c.body, n.body);
+  assert.equal((await M.scanRepo(R.getRepo(repo.name)!, { force: true }))?.stale, 0);
+});
+
+test("folder anchors: a file added, removed or renamed under the folder marks the note; edits inside files don't", async () => {
+  // A new note can only come from merged work: write it through a promotion-state draft.
+  run(`UPDATE memory_drafts SET status = 'promoting' WHERE instance_id = ?`, fix.id);
+  let r = await call(fix, "memory_write", { repo: repo.name, path: "portal-a/overview.md", content: "---\nanchors: [portal-a/, portal-a/auth.ts]\n---\n# Portal A\nOne module: auth.\n" });
+  assert.ok(!r.isError, out(r));
+  r = await call(fix, "memory_write", { repo: repo.name, path: "portal-a/folder-only.md", content: "---\nanchors: [portal-a/]\n---\nlayout\n" });
+  assert.ok(!r.isError, out(r));
+  r = await call(fix, "memory_write", { repo: repo.name, path: "portal-a/bad.md", content: "---\nanchors: [portal-z/]\n---\nx\n" });
+  assert.equal(r.isError, true);
+  run(`UPDATE memory_drafts SET status = 'promoted' WHERE instance_id = ?`, fix.id);
+  const note = (f: string) => M.parseNote(fs.readFileSync(path.join(tree, "portal-a", f), "utf8"));
+  // An edit inside a file: the folder-only note stays fresh.
+  const base = sh("git", ["show", "origin/main:portal-a/auth.ts"], canon);
+  commit("portal-a/auth.ts", base + "\nexport const extra = 1;\n", "edit inside");
+  await fetchNow();
+  await M.scanRepo(R.getRepo(repo.name)!);
+  assert.equal(note("folder-only.md").stale, null);
+  // A new file under the folder: flagged.
+  sh("git", ["pull", "-q", "--rebase", "origin", "main"], seed);
+  fs.writeFileSync(path.join(seed, "portal-a", "sso.ts"), "export const sso = true;\n");
+  sh("git", ["add", "."], seed);
+  sh("git", ["commit", "-q", "-m", "add sso"], seed);
+  sh("git", ["push", "-q", "origin", "HEAD:main"], seed);
+  await fetchNow();
+  await M.scanRepo(R.getRepo(repo.name)!);
+  assert.match(note("folder-only.md").stale!, /portal-a\/ changed on main/);
+  assert.match(note("overview.md").stale!, /portal-a\//);
+});
+
+test("history: every change to the tree is a commit in its own git (who, what), so earlier versions can be restored", async () => {
+  const log = sh("git", ["-C", tree, "log", "--format=%s"]);
+  assert.match(log, /tech-lead#\d+: add portal-a\/auth\.md \(rev 1\)|coder#\d+: add portal-a\/auth\.md \(rev 1\)/);
+  assert.match(log, /devops#\d+: update portal-a\/auth\.md \(rev 2\)/);
+  assert.match(log, /confirm portal-a\/auth\.md at [0-9a-f]{12}/);
+  assert.match(log, /agentbox: \d+ stale at [0-9a-f]{12}/);
+  // An earlier version is there.
+  assert.match(sh("git", ["-C", tree, "log", "-p", "--", "portal-a/auth.md"]), /Sessions last 30 min/);
+  // The history isn't a note, and agents can read it but not rewrite it.
+  assert.ok(!M.listNotes(tree).some((n) => n.startsWith(".git")));
+  assert.equal(await G.repoViolation(fix, "Bash", { command: `git -C ${tree} log -p -- portal-a/auth.md` }), null);
+  assert.ok(await G.repoViolation(fix, "Bash", { command: `git -C ${tree} reset --hard HEAD~1` }));
 });
 
 test("reorganise: move and delete (the tree is the agents'); paths stay inside", async () => {

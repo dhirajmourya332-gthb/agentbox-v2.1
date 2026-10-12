@@ -11,7 +11,7 @@ import { leadFor as delegatorOf, raiseAttention } from "./attention.ts";
 import { createRoutine, defaultTimezone, deleteRoutine, describeCron, listRoutines } from "./routines.ts";
 import { bindRepo, ensureWorktree, fetchRepo, finishMap, getRepo, mapDir, roleAllowed, type Repo } from "./repos.ts";
 import { requestSetup } from "./setupRequests.ts";
-import { deleteNote, draftDir, ensureDrafts, finishPromotion, moveNote, repoMemoryDir, writeNote } from "./memory.ts";
+import { confirmNote, deleteNote, draftDir, ensureDrafts, finishPromotion, moveNote, repoMemoryDir, writeNote } from "./memory.ts";
 import { isSetupAgent } from "./setup.ts";
 import { isOrchestrator } from "./roleGuards.ts";
 import { roadmapsOf } from "./roadmaps.ts";
@@ -514,6 +514,15 @@ export function teamTools(agent: Agent, taskId: string) {
         },
         async (args) => {
           try { return text(await writeNote(agent, args)); } catch (e: any) { return refuse(e.message); }
+        },
+      ),
+
+      tool(
+        "memory_confirm",
+        "You checked a repo-memory note against the code and it's still right: re-stamp it as verified on the default branch (clears a stale mark). Pass the rev from its header.",
+        { repo: z.string(), path: z.string(), rev: z.number() },
+        async (args) => {
+          try { return text(await confirmNote(agent, args)); } catch (e: any) { return refuse(e.message); }
         },
       ),
 

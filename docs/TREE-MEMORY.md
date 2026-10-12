@@ -54,8 +54,11 @@ This is separate from:
      reopened for that and closed again afterwards.
 2. **Notes are anchored to code, and staleness costs no tokens.**
    - **Anchors:** a note lists the code it describes in its frontmatter,
-     `anchors: [portal-a/auth.ts#refreshToken, portal-a/roles.ts]`. Each anchor is a file, or a file plus a
-     symbol: a function, class, method or constant.
+     `anchors: [portal-a/auth.ts#refreshToken, portal-a/roles.ts, portal-a/]`. Each anchor is a file, a file
+     plus a symbol (a function, class, method or constant), or a folder (`path/`).
+   - **Folder anchors** hash the list of files under the folder: adding, removing or renaming a file flags the
+     note, but edits inside files don't. They're meant for overview and architecture notes, next to the entry
+     points.
    - **Hashing:** agentbox hashes each anchor at origin/<default>. For a symbol, it hashes only that symbol's
      block, ignoring whitespace.
    - **Re-checking:** when the default branch moves, the background pass re-hashes the anchors. This is plain
@@ -78,6 +81,26 @@ This is separate from:
    - **New notes:** only while folding in merged work. Rework, corrections and reorganising are allowed any
      time.
 
+## Using memory: trust, but verify what you act on
+
+- **Read before exploring:** read the tree's `INDEX.md`, then only the notes the task needs.
+- **Verify before relying on a claim:** before relying on a claim (to plan, delegate or change code), check that
+  claim in the code. The note's anchors say where, so it takes a few targeted reads instead of a fresh
+  exploration.
+- **Stale notes:** a note marked `stale:` must be re-checked before it's relied on.
+- **Write it down at once** (a stopped task loses nothing):
+  - **Still right:** `memory_confirm`. The note is re-stamped as verified at the current default branch, keeps its
+    rev, and its stale mark is cleared.
+  - **Wrong about the default branch as it is today:** fix it now with `memory_write`.
+  - **The agent's own change will make it wrong:** the correction goes in the task's draft folder at the note's
+    path, and is merged into the note when the work merges.
+
+## History
+
+Each repo's tree has its own local git history (`<tree>/.git`, never pushed). Every write, confirm, move,
+delete and stale mark is a commit naming who did it, so an earlier version can be read or restored:
+`git -C /work-v21/memory/<repo> log -p -- <note>`. Agents can read the history; only agentbox commits to it.
+
 ## Note format
 
 ```markdown
@@ -98,6 +121,7 @@ Keycloak realm `portal-a`; refreshToken rotates the token, never cache it. …
 | Tool | Use |
 |---|---|
 | `memory_write(repo, path, content, rev?)` | Create a note while folding in merged work, or update one (pass its `rev`). |
+| `memory_confirm(repo, path, rev)` | Checked a note against the code and it's still right: re-stamp it as verified (clears `stale:`). |
 | `memory_move(repo, from, to)` | Rename or reorganise a note or a folder. |
 | `memory_delete(repo, path)` | Remove a wrong or obsolete note or folder. |
 | `memory_promoted(repo)` | After folding in: removes the task's drafts. |
@@ -115,5 +139,6 @@ Reading is plain file access: `Read`, `Grep` and `Glob` on the tree.
 ## Not done yet
 
 - **Archiving notes nobody reads:** reads are plain file access and aren't tracked.
+- **Restoring from the portal:** an earlier version can only be restored from the history by hand (`git`).
 - **Owner editing:** you can open notes from the Repos page but not edit them there.
 - **The feedback/rating loop:** it's planned to build on this.
