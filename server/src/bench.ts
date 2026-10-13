@@ -92,6 +92,8 @@ function listen(b: Bridge, dev: BenchDevice): Live {
   const live: Live = { dev, port: portFor(dev.id), server: net.createServer(), clients: 0 };
   live.server.on("connection", (sock) => {
     if (bridge !== b) return sock.destroy();
+    // Bootloader replies are 2-byte packets: no Nagle delay (avrdude gives up after ~100 ms).
+    sock.setNoDelay(true);
     const channel = nextChannel++;
     live.clients++;
     b.channels.set(channel, sock);

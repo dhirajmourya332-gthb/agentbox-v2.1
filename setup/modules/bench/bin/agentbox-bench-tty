@@ -20,6 +20,7 @@ import errno
 import json
 import os
 import pwd
+import select
 import signal
 import struct
 import subprocess
@@ -205,11 +206,14 @@ class Cuse:
         self.wlock = threading.Lock()
         self.pending = {}  # unique → threading.Event, for interrupted reads
         self.alive = True
+        self.closed = threading.Event()
         port.notify = self.poll_wakeup
 
     def reply(self, unique, error=0, payload=b""):
         msg = OUT_HDR.pack(OUT_HDR.size + len(payload), -error if error else 0, unique) + payload
         with self.wlock:
+            if self.fd < 0:
+                return
             try:
                 os.write(self.fd, msg)
             except OSError:
@@ -218,30 +222,51 @@ class Cuse:
     def poll_wakeup(self, kh):
         msg = OUT_HDR.pack(OUT_HDR.size + 8, FUSE_NOTIFY_POLL, 0) + struct.pack("<Q", kh)
         with self.wlock:
+            if self.fd < 0:
+                return
             try:
                 os.write(self.fd, msg)
             except OSError:
                 pass
 
     def serve(self):
-        while self.alive:
-            try:
-                buf = os.read(self.fd, MAX_IO + 4096)
-            except OSError as e:
-                if e.errno in (errno.EINTR, errno.EAGAIN):
+        # Wait with a timeout instead of blocking in read(): closing /dev/cuse while another thread is
+        # inside read() doesn't release it, which left stale devices behind. This thread closes it.
+        poller = select.poll()
+        poller.register(self.fd, select.POLLIN)
+        try:
+            while self.alive:
+                if not poller.poll(300):
                     continue
-                return  # ENODEV: unregistered; anything else: give up on this device
-            if not buf:
-                return
-            length, opcode, unique = IN_HDR.unpack_from(buf)[:3]
-            body = buf[IN_HDR.size:length]
-            try:
-                self.dispatch(opcode, unique, body)
-            except OSError as e:
-                self.reply(unique, e.errno or errno.EIO)
-            except Exception as e:
-                log("%s: request %d failed: %r" % (self.name, opcode, e))
-                self.reply(unique, errno.EIO)
+                try:
+                    buf = os.read(self.fd, MAX_IO + 4096)
+                except OSError as e:
+                    if e.errno in (errno.EINTR, errno.EAGAIN):
+                        continue
+                    return  # ENODEV: unregistered; anything else: give up on this device
+                if not buf:
+                    return
+                self.handle(buf)
+        finally:
+            self.alive = False
+            with self.wlock:  # no reply can go to a closed (and maybe reused) descriptor
+                try:
+                    os.close(self.fd)  # unregisters /dev/<name>
+                except OSError:
+                    pass
+                self.fd = -1
+            self.closed.set()
+
+    def handle(self, buf):
+        length, opcode, unique = IN_HDR.unpack_from(buf)[:3]
+        body = buf[IN_HDR.size:length]
+        try:
+            self.dispatch(opcode, unique, body)
+        except OSError as e:
+            self.reply(unique, e.errno or errno.EIO)
+        except Exception as e:
+            log("%s: request %d failed: %r" % (self.name, opcode, e))
+            self.reply(unique, errno.EIO)
 
     def dispatch(self, op, unique, body):
         p = self.port
@@ -396,10 +421,7 @@ class Cuse:
                 os.unlink(alias)
         except OSError:
             pass
-        try:
-            os.close(self.fd)  # unregisters /dev/<name>
-        except OSError:
-            pass
+        self.closed.wait(3)  # the serve thread closes /dev/cuse within ~0.3 s
 
 
 # --- following the bridge ------------------------------------------------------------------------------------
@@ -440,14 +462,22 @@ def main():
             st = None
         want = {d["id"]: d for d in st.get("devices", [])} if st and st.get("connected") else {}
         for did in list(live):
-            if did not in want or live[did][1] != want[did]["url"]:
+            if not live[did][0].alive:  # its handler stopped: recreate it below
+                live.pop(did)[0].stop()
+                log("%s's handler stopped; recreating it" % did)
+            elif did not in want or live[did][1] != want[did]["url"]:
                 live.pop(did)[0].stop()
                 log("removed %s" % did)
         for did, d in want.items():
             if did in live:
                 continue
+            name = "ttyBENCH%d" % (d["port"] - base)
+            for _ in range(30):  # a device that just went away may still hold the name for a moment
+                if not os.path.exists("/dev/" + name):
+                    break
+                time.sleep(0.1)
             try:
-                c = Cuse(Port(d), "ttyBENCH%d" % (d["port"] - base), owner)
+                c = Cuse(Port(d), name, owner)
             except OSError as e:
                 log("can't create a device for %s: %s" % (did, e))
                 continue
