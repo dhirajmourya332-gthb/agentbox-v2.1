@@ -52,13 +52,13 @@ export function SetupRequestCard({ id }: { id: string }) {
       </div>
       {r.why && <p className="sr-why">{r.why}</p>}
       <details className="sr-details">
-        <summary>What the setup agent will be told</summary>
+        <summary>What the admin will be told</summary>
         <pre className="sr-instructions">{r.for_setup_agent}</pre>
         {r.check_cmd && <p className="hint">Done when this check passes: <code>{r.check_cmd}</code></p>}
-        <p className="hint">Written by {r.requester_name ?? "you"}. The setup agent gets it quoted as a request, follows your rules, and still asks you before anything it isn't sure is safe.</p>
+        <p className="hint">Written by {r.requester_name ?? "you"}. The admin gets it quoted as a request, follows your rules, and still asks you before anything it isn't sure is safe.</p>
       </details>
       {r.status === "in_progress" && r.setup_instance_id && (
-        <p className="hint">The setup agent is on it: <a href={`#/setup/${r.setup_instance_id}`}>open the Setup workspace</a>. {r.requester_name ? `${r.requester_name} is called back when it's done.` : ""}</p>
+        <p className="hint">The admin is on it: <a href={`#/setup/${r.setup_instance_id}`}>open its workspace</a>. {r.requester_name ? `${r.requester_name} is called back when it's done.` : ""}</p>
       )}
       {(r.status === "done" || r.status === "rejected" || r.status === "failed") && (
         <p className="hint">{r.result_note ?? ""}{r.completed_at ? ` · ${relTime(r.completed_at)}` : ""}{r.requester_name && r.waiters.some((w) => w.called_back_at) ? " · the agent was told" : ""}</p>

@@ -37,7 +37,7 @@ export function Integrations() {
       <div className="page-inner" style={{ maxWidth: 1000 }}>
         <h1>Integrations</h1>
         <p className="lede">
-          The services your agents work with. The setup agent connects them with you: it installs what's needed and stops
+          The services your agents work with. The admin connects them with you: it installs what's needed and stops
           for your logins, which happen in the terminal. Each integration reaches only the agents you map to it.
         </p>
         {data?.error && <div className="error-box" style={{ marginBottom: 16 }}>Couldn't read the integration catalog: {data.error}</div>}

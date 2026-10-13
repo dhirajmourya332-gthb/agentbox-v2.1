@@ -57,7 +57,7 @@ function YourTurn({ gate }: { gate: IntegrationGate }) {
       <div className="sc-your-turn">
         <div className="sc-yt-head">Your turn · setting</div>
         <p>{gate.title} <span className="hint">({gate.key})</span></p>
-        <div className="hint">Tell the setup agent in the chat (never a token or password), or set it yourself in the terminal:</div>
+        <div className="hint">Tell the admin in the chat (never a token or password), or set it yourself in the terminal:</div>
         {gate.command && <CopyRow text={gate.command} />}
       </div>
     );
@@ -67,7 +67,7 @@ function YourTurn({ gate }: { gate: IntegrationGate }) {
       <div className="sc-yt-head">Your turn</div>
       {gate.instructions && <Markdown text={gate.instructions} />}
       {gate.copy && <CopyRow text={gate.copy} />}
-      <div className="hint">When you're done, tell the setup agent; it checks and continues.</div>
+      <div className="hint">When you're done, tell the admin; it checks and continues.</div>
     </div>
   );
 }
@@ -214,26 +214,47 @@ export function IntegrationStepsCard({ id, active }: { id: string; active: boole
   );
 }
 
-/** A proposal from the setup agent: applied only when the owner approves here. */
+const KICKER: Record<Approval["status"], string> = {
+  pending: "Needs your approval", approved: "Approved", rejected: "Rejected", failed: "Failed", undone: "Undone",
+};
+const TEAM_KINDS = new Set(["agent_create", "agent_change", "skill", "skill_assign", "bundle"]);
+type Edits = Record<string, Record<string, string>>;
+
+/**
+ * A proposal from the admin agent: applied only when the owner approves here. Team changes (agents,
+ * skills, bundles) can be edited before approving and undone afterwards.
+ */
 export function ApprovalCard({ id }: { id: string }) {
   const { onEvent, everyone } = useStore();
   const [a, setA] = useState<Approval | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [edits, setEdits] = useState<Edits>({});
   useEffect(() => { api.approval(id).then(setA).catch((e) => setError(e.message)); }, [id]);
   useEffect(() => onEvent((e) => { if (e.type === "approval.updated" && e.approval.id === id) setA((x) => ({ ...x, ...e.approval })); }), [id, onEvent]);
   if (!a) return error ? <div className="error-box">{error}</div> : null;
   const name = (rid: string) => everyone.find((x) => x.id === rid)?.name ?? "deleted agent";
-  const decide = async (approve: boolean) => {
+  const act = async (fn: () => Promise<Approval>) => {
     setBusy(true); setError(null);
-    try { setA(await (approve ? api.approve(id) : api.reject(id))); } catch (e: any) { setError(e.message); }
+    try { setA(await fn()); setEdits({}); } catch (e: any) { setError(e.message); }
     setBusy(false);
   };
   const p = a.payload;
+  const team = TEAM_KINDS.has(a.kind);
+  const items = a.kind === "bundle" ? p.items ?? [] : team ? [{ kind: a.kind as any, title: a.title, payload: p }] : [];
+  const editable = a.status === "pending";
+  const setEdit = (i: number, field: string, v: string | null) => setEdits((e) => {
+    const k = String(i);
+    const next: Edits = { ...e, [k]: { ...(e[k] ?? {}) } };
+    if (v === null) delete next[k][field]; else next[k][field] = v;
+    if (!Object.keys(next[k]).length) delete next[k];
+    return next;
+  });
+  const edited = Object.keys(edits).length > 0;
   return (
     <div className={`approval-card ${a.status}`} aria-label={a.title}>
       <div className="approval-head">
-        <span className="approval-kicker">{a.status === "pending" ? "Needs your approval" : a.status === "approved" ? "Approved" : a.status === "rejected" ? "Rejected" : "Failed"}</span>
+        <span className="approval-kicker">{KICKER[a.status] ?? a.status}</span>
         <strong>{a.title}</strong>
       </div>
       {a.kind === "mapping" && (
@@ -251,24 +272,135 @@ export function ApprovalCard({ id }: { id: string }) {
       {a.kind === "team_rule" && (
         <div className="approval-body">
           {p.reason && <p className="hint">{p.reason}</p>}
-          <div className="diff" role="region" aria-label={`Changes to ${p.relative}`}>
-            <div className="diff-file">{p.created ? "new file · " : ""}{p.file}</div>
-            {compactDiff(p.diff ?? []).map((d, i) => (
-              d === null ? <div key={i} className="diff-gap">⋯</div>
-                : <div key={i} className={`diff-line ${d.op === "+" ? "add" : d.op === "-" ? "del" : ""}`}><span aria-hidden="true">{d.op}</span>{d.text || " "}</div>
-            ))}
-          </div>
+          <DiffView diff={p.diff ?? []} file={`${p.created ? "new file · " : ""}${p.file}`} label={`Changes to ${p.relative}`} />
+        </div>
+      )}
+      {a.kind === "repo_add" && (
+        <div className="approval-body">
+          <p className="hint">{p.url} · default branch {p.default_branch ?? "?"} · {(p.role_names ?? []).length ? `for ${p.role_names!.join(", ")}` : "every agent may use it"}</p>
+          {p.description && <p className="hint">{p.description}</p>}
+        </div>
+      )}
+      {team && (
+        <div className="approval-body">
+          {p.reason && <p className="hint">{p.reason}</p>}
+          {items.map((it, i) => (
+            <TeamChange key={i} item={it} bundled={a.kind === "bundle"} editable={editable} edit={edits[String(i)] ?? {}}
+              setEdit={(field, v) => setEdit(i, field, v)} />
+          ))}
         </div>
       )}
       {error && <div className="error-box">{error}</div>}
       {a.status === "pending" ? (
         <div className="approval-actions">
-          <button className="btn sm primary" disabled={busy} onClick={() => decide(true)}><Icon name="check" size={14} />Approve</button>
-          <button className="btn sm ghost" disabled={busy} onClick={() => decide(false)}>Reject</button>
+          <button className="btn sm primary" disabled={busy} onClick={() => act(() => api.approve(id, edits))}>
+            <Icon name="check" size={14} />{edited ? "Approve with my edits" : items.length > 1 ? `Approve all ${items.length}` : "Approve"}
+          </button>
+          <button className="btn sm ghost" disabled={busy} onClick={() => act(() => api.reject(id))}>Reject</button>
         </div>
       ) : (
-        <p className="hint">{a.status === "approved" ? "Applied" : a.status === "rejected" ? "Discarded" : a.error ?? "Failed"} {a.decided_at ? relTime(a.decided_at) : ""}</p>
+        <div className="approval-actions" style={{ alignItems: "center" }}>
+          <p className="hint" style={{ margin: 0 }}>
+            {a.status === "approved" ? (team ? "Applied; agents use it from their next turn" : "Applied") : a.status === "rejected" ? "Discarded" : a.status === "undone" ? "Put back as it was" : a.error ?? "Failed"} {a.decided_at ? relTime(a.decided_at) : ""}
+          </p>
+          {a.status === "approved" && team && a.undo && (
+            <button className="btn sm ghost" disabled={busy} onClick={() => act(() => api.undoApproval(id))} title="Put everything this changed back as it was">Undo</button>
+          )}
+        </div>
       )}
+    </div>
+  );
+}
+
+function DiffView({ diff, file, label }: { diff: { op: " " | "-" | "+"; text: string }[]; file: string; label: string }) {
+  return (
+    <div className="diff" role="region" aria-label={label}>
+      <div className="diff-file">{file}</div>
+      {compactDiff(diff).map((d, i) => (
+        d === null ? <div key={i} className="diff-gap">⋯</div>
+          : <div key={i} className={`diff-line ${d.op === "+" ? "add" : d.op === "-" ? "del" : ""}`}><span aria-hidden="true">{d.op}</span>{d.text || " "}</div>
+      ))}
+    </div>
+  );
+}
+
+const Chips = ({ label, add = [], remove = [], plain = [] }: { label: string; add?: string[]; remove?: string[]; plain?: string[] }) => (
+  add.length || remove.length || plain.length ? (
+    <div className="role-chips">
+      <span className="hint">{label}</span>
+      {plain.map((x) => <span key={`p${x}`} className="role-chip">{x}</span>)}
+      {add.map((x) => <span key={`a${x}`} className="role-chip added">+ {x}</span>)}
+      {remove.map((x) => <span key={`r${x}`} className="role-chip removed">− {x}</span>)}
+    </div>
+  ) : null
+);
+
+const SETTING: Record<string, string> = { model: "Model", max_turns: "Steps per turn", max_replicas: "Parallel tasks", can_scale: "Lead (starts others' tasks)", title: "Title", summary: "Summary" };
+const show = (k: string, v: unknown) => (k === "can_scale" ? (v ? "yes" : "no") : k === "max_replicas" && !v ? "default" : String(v ?? "—"));
+
+/** One change in a team proposal, with an editor for its text while it's pending. */
+function TeamChange({ item, bundled, editable, edit, setEdit }: {
+  item: { kind: string; title: string; payload: any }; bundled: boolean; editable: boolean;
+  edit: Record<string, string>; setEdit: (field: string, v: string | null) => void;
+}) {
+  const p = item.payload;
+  const field = item.kind === "skill" ? "body" : "instructions";
+  const original = item.kind === "skill" ? p.body : item.kind === "agent_create" ? p.instructions : p.instructions?.content;
+  const canEdit = editable && typeof original === "string";
+  const editing = edit[field] !== undefined;
+  const editor = canEdit && (
+    editing ? (
+      <div className="team-edit">
+        <textarea value={edit[field]} onChange={(e) => setEdit(field, e.target.value)} rows={Math.min(24, Math.max(6, edit[field].split("\n").length + 1))}
+          aria-label={item.kind === "skill" ? "Skill text" : "Job description"} spellCheck={false} />
+        <button className="btn sm ghost" onClick={() => setEdit(field, null)}>Discard my edit</button>
+      </div>
+    ) : (
+      <button className="btn sm ghost" onClick={() => setEdit(field, original)}>Edit {item.kind === "skill" ? "the skill" : "job description"}</button>
+    )
+  );
+  return (
+    <div className={bundled ? "team-change bundled" : "team-change"}>
+      {bundled && <strong className="team-change-title">{item.title}</strong>}
+      {item.kind === "agent_create" && (
+        <>
+          <p className="hint">@{p.name} · {p.title} · {p.model}{p.can_scale ? " · lead" : ""}{p.max_replicas ? ` · up to ${p.max_replicas} parallel tasks` : ""}</p>
+          {p.summary && p.summary !== p.title && <p className="hint">{p.summary}</p>}
+          <Chips label="Skills" plain={p.skills} />
+          <Chips label="Integrations" plain={p.integrations} />
+          <Chips label="Repos" plain={p.repos} />
+          {!editing && (
+            <details className="team-doc">
+              <summary>Job description ({String(p.instructions).split("\n").length} lines)</summary>
+              <Markdown text={p.instructions} />
+            </details>
+          )}
+        </>
+      )}
+      {item.kind === "agent_change" && (
+        <>
+          {(p.settings ?? []).map((x: any) => (
+            <p key={x.key} className="hint">{SETTING[x.key] ?? x.key}: <s>{show(x.key, x.before)}</s> → <strong>{show(x.key, x.after)}</strong></p>
+          ))}
+          <Chips label="Skills" add={p.skills?.add} remove={p.skills?.remove} />
+          <Chips label="Integrations" add={p.integrations?.add} remove={p.integrations?.remove} />
+          <Chips label="Repos" add={p.repos?.add} remove={p.repos?.remove} />
+          {p.instructions && !editing && <DiffView diff={p.instructions.diff ?? []} file={`${p.role_name} · job description (CLAUDE.md)`} label={`Changes to ${p.role_name}'s job description`} />}
+        </>
+      )}
+      {item.kind === "skill" && (
+        <>
+          <p className="hint">{p.description}</p>
+          {p.source && <p className="hint">Adapted from <a href={p.source} target="_blank" rel="noopener noreferrer">{p.source}</a></p>}
+          <Chips label="Give to" add={p.agent_names} />
+          {!editing && <DiffView diff={p.diff ?? []} file={`${p.created ? "new skill · " : ""}${p.name}/SKILL.md`} label={`The skill ${p.name}`} />}
+          {(p.files ?? []).length > 0 && <p className="hint">Its other files stay as they are: {p.files.join(", ")}</p>}
+        </>
+      )}
+      {item.kind === "skill_assign" && (
+        <Chips label={p.skill} add={p.add_names} remove={p.remove_names} />
+      )}
+      {editor}
     </div>
   );
 }

@@ -509,7 +509,14 @@ a.feed-row:hover { background: var(--surface); }
 :root[data-theme="light"] .frame-view iframe, :root[data-theme="light"] .pip-screen { box-shadow: inset 0 0 0 1px var(--line-strong); }
 
 /* ---- Work-first navigation (backlog #3–#6) --------------------------------- */
-.new-task-btn { margin: 4px 2px 10px; justify-content: center; }
+.new-task-btn { margin: 4px 2px 6px; justify-content: center; }
+.ask-admin-btn { margin: 0 2px 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.ask-admin-btn kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
+.ask-admin-backdrop { position: fixed; inset: 0; z-index: 1000; background: color-mix(in srgb, #000 45%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: 12vh 16px 16px; }
+.ask-admin { width: min(640px, 100%); display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 18px 50px rgb(0 0 0 / .35); }
+.ask-admin-head { display: grid; gap: 2px; }
+.ask-admin textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 72px; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--bg); color: var(--text); }
+.ask-admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rail-nav { display: flex; flex-direction: column; gap: 1px; }
 .rail-toggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .rail-toggle .chev, .rail-more .chev, .work-row .chev { display: inline-flex; transition: transform .12s ease-out; }
@@ -783,11 +790,20 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: var(--r-card);
   background: color-mix(in srgb, var(--accent) 5%, var(--surface)); padding: 12px; display: grid; gap: 10px; min-width: 0;
 }
-.approval-card.approved, .approval-card.rejected, .approval-card.failed { border-color: var(--line); background: var(--surface); }
+.approval-card.approved, .approval-card.rejected, .approval-card.failed, .approval-card.undone { border-color: var(--line); background: var(--surface); }
 .approval-head { display: grid; gap: 2px; }
 .approval-kicker { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
 .approval-card.approved .approval-kicker { color: var(--ok); }
-.approval-card.rejected .approval-kicker, .approval-card.failed .approval-kicker { color: var(--muted); }
+.approval-card.rejected .approval-kicker, .approval-card.failed .approval-kicker, .approval-card.undone .approval-kicker { color: var(--muted); }
+.team-change { display: grid; gap: 6px; min-width: 0; }
+.team-change p.hint { margin: 0; }
+.team-change.bundled { border-top: 1px solid var(--line); padding-top: 8px; }
+.team-change-title { font-size: 13px; }
+.team-doc { border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--bg); padding: 4px 10px; max-height: 420px; overflow: auto; }
+.team-doc summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 2px 0; }
+.team-edit { display: grid; gap: 6px; }
+.team-edit textarea { width: 100%; font: 12px/1.55 var(--mono); padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--bg); color: var(--text); resize: vertical; box-sizing: border-box; }
+.team-edit .btn, .team-change > .btn { justify-self: start; }
 .approval-body { display: grid; gap: 8px; min-width: 0; }
 .approval-actions { display: flex; gap: 8px; }
 .diff { border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--bg); font: 12px/1.55 var(--mono); overflow-x: auto; max-height: 360px; overflow-y: auto; }

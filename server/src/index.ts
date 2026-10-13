@@ -13,7 +13,7 @@ import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDispla
 import { activity, graph } from "./activity.ts";
 import { checkImages, displayWithImages, saveUpload } from "./uploads.ts";
 import { allDocuments, allowed, contentType, documentsForWork, listDocuments } from "./documents.ts";
-import { finishTree, roomDocuments, roomView, workList } from "./work.ts";
+import { finishTree, roomDocuments, roomView, startOwnerWork, workList } from "./work.ts";
 import { migrateToInstances } from "./migrate.ts";
 import { openTasksOf, pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
 import { TEMPLATES, coreQuestions, draft, followUps } from "./interview.ts";
@@ -200,26 +200,17 @@ app.get("/api/work", async () => workList());
 app.post("/api/work", async (req) => {
   const b = req.body as any;
   const role = mustAgent(String(b?.role_id ?? ""));
-  if (role.base_agent_id) throw new HttpError(400, "Pick an agent, not an instance");
-  const text = String(b?.text ?? "").trim();
   let images: string[];
   try { images = checkImages(b?.images); } catch (e: any) { throw new HttpError(400, e.message); }
-  if (!text && !images.length) throw new HttpError(400, "Say what needs doing");
-  const firstLine = text.split("\n")[0] || "Task from an image";
-  const label = String(b?.title ?? "").trim() || (firstLine.length > 70 ? firstLine.slice(0, 67) + "…" : firstLine);
-  // Repos for this task (each gets its worktree before the first turn): checked before it starts.
-  const repoNames: string[] = Array.isArray(b?.repos) ? [...new Set(b.repos.map((x: unknown) => String(x).trim()).filter(Boolean))] as string[] : [];
-  for (const n of repoNames) {
-    const repo = getRepo(n);
-    if (!repo || repo.status === "archived") throw new HttpError(400, `No repo called "${n}"`);
-    if (repo.status !== "ready") throw new HttpError(400, `${repo.name} isn't ready (${repo.status})`);
-    if (!roleAllowed(repo, role)) throw new HttpError(400, `${role.name} isn't allowed to use ${repo.name}`);
+  try {
+    const inst = startOwnerWork({
+      role, text: String(b?.text ?? ""), images, title: b?.title, requirePlan: !!b?.require_plan,
+      repos: Array.isArray(b?.repos) ? b.repos.map((x: unknown) => String(x)) : [],
+    });
+    return agentView(inst);
+  } catch (e: any) {
+    throw new HttpError(400, e.message);
   }
-  const inst = spawnInstance(role.id, { label, createdBy: "owner" });
-  for (const n of repoNames) bindRepo(inst, n);
-  if (b?.require_plan) setGate(inst.id, true);
-  sendMessage(inst.id, dmThreadOf(inst.id)!, text, images);
-  return agentView(inst);
 });
 app.get("/api/work/:id", async (req) => {
   try { return roomView((req.params as any).id); } catch (e: any) { throw new HttpError(404, e.message); }

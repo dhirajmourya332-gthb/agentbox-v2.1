@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { AskAdmin, openAskAdmin } from "./AskAdmin.tsx";
 import { api, type Agent, type Usage, type WorkRoom } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { href, type Route } from "../router.ts";
@@ -190,7 +191,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const marks = useRoomMarks();
   const needsYou = attention.filter(needsOwner).length;
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
-  // The built-in setup agent lives under Configure, not in Team or Work.
+  // The built-in admin (setup) agent lives under Configure and the Ask admin box, not in Team or Work.
   const setupRole = agents.find((a) => !a.base_agent_id && a.builtin === "setup");
   const setupIds = new Set(setupRole ? [setupRole.id, ...agents.filter((a) => a.base_agent_id === setupRole.id).map((a) => a.id)] : []);
   const setupWorking = agents.filter((a) => setupIds.has(a.id) && a.status === "working").length;
@@ -215,6 +216,9 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 
       <nav className="rail" aria-label="Main">
         <a className="btn primary new-task-btn" href="#/new"><Icon name="plus" />New task</a>
+        <button className="btn ghost sm ask-admin-btn" onClick={openAskAdmin} title="Ask the admin (⌘K / Ctrl+K): change agents, add skills, create agents, connect things">
+          <Icon name="sparkle" size={14} /><span className="grow">Ask admin</span><kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>
+        </button>
 
         <div className="rail-nav">
           <RailLink to={{ name: "home" }} current={route} icon={<Icon name="team" />}>
@@ -266,10 +270,10 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 
         <Section id="configure" label="Configure" defaultOpen={false} forceOpen={inConfigure}
           badge={drafts.length > 0 || setupWorking > 0
-            ? <span className="badge" title={[drafts.length ? `${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review` : "", setupWorking ? "setup agent working" : ""].filter(Boolean).join(" · ")}>{drafts.length || "•"}</span>
+            ? <span className="badge" title={[drafts.length ? `${drafts.length} proposed skill${drafts.length > 1 ? "s" : ""} to review` : "", setupWorking ? "admin working" : ""].filter(Boolean).join(" · ")}>{drafts.length || "•"}</span>
             : undefined}>
-          <RailLink to={{ name: "setup" }} current={route} icon={<Icon name="terminal" />}>
-            <span className="grow">Setup</span>
+          <RailLink to={{ name: "setup" }} current={route} icon={<Icon name="sparkle" />}>
+            <span className="grow">Admin</span>
             {setupWorking > 0 && <span className="rail-sub">working</span>}
           </RailLink>
           <RailLink to={{ name: "integrations" }} current={route} icon={<Icon name="plug" />}>Integrations</RailLink>
@@ -290,6 +294,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 
       <main className="main">{children}</main>
       {route.name !== "screen" && <ScreenPip />}
+      <AskAdmin />
     </div>
   );
 }

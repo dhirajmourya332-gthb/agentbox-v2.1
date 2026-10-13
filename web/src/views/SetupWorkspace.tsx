@@ -14,7 +14,7 @@ import { Composer, FinishButton, TaskTitle, Timeline } from "./AgentChat.tsx";
 import { clearReturn, returnFor, type SetupReturn } from "../components/returnTo.ts";
 
 /**
- * The Setup workspace (#/setup/<session>): the setup agent's own screen, in the spirit of the
+ * The admin workspace (#/setup/<session>): the admin (setup) agent's own screen, in the spirit of the
  * first-run guide. One screen with the chat, the owner's terminal and a checklist the agent writes
  * (set_plan) with a "current step" pointer that moves by itself when a step's check passes.
  *
@@ -101,7 +101,7 @@ export function SetupWorkspace({ instanceId }: { instanceId?: string }) {
 
   if (!loaded) return <div className="page" />;
   if (!setupRole) {
-    return <div className="page"><div className="page-inner"><h1>Setup</h1><p className="lede">The setup agent is missing. Restart agentbox to restore it.</p></div></div>;
+    return <div className="page"><div className="page-inner"><h1>Admin</h1><p className="lede">The admin agent is missing. Restart agentbox to restore it.</p></div></div>;
   }
   if (!instanceId) return <div className="page" />;
   if (!fresh && !agent) return <div className="page"><div className="page-inner"><p className="lede">Loading…</p></div></div>;
@@ -169,7 +169,7 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
   const stepsBadge = plan ? `${plan.done_count}/${plan.total}` : undefined;
 
   const chatPanel = (
-    <Panel {...panelProps("chat")} title="Setup agent" onKeyDown={onChatKey}
+    <Panel {...panelProps("chat")} title="Admin" onKeyDown={onChatKey}
       actions={agent && <>
         {done ? <span className="chip">Done</span> : <StatusGlyph status={agent.status} withLabel />}
         {running && <button className="btn sm danger" onClick={() => api.stop(running.id)} title="Stop (Esc in the chat)"><Icon name="stop" size={14} />Stop</button>}
@@ -180,7 +180,7 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
           <LiveBar items={Object.values(progress).filter((p) => p.agent_id === agent.id)} log={false} />
           {threadId && !done && (
             <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0}
-              starters={STARTERS} placeholder="Tell the setup agent what to set up, or ask about a step…" />
+              starters={STARTERS} placeholder="Ask the admin: change an agent, add a skill, set something up, or ask about a step…" />
           )}
           {done && (
             <p className="composer-hint ws-done-hint">This setup session is done; its history stays here. <a href="#/setup/new">Start a new one</a></p>
@@ -193,27 +193,27 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
   return (
     <InsertCtx.Provider value={agent && !done ? insert : null}>
       <TerminalCtx.Provider value={showTerminal}>
-        <section className="setup-ws" aria-label="Setup workspace">
+        <section className="setup-ws" aria-label="Admin workspace">
           <header className="ws-head">
-            <span className="ws-mark" aria-hidden="true"><Icon name="plug" size={16} /></span>
+            <span className="ws-mark" aria-hidden="true"><Icon name="sparkle" size={16} /></span>
             <div className="ws-title">
-              {agent ? <TaskTitle agent={agent} /> : <strong>New setup</strong>}
+              {agent ? <TaskTitle agent={agent} /> : <strong>New conversation</strong>}
               <span className="hint">
-                Setup workspace · the agent writes the checklist, you run the commands in your terminal
+                Admin · team changes come as cards you approve; setups get a checklist and your terminal
                 {current ? <> · now: <strong>{current.title}</strong></> : null}
               </span>
             </div>
             <div className="ws-actions">
               <SessionPicker current={agent?.id ?? null} sessions={sessions} />
-              <a className="btn sm" href="#/setup/new" title="Start a new setup session"><Icon name="plus" size={14} />New</a>
+              <a className="btn sm" href="#/setup/new" title="Start a new conversation with the admin"><Icon name="plus" size={14} />New</a>
               {agent && !done && <FinishButton agent={agent} />}
-              <a className="icon-btn" href={`#/agents/${role.id}`} title="About the setup agent and your notes for it" aria-label="Setup agent settings"><Icon name="agent" /></a>
+              <a className="icon-btn" href={`#/agents/${role.id}`} title="About the admin and your notes for it" aria-label="Admin settings"><Icon name="agent" /></a>
             </div>
           </header>
           {agent && <ReturnBar sessionId={agent.id} />}
 
           {narrow && (
-            <nav className="tabs ws-tabs" role="tablist" aria-label="Setup panels">
+            <nav className="tabs ws-tabs" role="tablist" aria-label="Admin panels">
               {(["steps", "chat", "terminal"] as PanelId[]).map((p) => (
                 <button key={p} role="tab" aria-selected={layout.tab === p} onClick={() => setLayout({ tab: p })}>
                   {p === "steps" ? "Steps" : p === "chat" ? "Chat" : "Terminal"}
@@ -235,7 +235,7 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
             terminal={
               <Panel {...panelProps("terminal")} title="Terminal"
                 actions={<span className={`conn ${termStatus}`}>{termStatus === "open" ? "connected" : termStatus === "closed" ? "reconnecting…" : termStatus === "fallback" ? "not readable by the agent" : "connecting…"}</span>}
-                note="Your shell on this computer. Logins happen here, never in the chat. The setup agent can read it (secrets hidden) but never types.">
+                note="Your shell on this computer. Logins happen here, never in the chat. The admin can read it (secrets hidden) but never types.">
                 <OwnerTerminal onHandle={(h) => { term.current = h; }} onStatus={setTermStatus} />
               </Panel>
             } />
@@ -247,12 +247,14 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
 }
 
 const STARTERS = [
-  "Set up GitHub (gh) for my team",
+  "Make the tech-lead only orchestrate and delegate",
+  "Create a sales agent for me",
+  "Add a skill and give it to an agent",
   "Set up GitHub and AWS",
   "What's connected, and what needs attention?",
 ];
 
-/** A new session: the first message starts the setup agent's task and lands here. */
+/** A new conversation: the first message starts the admin's task and lands here. */
 function StartChat({ role }: { role: Agent }) {
   // Another page can hand over a prefilled request ("agentbox.setup.prefill", read once).
   const [text, setText] = useState(() => {
@@ -283,10 +285,11 @@ function StartChat({ role }: { role: Agent }) {
   return (
     <div className="ws-start">
       <div className="ws-start-intro">
-        <strong>What do you want to set up?</strong>
+        <strong>What can the admin do for you?</strong>
         <p className="hint">
-          Say it in your own words ("set up gh and aws"). The setup agent writes a checklist, installs what it can, and
-          walks you through the logins in your terminal. Each step ticks itself off when its check passes.
+          Say it in your own words. Team changes (a new agent, how an agent works, skills and who has them) come
+          back as cards you approve, edit or undo. Setups ("set up gh and aws") get a checklist; the admin installs
+          what it can and walks you through the logins in your terminal. Real work goes to the right agent.
         </p>
         <div className="choices">{STARTERS.map((s) => <button key={s} className="pill" disabled={busy} onClick={() => start(s)}>{s}</button>)}</div>
       </div>
@@ -294,7 +297,7 @@ function StartChat({ role }: { role: Agent }) {
         <AttachmentStrip a={att} />
         <VoiceStatus v={voice} />
         <div className={`composer${att.dragging ? " dropping" : ""}`} {...att.dropProps}>
-          <textarea ref={ref} rows={1} value={text} placeholder="e.g. Set up GitHub (gh) and AWS for the coders" aria-label="What to set up"
+          <textarea ref={ref} rows={1} value={text} placeholder="e.g. Create a marketing agent that drafts our release notes" aria-label="What do you want?"
             onChange={(e) => setText(e.target.value)} onPaste={att.onPaste}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); start(); } }} />
           <AttachButton a={att} />
@@ -451,8 +454,8 @@ function PlanPanel({ plan, agent, onInsert, terminalUp }: { plan: SetupPlan | nu
         <p><strong>No checklist yet.</strong></p>
         <p className="hint">
           {agent
-            ? "The setup agent writes one as soon as it knows what you want to set up. Each step gets its commands, with Copy and Insert-in-terminal buttons, and a check that ticks it off by itself."
-            : "Tell the setup agent what you want to set up. It writes the steps here; the pointer moves on by itself when a step's check passes."}
+            ? "Only setups need one (installs, logins, connections); team changes are cards in the chat. When something needs setting up, the admin writes the steps here, each with its commands and a check that ticks it off by itself."
+            : "When you ask for a setup, the admin writes the steps here; the pointer moves on by itself when a step's check passes."}
         </p>
       </div>
     );
