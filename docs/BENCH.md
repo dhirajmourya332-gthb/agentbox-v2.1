@@ -14,6 +14,7 @@ agent on the VM ── rfc2217://127.0.0.1:<port> ──▶ portal (bench.ts) �
 | The integration (Integrations → **Connectivity** → Device bridge) | `setup/modules/bench/` (token, pyserial, steps, agents' instructions) |
 | The bridge the owner runs | `setup/modules/bench/bridge/agentbox-bench.py` (Python 3.9+, makes its own venv with pyserial + websockets) |
 | The portal side | `server/src/bench.ts`: `/api/bench/{connect,status,test,install.sh,bridge.py}` |
+| Arduino Uno/Nano uploads | `setup/modules/bench/bin/agentbox-avr-upload` (STK500v1 over pyserial; avrdude can't open `rfc2217://`), installed on the VM by the integration; test: `setup/modules/bench/test/test_avr_upload.py` |
 | The agents' skill | `server/seed-skills/bench-hardware` (given to the roles mapped to the integration) |
 | The helper's guide | `server/seed-skills/agentbox-setup` § 6 |
 
@@ -47,7 +48,13 @@ JSON text frames for control; binary frames `[u32 channel][bytes]` for data.
 - Ports: `ports.bench` (default 7740) and the next 39; a device keeps its port across reconnects
   (`<data>/bench-ports.json`).
 
+## Simulated devices
+`~/.agentbox-bench/config.json` → `"extra_devices": [{"id": "sim-uno", "url": "socket://127.0.0.1:5599"}]`
+shares any pyserial URL as a device: a simulator's serial port, or a fake bootloader for tests.
+
 ## Later (not built)
+Mega 2560 uploads (STK500v2).
+
 Capabilities are separate switches so more can be added the same way: a camera snapshot, sharing the
 owner's screen with an agent, other device classes. Each gets its own setting on both sides.
 

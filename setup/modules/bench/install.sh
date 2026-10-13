@@ -12,4 +12,5 @@ if [ ! -s "$f" ]; then
 fi
 chown "$AGENT_USER:$AGENT_USER" "$f"
 chmod 0600 "$f"
+install_bin "$MODULE_DIR/bin/agentbox-avr-upload"   # Arduino Uno/Nano uploads over the bridge (avrdude can't)
 echo "bench: token ready; now run the bridge on your computer (Integrations → Device bridge → Download)"

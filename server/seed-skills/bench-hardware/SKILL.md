@@ -52,10 +52,23 @@ s = serial.serial_for_url("rfc2217://127.0.0.1:<port>", baudrate=115200, timeout
 s.write(b"status\n"); print(s.read(200)); s.close()
 ```
 
-## 5. Arduino (AVR: Uno, Nano, Mega)
-avrdude can't speak RFC 2217. Build here (`arduino-cli compile --output-dir build …` or
-`pio run`), then either ask the owner to upload the `.hex` (one command you give them), or, for
-boards with a pyserial-based uploader, use that with the `rfc2217://` URL. Serial logs work as in §4.
+## 5. Arduino Uno / Nano / Pro Mini (AVR)
+avrdude can't open these network ports, so use **`agentbox-avr-upload`** (on this VM): it speaks the
+Arduino bootloader's protocol itself and resets the board through the bridge.
+```bash
+arduino-cli compile --fqbn arduino:avr:uno --output-dir build sketch/     # or pio run (.pio/build/<env>/firmware.hex)
+agentbox-avr-upload --device <id> build/sketch.ino.hex                     # writes, then verifies by reading back
+agentbox-avr-upload --device <id> --board nano-old build/sketch.ino.hex    # Nano with the old bootloader (57600 baud)
+```
+- Upload `<sketch>.ino.hex`, **not** `*.with_bootloader.hex` (it refuses that one).
+- `--board auto` (default) tries 115200 then 57600 baud; `uno`/`nano` = 115200, `nano-old`/`pro-mini` = 57600.
+- It reads the chip's signature first and refuses an unknown chip or a sketch that doesn't fit.
+- About 1 s per page over the network (a 10 KB sketch ≈ 80 pages ≈ 1–2 min with verify). Close any
+  serial monitor on the device first (`in_use` must be false).
+- "no bootloader answered": wrong `--board`/baud, a board without a bootloader, or a clone whose
+  auto-reset doesn't work; ask the owner to press RESET right as you start, don't loop.
+- **Mega 2560** (STK500v2) isn't supported yet: compile here and give the owner the upload command.
+- Serial output after the upload works as in §4 (`miniterm rfc2217://… 9600`).
 
 ## Rules
 - **One session per device**, and close it when done: the port is a real board, and a second open

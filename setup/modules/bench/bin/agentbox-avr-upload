@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Upload (flash) a compiled sketch to an Arduino Uno / Nano / Pro Mini through the device bridge.
+
+avrdude can't open the bridge's network serial ports, so this speaks the Arduino bootloader's
+protocol (STK500v1: optiboot on the Uno and new Nanos, ATmegaBOOT on old Nanos) itself, over
+pyserial, which can. The reset into the bootloader is the usual DTR pulse, relayed by the bridge.
+
+  agentbox-avr-upload --device usbserial-1410 build/sketch.ino.hex
+  agentbox-avr-upload --port rfc2217://127.0.0.1:7741 --board nano-old sketch.hex
+
+  --device ID     a device id from `agentbox api /bench/status` (or --port with any pyserial URL)
+  --board B       uno | nano | nano-old | pro-mini | auto (default: try 115200, then 57600 baud)
+  --baud N        bootloader baud rate (overrides --board)
+  --no-verify     skip reading the flash back (verify is on by default)
+
+Use the .hex WITHOUT the bootloader (arduino-cli writes both: pick <sketch>.ino.hex, not
+*.with_bootloader.hex). Mega 2560 (STK500v2) isn't supported yet. Exit status 0 = written and verified.
+"""
+import argparse
+import json
+import subprocess
+import sys
+import time
+
+try:
+    import serial
+except ImportError:
+    sys.exit("agentbox-avr-upload: needs pyserial (python3 -c 'import serial')")
+
+OK, INSYNC, EOP = 0x10, 0x14, 0x20
+BOARDS = {"uno": [115200], "nano": [115200], "nano-old": [57600], "pro-mini": [57600], "auto": [115200, 57600]}
+# signature → (name, flash bytes, page bytes)
+CHIPS = {
+    (0x1E, 0x95, 0x0F): ("ATmega328P", 32768, 128),
+    (0x1E, 0x95, 0x14): ("ATmega328", 32768, 128),
+    (0x1E, 0x94, 0x06): ("ATmega168", 16384, 128),
+    (0x1E, 0x94, 0x0B): ("ATmega168P", 16384, 128),
+    (0x1E, 0x93, 0x07): ("ATmega8", 8192, 64),
+}
+BOOTLOADER_MAX = 2048  # the largest Arduino bootloader (ATmegaBOOT on old Nanos); optiboot is 512
+
+
+class Fail(Exception):
+    pass
+
+
+def log(msg):
+    print("agentbox-avr-upload: %s" % msg, flush=True)
+
+
+# --- Intel HEX -------------------------------------------------------------------------------------------
+
+def read_hex(path):
+    mem, base = {}, 0
+    with open(path) as f:
+        for n, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            if not line.startswith(":"):
+                raise Fail("%s:%d isn't Intel HEX" % (path, n))
+            raw = bytes.fromhex(line[1:])
+            if sum(raw) & 0xFF:
+                raise Fail("%s:%d: bad checksum" % (path, n))
+            count, addr, kind, data = raw[0], (raw[1] << 8) | raw[2], raw[3], raw[4:4 + raw[0]]
+            if kind == 0x00:
+                for i, b in enumerate(data):
+                    mem[base + addr + i] = b
+            elif kind == 0x01:
+                break
+            elif kind == 0x02:
+                base = ((data[0] << 8) | data[1]) << 4
+            elif kind == 0x04:
+                base = ((data[0] << 8) | data[1]) << 16
+    if not mem:
+        raise Fail("%s has no data" % path)
+    return mem
+
+
+def pages(mem, page):
+    """{page start: bytes} for every page the image touches, gaps filled with 0xFF (erased flash)."""
+    out = {}
+    for a in sorted(mem):
+        start = a - a % page
+        if start not in out:
+            out[start] = bytearray(b"\xff" * page)
+        out[start][a - start] = mem[a]
+    return out
+
+
+# --- STK500v1 --------------------------------------------------------------------------------------------
+
+class Stk500:
+    def __init__(self, ser):
+        self.ser = ser
+
+    def read(self, n, what):
+        got = self.ser.read(n)
+        if len(got) != n:
+            raise Fail("no answer from the bootloader (%s): got %d of %d bytes" % (what, len(got), n))
+        return got
+
+    def expect(self, what, n_data=0):
+        """INSYNC, n_data bytes, OK."""
+        if self.read(1, what)[0] != INSYNC:
+            raise Fail("out of sync (%s)" % what)
+        data = self.read(n_data, what) if n_data else b""
+        if self.read(1, what)[0] != OK:
+            raise Fail("bootloader refused %s" % what)
+        return data
+
+    def sync(self, tries=8):
+        for _ in range(tries):
+            self.ser.reset_input_buffer()
+            self.ser.write(bytes([0x30, EOP]))
+            got = self.ser.read(2)
+            if got == bytes([INSYNC, OK]):
+                return True
+        return False
+
+    def signature(self):
+        self.ser.write(bytes([0x75, EOP]))
+        return tuple(self.expect("read signature", 3))
+
+    def command(self, body, what):
+        self.ser.write(bytes(body) + bytes([EOP]))
+        self.expect(what)
+
+    @staticmethod
+    def addr_cmd(byte_addr):
+        w = byte_addr // 2  # the bootloader takes word addresses
+        return bytes([0x55, w & 0xFF, (w >> 8) & 0xFF, EOP])
+
+    def write_page(self, start, data):
+        n = len(data)
+        # LOAD_ADDRESS and PROG_PAGE go out together (one round trip over the network per page);
+        # the bootloader handles LOAD_ADDRESS instantly, so nothing arrives while it writes flash.
+        self.ser.write(self.addr_cmd(start) + bytes([0x64, n >> 8, n & 0xFF, 0x46]) + bytes(data) + bytes([EOP]))
+        self.expect("load address 0x%04x" % start)
+        self.expect("write page 0x%04x" % start)
+
+    def read_page(self, start, n):
+        self.ser.write(self.addr_cmd(start) + bytes([0x74, n >> 8, n & 0xFF, 0x46, EOP]))
+        self.expect("load address 0x%04x" % start)
+        return self.expect("read page 0x%04x" % start, n)
+
+
+def reset(ser):
+    """The Arduino auto-reset: DTR (and RTS) low, then high; the board resets on the edge."""
+    ser.dtr = False
+    ser.rts = False
+    time.sleep(0.25)
+    ser.dtr = True
+    ser.rts = True
+    time.sleep(0.05)
+
+
+def resolve_device(dev):
+    try:
+        st = json.loads(subprocess.check_output(["agentbox", "api", "/bench/status"], text=True))
+    except Exception as e:
+        raise Fail("can't read the bridge status (agentbox api /bench/status): %s" % e)
+    if not st.get("connected"):
+        raise Fail("the device bridge isn't connected: ask the owner to start it on their computer")
+    for d in st.get("devices", []):
+        if d["id"] == dev:
+            if d.get("in_use"):
+                raise Fail("%s is in use (close the serial monitor first)" % dev)
+            return d["url"]
+    raise Fail("no device %r; shared now: %s" % (dev, ", ".join(d["id"] for d in st.get("devices", [])) or "none"))
+
+
+def upload(url, hex_path, bauds, verify=True):
+    mem = read_hex(hex_path)
+    last_err = None
+    for baud in bauds:
+        log("connecting to %s at %d baud…" % (url, baud))
+        ser = serial.serial_for_url(url, baudrate=baud, timeout=1.5, do_not_open=True)
+        ser.dtr = False
+        ser.rts = False
+        ser.open()
+        try:
+            reset(ser)
+            stk = Stk500(ser)
+            if not stk.sync():
+                last_err = Fail("no bootloader answered at %d baud" % baud)
+                continue
+            sig = stk.signature()
+            chip = CHIPS.get(sig)
+            if not chip:
+                raise Fail("unknown chip signature %s (this uploader knows %s)" % (
+                    " ".join("%02X" % b for b in sig), ", ".join(c[0] for c in CHIPS.values())))
+            name, flash, page = chip
+            top = max(mem) + 1
+            if top > flash - 512:  # optiboot, the smallest Arduino bootloader, takes the last 512 bytes
+                raise Fail("the sketch (%d bytes) doesn't fit next to the bootloader on the %s" % (top, name))
+            if top > flash - BOOTLOADER_MAX:
+                log("warning: the sketch reaches 0x%04x; fine with optiboot (Uno), too big for an old-bootloader Nano" % top)
+            image = pages(mem, page)
+            log("%s found; writing %d bytes in %d pages…" % (name, len(mem), len(image)))
+            stk.command([0x50], "enter programming mode")
+            t0 = time.time()
+            for i, start in enumerate(sorted(image), 1):
+                stk.write_page(start, image[start])
+                if i % 16 == 0 or i == len(image):
+                    log("  written %d/%d pages" % (i, len(image)))
+            if verify:
+                log("verifying…")
+                for start in sorted(image):
+                    back = stk.read_page(start, page)
+                    if bytes(back) != bytes(image[start]):
+                        raise Fail("verify failed at 0x%04x: the flash doesn't match the file (try again)" % start)
+            stk.command([0x51], "leave programming mode")  # the sketch starts now
+            log("done: %s %s %d bytes in %.1f s (%d baud)" % ("written and verified," if verify else "written,", name, len(mem), time.time() - t0, baud))
+            return 0
+        finally:
+            ser.close()
+    raise last_err or Fail("no bootloader answered")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("hex")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--device", help="device id from `agentbox api /bench/status`")
+    g.add_argument("--port", help="pyserial URL, e.g. rfc2217://127.0.0.1:7741")
+    ap.add_argument("--board", choices=sorted(BOARDS), default="auto")
+    ap.add_argument("--baud", type=int)
+    ap.add_argument("--no-verify", action="store_true")
+    a = ap.parse_args()
+    try:
+        if a.hex.endswith("with_bootloader.hex"):
+            raise Fail("that's the image WITH the bootloader; upload <sketch>.ino.hex instead")
+        url = a.port or resolve_device(a.device)
+        sys.exit(upload(url, a.hex, [a.baud] if a.baud else BOARDS[a.board], verify=not a.no_verify))
+    except Fail as e:
+        log("failed: %s" % e)
+        log("the bootloader itself is never written, so re-running the upload is safe")
+        sys.exit(1)
+    except (OSError, serial.SerialException) as e:
+        log("failed: %s" % e)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

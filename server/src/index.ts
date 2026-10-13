@@ -23,7 +23,7 @@ import {
 } from "./routines.ts";
 import { continueGroup, createGroup, deleteGroup, getGroup, listGroups, postAsOwner, updateGroup } from "./groups.ts";
 import {
-  approveDraft, deleteSkill, ensureSeedSkill, getDraft, getSkill, listDrafts, listSkills, rejectDraft, saveSkill, seedSkills,
+  approveDraft, deleteSkill, ensureBuiltinSkill, ensureSeedSkill, getDraft, getSkill, listDrafts, listSkills, rejectDraft, saveSkill, seedSkills,
   setAgentSkills, setSkillAgents, skillsOf,
 } from "./skills.ts";
 import { health } from "./health.ts";
@@ -552,7 +552,7 @@ app.addHook("onClose", async () => setupWorkspace.stop());
 refreshIntegrations(0).catch(() => {});
 startRoutines();
 ensureSeedSkill("onboard-repo"); // added after the first seeding: copied once
-ensureSeedSkill("bench-hardware"); // the device bridge integration's skill
+ensureBuiltinSkill("bench-hardware"); // the device bridge's skill: agentbox-owned, refreshed at every start
 const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, daily sweep, cleanup on task close
 const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true
 app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });

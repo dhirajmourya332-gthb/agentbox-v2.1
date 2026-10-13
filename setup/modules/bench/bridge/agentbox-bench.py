@@ -12,7 +12,8 @@ work unchanged.
 
 Settings: ~/.agentbox-bench/config.json (written by the installer from your portal):
   { "portal": "https://<node>.ts.net", "token": "…", "serial": true, "loopback": true,
-    "devices": [] }            # devices: only these ids (empty = every USB serial port)
+    "devices": [],             # devices: only these ids (empty = every USB serial port)
+    "extra_devices": [] }      # simulators: [{"id": "sim-uno", "url": "socket://127.0.0.1:5555"}]
 Needs Python 3.9+. The first run creates ~/.agentbox-bench/venv with pyserial and websockets.
 Protocol: docs/BENCH.md.
 """
@@ -93,6 +94,10 @@ def list_devices(cfg):
                  "serial_number": p.serial_number or ""}
             if not cfg["devices"] or d["id"] in cfg["devices"]:
                 out.append(d)
+    for x in cfg.get("extra_devices", []):  # simulators / tests: {"id": "sim-uno", "url": "socket://127.0.0.1:5555"}
+        if x.get("id") and x.get("url"):
+            out.append({"id": x["id"], "kind": "serial", "path": x["url"], "description": x.get("description", "Simulated device"),
+                        "manufacturer": "simulated", "vid": "", "pid": "", "serial_number": ""})
     if cfg.get("loopback"):
         out.append({"id": "loopback", "kind": "serial", "path": "loop://", "description": "Test port: echoes what it gets",
                     "manufacturer": "agentbox", "vid": "", "pid": "", "serial_number": ""})

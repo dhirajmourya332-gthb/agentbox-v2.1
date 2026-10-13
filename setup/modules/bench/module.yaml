@@ -21,7 +21,7 @@ steps:
   - id: install
     title: Bridge token and serial tools on the VM
     run: install.sh
-    check: "test -s \"$(agentbox config get paths.secrets)/bench.token\" && python3 -c 'import serial.rfc2217'"
+    check: "test -s \"$(agentbox config get paths.secrets)/bench.token\" && python3 -c 'import serial.rfc2217' && command -v agentbox-avr-upload"
   - id: computer
     title: Run the bridge on your computer
     human: true
