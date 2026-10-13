@@ -88,6 +88,14 @@ if ! id "$AGENT_USER" >/dev/null 2>&1; then
   echo "created $AGENT_USER"
 fi
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)"
+# Agents and the setup guide run as the agent user: it must read the repo. A clone in a home folder
+# (private on Ubuntu 24.04) can't be read; stop with the fix instead of a guide that fails later.
+if ! sudo -u "$AGENT_USER" test -r "$SRC/setup/modules/core/module.yaml"; then
+  die "$AGENT_USER (the user agents run as) can't read $SRC: home folders are private on Ubuntu 24.04.
+Move the clone where it can, then run bootstrap from there:
+  sudo install -d -m 0755 /opt/agentbox && sudo mv $SRC /opt/agentbox/src
+  sudo /opt/agentbox/src/setup/bootstrap.sh"
+fi
 
 say "config $CONFIG"
 install -d -m 0755 /etc/agentbox
@@ -109,15 +117,16 @@ chmod 0755 /opt/agentbox/cli/agentbox.mjs
 ln -sf /opt/agentbox/cli/agentbox.mjs /usr/local/bin/agentbox
 install -m 0755 "$SRC/setup/modules/core/bin/agentbox-check-loopback" /usr/local/bin/agentbox-check-loopback
 agentbox config get host >/dev/null || die "the CLI can't read $CONFIG"
+# A kept config may name an older clone (the repo was moved): this run's source wins.
+if [ "$(agentbox config get paths.src)" != "$SRC" ]; then
+  agentbox config set paths.src "$SRC" >/dev/null && echo "paths.src = $SRC (was elsewhere)"
+fi
 
 cfg() { agentbox config get "$1"; }
 say "directories"
 for key in agents work skills team; do install -d -m 0755 -o "$AGENT_USER" -g "$AGENT_USER" "$(cfg "paths.$key")"; done
 install -d -m 0755 -o "$AGENT_USER" -g "$AGENT_USER" "$(cfg paths.app)"
 install -d -m 0700 -o "$AGENT_USER" -g "$AGENT_USER" "$(cfg paths.data)" "$(cfg paths.secrets)"
-if ! sudo -u "$AGENT_USER" test -r "$SRC/setup/modules/core/module.yaml"; then
-  echo "warning: $AGENT_USER can't read $SRC; clone the repo somewhere it can (e.g. /opt/agentbox/src)" >&2
-fi
 
 # --- the Claude Code CLI (official installer, for the agent user) ---------------------------------------
 say "claude code"

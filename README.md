@@ -68,12 +68,22 @@ agentbox runs on **any Ubuntu 24.04 VM**. Everything (agents, services, repos) l
 1. Create an Ubuntu 24.04 VM (4 vCPU, 8 GiB RAM and 60 GiB of disk are comfortable). **Allow no
    inbound traffic** in its firewall or security group; get your first shell through the
    provider's console (e.g. AWS SSM Session Manager, GCP IAP).
-2. As a sudo-capable user:
+2. As a sudo-capable user, clone into **`/opt/agentbox/src`** (not your home folder) and run the
+   bootstrap:
 
    ```bash
-   git clone https://github.com/<you>/agentbox.git && cd agentbox
-   ./setup/bootstrap.sh
+   sudo install -d -m 0755 -o "$USER" -g "$USER" /opt/agentbox/src
+   git clone https://github.com/<you>/agentbox.git /opt/agentbox/src
+   sudo /opt/agentbox/src/setup/bootstrap.sh
    ```
+
+   Why there: bootstrap creates a separate **`agentbox`** user, and agents and the setup guide run
+   as that user. It must be able to read the repo, but on Ubuntu 24.04 every home folder is private
+   to its owner (`drwxr-x---`), so a clone in `~/` fails with `can't read …/setup/modules: EACCES`.
+   The clone stays yours, so `git pull` and `sudo agentbox update` keep working. Already cloned into
+   your home folder? Move it:
+   `sudo mv ~/agentbox /opt/agentbox/src && sudo /opt/agentbox/src/setup/bootstrap.sh` (it updates the
+   config to the new place). Bootstrap stops with this hint if it can't read the repo.
 
 3. Bootstrap installs the basics, starts the **setup guide** on `127.0.0.1:7699` and prints a
    one-time link plus the port-forward command for your provider (`agentbox guide --tunnel` prints
@@ -84,9 +94,9 @@ agentbox runs on **any Ubuntu 24.04 VM**. Everything (agents, services, repos) l
    turns green only when its check passes. The security self-test closes the first run.
 4. Once the access step is done, the portal is at your private HTTPS address
    (`https://<node>.<tailnet>.ts.net` or `https://agentbox.<your-domain>`), behind a login.
-5. **Then connect what your team uses**, from the portal: **Setup agent** (or **Integrations**) →
+5. **Then connect what your team uses**, from the portal: **Helper** (or **Integrations**) →
    GitHub, GitLab or Bitbucket; AWS, Google Cloud or Azure; Kubernetes; database tunnels; the phone
-   app… The setup agent installs each one, asks for its settings and walks you through its login.
+   app… The helper installs each one, asks for its settings and walks you through its login.
    From a shell: `agentbox integration list`, `agentbox integration connect <id>`.
 
 ### 2. A local Lima VM on macOS
