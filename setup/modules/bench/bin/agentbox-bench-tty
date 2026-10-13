@@ -1,0 +1,460 @@
+#!/usr/bin/env python3
+"""Real-looking serial ports for the device bridge: /dev/ttyBENCH<n> (and /dev/bench/<device id>).
+
+Each device the bridge shares (agentbox api /bench/status) becomes a character device served from
+userspace through CUSE, so every tool that opens a serial port works unchanged: avrdude, arduino-cli,
+PlatformIO, esptool, screen, minicom, pyserial. Termios settings, the baud rate, DTR/RTS (the
+auto-reset into a bootloader), flushes, breaks, select/poll and O_NONBLOCK behave as on a tty; the
+bytes and control lines travel over the bridge's RFC 2217 link (rfc2217://127.0.0.1:<port>).
+
+No kernel code: only the kernel's CUSE module (modprobe cuse). Runs as root (agentbox-bench-tty
+.service, installed by the bench integration); the device nodes belong to the agent user. It talks
+only to the local portal (agentbox api) and the local bridge ports; nothing listens on the network.
+
+  agentbox-bench-tty            serve every shared device, following plug/unplug (the service)
+  agentbox-bench-tty --once     print the devices it would create and exit
+
+Protocol references: include/uapi/linux/fuse.h (FUSE/CUSE), asm-generic/termbits.h, ioctls.h (x86_64).
+"""
+import errno
+import json
+import os
+import pwd
+import signal
+import struct
+import subprocess
+import sys
+import threading
+import time
+
+import serial
+
+# --- FUSE / CUSE wire format ---------------------------------------------------------------------------
+IN_HDR = struct.Struct("<IIQQIIIHH")        # len opcode unique nodeid uid gid pid total_extlen padding
+OUT_HDR = struct.Struct("<IiQ")             # len error unique
+CUSE_INIT, FUSE_OPEN, FUSE_READ, FUSE_WRITE, FUSE_RELEASE, FUSE_FSYNC, FUSE_FLUSH = 4096, 14, 15, 16, 18, 20, 25
+FUSE_INTERRUPT, FUSE_DESTROY, FUSE_IOCTL, FUSE_POLL = 36, 38, 39, 40
+CUSE_INIT_OUT = struct.Struct("<IIIIIIII40x")  # major minor unused flags max_read max_write dev_major dev_minor spare[10]
+CUSE_UNRESTRICTED_IOCTL = 1
+OPEN_OUT = struct.Struct("<QIi")
+FOPEN_DIRECT_IO, FOPEN_NONSEEKABLE = 1, 4
+READ_IN = struct.Struct("<QQIIQII")         # fh offset size read_flags lock_owner flags padding
+WRITE_IN = struct.Struct("<QQIIQII")
+IOCTL_IN = struct.Struct("<QIIQII")          # fh flags cmd arg in_size out_size
+IOCTL_OUT = struct.Struct("<iIII")           # result flags in_iovs out_iovs
+IOVEC = struct.Struct("<QQ")
+FUSE_IOCTL_RETRY = 1 << 2
+POLL_IN = struct.Struct("<QQII")             # fh kh flags events
+FUSE_POLL_SCHEDULE_NOTIFY = 1
+FUSE_NOTIFY_POLL = 1
+O_NONBLOCK = 0o4000
+POLLIN, POLLOUT, POLLRDNORM, POLLWRNORM = 0x1, 0x4, 0x40, 0x100
+MAX_IO = 1 << 16
+
+# --- termios -----------------------------------------------------------------------------------------------
+TERMIOS = struct.Struct("<IIIIB19s")        # iflag oflag cflag lflag line cc[19]
+TERMIOS2 = struct.Struct("<IIIIB19sII")     # … ispeed ospeed
+TCGETS, TCSETS, TCSETSW, TCSETSF = 0x5401, 0x5402, 0x5403, 0x5404
+TCGETS2, TCSETS2, TCSETSW2, TCSETSF2 = 0x802C542A, 0x402C542B, 0x402C542C, 0x402C542D
+TCSBRK, TCXONC, TCFLSH, TIOCEXCL, TIOCNXCL = 0x5409, 0x540A, 0x540B, 0x540C, 0x540D
+TIOCOUTQ, TIOCGWINSZ, TIOCSWINSZ = 0x5411, 0x5413, 0x5414
+TIOCMGET, TIOCMBIS, TIOCMBIC, TIOCMSET = 0x5415, 0x5416, 0x5417, 0x5418
+FIONREAD, TIOCSBRK, TIOCCBRK, TCSBRKP = 0x541B, 0x5427, 0x5428, 0x5425
+TIOCM_DTR, TIOCM_RTS, TIOCM_CTS, TIOCM_CAR, TIOCM_DSR = 0x002, 0x004, 0x020, 0x040, 0x100
+CBAUD, BOTHER = 0o10017, 0o10000
+CS8, CREAD, HUPCL, CLOCAL = 0o60, 0o200, 0o2000, 0o4000
+VTIME, VMIN = 5, 6
+SPEEDS = {0: 0, 1: 50, 2: 75, 3: 110, 4: 134, 5: 150, 6: 200, 7: 300, 8: 600, 9: 1200, 10: 1800, 11: 2400, 12: 4800,
+          13: 9600, 14: 19200, 15: 38400, 0o10001: 57600, 0o10002: 115200, 0o10003: 230400, 0o10004: 460800,
+          0o10005: 500000, 0o10006: 576000, 0o10007: 921600, 0o10010: 1000000, 0o10011: 1152000, 0o10012: 1500000,
+          0o10013: 2000000, 0o10014: 2500000, 0o10015: 3000000, 0o10016: 3500000, 0o10017: 4000000}
+# (input size, output size) for the "unrestricted" ioctl retry protocol; others take their value in arg.
+IOCTL_SIZES = {
+    TCGETS: (0, TERMIOS.size), TCSETS: (TERMIOS.size, 0), TCSETSW: (TERMIOS.size, 0), TCSETSF: (TERMIOS.size, 0),
+    TCGETS2: (0, TERMIOS2.size), TCSETS2: (TERMIOS2.size, 0), TCSETSW2: (TERMIOS2.size, 0), TCSETSF2: (TERMIOS2.size, 0),
+    TIOCMGET: (0, 4), TIOCMBIS: (4, 0), TIOCMBIC: (4, 0), TIOCMSET: (4, 0), FIONREAD: (0, 4), TIOCOUTQ: (0, 4),
+    TIOCGWINSZ: (0, 8), TIOCSWINSZ: (8, 0),
+}
+
+
+def log(msg):
+    print("agentbox-bench-tty: %s" % msg, flush=True)
+
+
+def cfg(key):
+    return subprocess.run(["agentbox", "config", "get", key], capture_output=True, text=True).stdout.strip()
+
+
+# --- one serial device ------------------------------------------------------------------------------------
+
+class Port:
+    """The device's state shared by all opens: termios, modem lines, the RFC 2217 link, the RX buffer."""
+
+    def __init__(self, dev):
+        self.dev = dev
+        cc = bytearray(19)
+        cc[VMIN], cc[VTIME] = 1, 0
+        self.iflag, self.oflag, self.lflag, self.line, self.cc = 0, 0, 0, 0, bytes(cc)
+        self.cflag = 13 | CS8 | CREAD | HUPCL | CLOCAL  # 9600 8N1, like a fresh tty
+        self.speed = 9600
+        self.mctrl = 0
+        self.ser = None
+        self.opens = 0
+        self.exclusive = False
+        self.rx = bytearray()
+        self.lock = threading.Condition()
+        self.pollers = set()
+        self.notify = None  # set by the CUSE server: wakes pollers
+
+    def termios_bytes(self, two=False):
+        if two:
+            return TERMIOS2.pack(self.iflag, self.oflag, self.cflag, self.lflag, self.line, self.cc, self.speed, self.speed)
+        return TERMIOS.pack(self.iflag, self.oflag, self.cflag, self.lflag, self.line, self.cc)
+
+    def set_termios(self, data, two=False):
+        ospeed = None
+        if two:
+            self.iflag, self.oflag, self.cflag, self.lflag, self.line, self.cc, _ispeed, ospeed = TERMIOS2.unpack(data[:TERMIOS2.size])
+        else:
+            self.iflag, self.oflag, self.cflag, self.lflag, self.line, self.cc = TERMIOS.unpack(data[:TERMIOS.size])
+        code = self.cflag & CBAUD
+        speed = ospeed if (code == BOTHER and ospeed) else SPEEDS.get(code, self.speed)
+        if speed == 0:  # B0 = hang up: drop DTR/RTS
+            self.set_mctrl(self.mctrl & ~(TIOCM_DTR | TIOCM_RTS))
+            return
+        if speed != self.speed:
+            self.speed = speed
+            if self.ser:
+                self.ser.baudrate = speed
+
+    def set_mctrl(self, bits):
+        self.mctrl = bits & (TIOCM_DTR | TIOCM_RTS)
+        if self.ser:
+            self.ser.dtr = bool(self.mctrl & TIOCM_DTR)
+            self.ser.rts = bool(self.mctrl & TIOCM_RTS)
+
+    def open(self):
+        with self.lock:
+            if self.exclusive:
+                raise OSError(errno.EBUSY, "exclusive")
+            self.opens += 1
+            if self.ser:
+                return
+        try:
+            s = serial.serial_for_url(self.dev["url"], baudrate=self.speed, timeout=0.05, do_not_open=True)
+            s.open()  # like a tty open: DTR/RTS go up (an Arduino resets here, as on real hardware)
+            self.mctrl = TIOCM_DTR | TIOCM_RTS
+        except Exception as e:
+            with self.lock:
+                self.opens -= 1
+            raise OSError(errno.EIO, "can't reach %s through the bridge: %s" % (self.dev["id"], e))
+        with self.lock:
+            self.ser = s
+            self.rx.clear()
+        threading.Thread(target=self.reader, args=(s,), daemon=True).start()
+
+    def close(self):
+        with self.lock:
+            self.opens = max(0, self.opens - 1)
+            if self.opens:
+                return
+            s, self.ser, self.exclusive = self.ser, None, False
+            self.rx.clear()
+            self.lock.notify_all()
+        if s:
+            try:
+                if self.cflag & HUPCL:
+                    s.dtr = False
+                    s.rts = False
+                s.close()
+            except Exception:
+                pass
+
+    def reader(self, s):
+        while True:
+            try:
+                data = s.read(s.in_waiting or 1)
+            except Exception:
+                data = None
+            with self.lock:
+                if self.ser is not s:
+                    return
+                if data is None:  # the link dropped: behave like an unplugged device
+                    self.ser = None
+                    self.lock.notify_all()
+                    self.wake()
+                    return
+                if data:
+                    self.rx += data
+                    self.lock.notify_all()
+                    self.wake()
+
+    def wake(self):
+        if self.notify:
+            for kh in list(self.pollers):
+                self.notify(kh)
+            self.pollers.clear()
+
+
+# --- the CUSE server for one device --------------------------------------------------------------------
+
+class Cuse:
+    def __init__(self, port, name, owner):
+        self.port, self.name, self.owner = port, name, owner
+        self.fd = os.open("/dev/cuse", os.O_RDWR)
+        self.wlock = threading.Lock()
+        self.pending = {}  # unique → threading.Event, for interrupted reads
+        self.alive = True
+        port.notify = self.poll_wakeup
+
+    def reply(self, unique, error=0, payload=b""):
+        msg = OUT_HDR.pack(OUT_HDR.size + len(payload), -error if error else 0, unique) + payload
+        with self.wlock:
+            try:
+                os.write(self.fd, msg)
+            except OSError:
+                pass  # the request went away (interrupted): fine
+
+    def poll_wakeup(self, kh):
+        msg = OUT_HDR.pack(OUT_HDR.size + 8, FUSE_NOTIFY_POLL, 0) + struct.pack("<Q", kh)
+        with self.wlock:
+            try:
+                os.write(self.fd, msg)
+            except OSError:
+                pass
+
+    def serve(self):
+        while self.alive:
+            try:
+                buf = os.read(self.fd, MAX_IO + 4096)
+            except OSError as e:
+                if e.errno in (errno.EINTR, errno.EAGAIN):
+                    continue
+                return  # ENODEV: unregistered; anything else: give up on this device
+            if not buf:
+                return
+            length, opcode, unique = IN_HDR.unpack_from(buf)[:3]
+            body = buf[IN_HDR.size:length]
+            try:
+                self.dispatch(opcode, unique, body)
+            except OSError as e:
+                self.reply(unique, e.errno or errno.EIO)
+            except Exception as e:
+                log("%s: request %d failed: %r" % (self.name, opcode, e))
+                self.reply(unique, errno.EIO)
+
+    def dispatch(self, op, unique, body):
+        p = self.port
+        if op == CUSE_INIT:
+            _major, minor, _u, _flags = struct.unpack_from("<IIII", body)
+            info = ("DEVNAME=%s\0" % self.name).encode()
+            self.reply(unique, payload=CUSE_INIT_OUT.pack(7, min(minor, 31), 0, CUSE_UNRESTRICTED_IOCTL, MAX_IO, MAX_IO, 0, 0) + info)
+            threading.Thread(target=self.fix_node, daemon=True).start()
+        elif op == FUSE_OPEN:
+            p.open()
+            self.reply(unique, payload=OPEN_OUT.pack(1, FOPEN_DIRECT_IO | FOPEN_NONSEEKABLE, 0))
+        elif op == FUSE_RELEASE:
+            p.close()
+            self.reply(unique)
+        elif op in (FUSE_FLUSH, FUSE_FSYNC):
+            self.reply(unique)
+        elif op == FUSE_READ:
+            _fh, _off, size, _rf, _lo, flags, _pad = READ_IN.unpack_from(body)
+            threading.Thread(target=self.read, args=(unique, size, flags), daemon=True).start()
+        elif op == FUSE_WRITE:
+            _fh, _off, size = WRITE_IN.unpack_from(body)[:3]
+            data = body[WRITE_IN.size:WRITE_IN.size + size]
+            if not p.ser:
+                raise OSError(errno.EIO, "link down")
+            p.ser.write(data)
+            self.reply(unique, payload=struct.pack("<II", len(data), 0))
+        elif op == FUSE_IOCTL:
+            self.ioctl(unique, body)
+        elif op == FUSE_POLL:
+            _fh, kh, flags, _events = POLL_IN.unpack_from(body)
+            with p.lock:
+                rev = POLLOUT | POLLWRNORM
+                if p.rx or not p.ser:
+                    rev |= POLLIN | POLLRDNORM
+                elif flags & FUSE_POLL_SCHEDULE_NOTIFY:
+                    p.pollers.add(kh)
+            self.reply(unique, payload=struct.pack("<II", rev, 0))
+        elif op == FUSE_INTERRUPT:
+            ev = self.pending.get(struct.unpack_from("<Q", body)[0])
+            if ev:
+                ev.set()  # the blocked read answers EINTR; the interrupt itself gets no reply
+        elif op == FUSE_DESTROY:
+            self.alive = False
+        else:
+            self.reply(unique, errno.ENOSYS)
+
+    def read(self, unique, size, flags):
+        """A tty read: data if there is any; otherwise EAGAIN (O_NONBLOCK), or wait per VMIN/VTIME."""
+        p = self.port
+        ev = threading.Event()
+        self.pending[unique] = ev
+        try:
+            vmin, vtime = p.cc[VMIN], p.cc[VTIME] / 10.0
+            deadline = time.time() + vtime if vtime else None
+            with p.lock:
+                while not p.rx:
+                    if not p.ser:
+                        return self.reply(unique, payload=b"")  # hung up: EOF
+                    if flags & O_NONBLOCK:
+                        return self.reply(unique, errno.EAGAIN)
+                    if vmin == 0 and not vtime:
+                        return self.reply(unique, payload=b"")
+                    if ev.is_set():
+                        return self.reply(unique, errno.EINTR)
+                    left = None if deadline is None else deadline - time.time()
+                    if left is not None and left <= 0:
+                        return self.reply(unique, payload=b"")
+                    p.lock.wait(0.1 if left is None else min(0.1, left))
+                data = bytes(p.rx[:size])
+                del p.rx[:len(data)]
+            self.reply(unique, payload=data)
+        finally:
+            self.pending.pop(unique, None)
+
+    def ioctl(self, unique, body):
+        p = self.port
+        _fh, _flags, cmd, arg, in_size, out_size = IOCTL_IN.unpack_from(body)
+        data = body[IOCTL_IN.size:IOCTL_IN.size + in_size]
+        need = IOCTL_SIZES.get(cmd)
+        if need and (in_size < need[0] or out_size < need[1]):
+            # Unrestricted ioctl: tell the kernel which user memory to copy in/out, then it asks again.
+            iovs_in = [IOVEC.pack(arg, need[0])] if need[0] else []
+            iovs_out = [IOVEC.pack(arg, need[1])] if need[1] else []
+            return self.reply(unique, payload=IOCTL_OUT.pack(0, FUSE_IOCTL_RETRY, len(iovs_in), len(iovs_out)) + b"".join(iovs_in + iovs_out))
+        out = b""
+        if cmd in (TCGETS, TCGETS2):
+            out = p.termios_bytes(cmd == TCGETS2)
+        elif cmd in (TCSETS, TCSETSW, TCSETSF, TCSETS2, TCSETSW2, TCSETSF2):
+            if cmd in (TCSETSF, TCSETSF2):
+                with p.lock:
+                    p.rx.clear()
+            p.set_termios(data, cmd in (TCSETS2, TCSETSW2, TCSETSF2))
+        elif cmd == TIOCMGET:
+            out = struct.pack("<i", p.mctrl | TIOCM_CTS | TIOCM_DSR | TIOCM_CAR)
+        elif cmd in (TIOCMBIS, TIOCMBIC, TIOCMSET):
+            bits = struct.unpack("<i", data[:4])[0]
+            p.set_mctrl(p.mctrl | bits if cmd == TIOCMBIS else p.mctrl & ~bits if cmd == TIOCMBIC else bits)
+        elif cmd == FIONREAD:
+            with p.lock:
+                out = struct.pack("<i", len(p.rx))
+        elif cmd == TIOCOUTQ:
+            out = struct.pack("<i", 0)
+        elif cmd == TCFLSH:
+            if arg in (0, 2):  # TCIFLUSH, TCIOFLUSH
+                with p.lock:
+                    p.rx.clear()
+                if p.ser:
+                    p.ser.reset_input_buffer()
+        elif cmd in (TCSBRK, TCSBRKP):
+            if arg == 0 and p.ser:  # tcsendbreak; arg != 0 is tcdrain: writes are already sent
+                p.ser.send_break(0.25)
+        elif cmd in (TIOCSBRK, TIOCCBRK):
+            if p.ser:
+                p.ser.break_condition = cmd == TIOCSBRK
+        elif cmd == TIOCEXCL:
+            p.exclusive = True
+        elif cmd == TIOCNXCL:
+            p.exclusive = False
+        elif cmd in (TCXONC, TIOCSWINSZ):
+            pass
+        elif cmd == TIOCGWINSZ:
+            out = bytes(8)
+        else:
+            raise OSError(errno.ENOTTY, "ioctl 0x%x" % cmd)
+        self.reply(unique, payload=IOCTL_OUT.pack(0, 0, 0, 0) + out)
+
+    def fix_node(self):
+        """The kernel makes /dev/<name> root-only: give it to the agent user and add the alias."""
+        path = "/dev/" + self.name
+        for _ in range(50):
+            if os.path.exists(path):
+                break
+            time.sleep(0.1)
+        try:
+            os.chown(path, self.owner.pw_uid, self.owner.pw_gid)
+            os.chmod(path, 0o660)
+            os.makedirs("/dev/bench", exist_ok=True)
+            alias = os.path.join("/dev/bench", self.port.dev["id"])
+            if os.path.lexists(alias):
+                os.unlink(alias)
+            os.symlink(path, alias)
+            log("%s → %s (%s)" % (alias, path, self.port.dev["url"]))
+        except OSError as e:
+            log("%s: couldn't set up the node: %s" % (path, e))
+
+    def stop(self):
+        self.alive = False
+        self.port.close()
+        alias = os.path.join("/dev/bench", self.port.dev["id"])
+        try:
+            if os.path.islink(alias):
+                os.unlink(alias)
+        except OSError:
+            pass
+        try:
+            os.close(self.fd)  # unregisters /dev/<name>
+        except OSError:
+            pass
+
+
+# --- following the bridge ------------------------------------------------------------------------------------
+
+def status():
+    r = subprocess.run(["agentbox", "api", "/bench/status"], capture_output=True, text=True, timeout=15)
+    return json.loads(r.stdout) if r.returncode == 0 else None
+
+
+def main():
+    base = int(cfg("ports.bench") or 7740)
+    owner = pwd.getpwnam(cfg("user") or "agentbox")
+    if "--once" in sys.argv:
+        for d in (status() or {}).get("devices", []):
+            print("/dev/ttyBENCH%d  /dev/bench/%s  ← %s" % (d["port"] - base, d["id"], d["url"]))
+        return
+    subprocess.run(["modprobe", "cuse"], check=False)
+    # Aliases left by an earlier run that didn't stop cleanly point at nodes that are gone.
+    if os.path.isdir("/dev/bench"):
+        for n in os.listdir("/dev/bench"):
+            a = os.path.join("/dev/bench", n)
+            if os.path.islink(a) and not os.path.exists(a):
+                os.unlink(a)
+    live = {}  # device id → (Cuse, url)
+
+    def stop(*_):
+        for c, _url in live.values():
+            c.stop()
+        log("stopped; /dev/bench is empty")
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    log("following the device bridge (ports from %d)" % base)
+    while True:
+        try:
+            st = status()
+        except Exception:
+            st = None
+        want = {d["id"]: d for d in st.get("devices", [])} if st and st.get("connected") else {}
+        for did in list(live):
+            if did not in want or live[did][1] != want[did]["url"]:
+                live.pop(did)[0].stop()
+                log("removed %s" % did)
+        for did, d in want.items():
+            if did in live:
+                continue
+            try:
+                c = Cuse(Port(d), "ttyBENCH%d" % (d["port"] - base), owner)
+            except OSError as e:
+                log("can't create a device for %s: %s" % (did, e))
+                continue
+            threading.Thread(target=c.serve, daemon=True).start()
+            live[did] = (c, d["url"])
+        time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()

@@ -3,3 +3,4 @@
 source "$(dirname "$0")/../../lib/common.sh"
 rm -f "$(cfg paths.secrets)/bench.token"
 echo "bench: token deleted; stop the bridge on your computer and delete ~/.agentbox-bench there"
+rm -f /etc/modules-load.d/agentbox-bench.conf

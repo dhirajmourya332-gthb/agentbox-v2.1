@@ -1,0 +1,22 @@
+[Unit]
+Description=agentbox device bridge ports (/dev/ttyBENCH*, /dev/bench/*: the owner's shared serial devices, through CUSE)
+After=agentbox-web.service
+Wants=agentbox-web.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/sbin/modprobe cuse
+ExecStart=/usr/bin/python3 /usr/local/bin/agentbox-bench-tty
+Restart=always
+RestartSec=3
+# Only the device files and the local portal/bridge ports: no network beyond loopback, no home dirs.
+IPAddressDeny=any
+IPAddressAllow=localhost
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/dev
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

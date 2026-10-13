@@ -155,6 +155,8 @@ export function benchStatus() {
     devices: bridge ? [...bridge.devices.values()].map((l) => ({
       id: l.dev.id, kind: l.dev.kind, description: l.dev.description, manufacturer: l.dev.manufacturer, vid: l.dev.vid, pid: l.dev.pid,
       port: l.port, url: `rfc2217://127.0.0.1:${l.port}`, in_use: l.clients > 0,
+      // The real-looking port agentbox-bench-tty makes for it (null when that service isn't running).
+      dev: fs.existsSync(`/dev/bench/${l.dev.id}`) ? `/dev/bench/${l.dev.id}` : null,
     })) : [],
   };
 }

@@ -134,7 +134,7 @@ function BenchPanel() {
       {st?.connected && st.devices.length > 0 && (
         <ul className="bench-devices">
           {st.devices.map((d) => (
-            <li key={d.id}><code>{d.id}</code> <span className="hint">{d.description}{d.vid ? ` · ${d.vid}:${d.pid}` : ""}</span> <code className="hint">{d.url}</code>{d.in_use && <span className="tag">in use</span>}</li>
+            <li key={d.id}><code>{d.id}</code> <span className="hint">{d.description}{d.vid ? ` · ${d.vid}:${d.pid}` : ""}</span> <code className="hint">{d.dev ?? d.url}</code>{d.in_use && <span className="tag">in use</span>}</li>
           ))}
         </ul>
       )}

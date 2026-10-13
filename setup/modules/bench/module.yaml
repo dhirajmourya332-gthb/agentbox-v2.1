@@ -14,6 +14,7 @@ instructions:
   file: instructions.md
 skills: [bench-hardware]
 default_roles: []
+units: [agentbox-bench-tty.service]
 revoke: |
   Stop the bridge on your computer (Ctrl+C) and delete ~/.agentbox-bench there (it holds the token).
   Disconnecting here deletes the token on the VM, so an old bridge can't reconnect.

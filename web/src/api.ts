@@ -318,7 +318,7 @@ export type Review = { id: string; root_id: string; instance_id: string; verdict
 export type BenchStatus = {
   enabled: boolean; token: boolean; settings: { serial: boolean; loopback: boolean }; connected: boolean;
   bridge: { host: string; os: string; version: number; since: string; capabilities: Record<string, boolean> } | null;
-  devices: { id: string; kind: string; description: string; manufacturer: string; vid: string; pid: string; port: number; url: string; in_use: boolean }[];
+  devices: { id: string; kind: string; description: string; manufacturer: string; vid: string; pid: string; port: number; url: string; dev: string | null; in_use: boolean }[];
 };
 
 /** An API error with what the server attached (409s from repos carry `detail`). */

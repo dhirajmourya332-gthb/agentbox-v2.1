@@ -4,8 +4,8 @@ Lets agents use hardware on the owner's computer (today: USB serial devices such
 Arduino boards) without opening anything on that computer.
 
 ```
-agent on the VM ── rfc2217://127.0.0.1:<port> ──▶ portal (bench.ts) ══ WebSocket ══▶ agentbox-bench.py ──▶ USB board
-                                                                    (the bridge dials OUT)  (owner's computer)
+agent on the VM ── /dev/bench/<id> ──▶ agentbox-bench-tty (CUSE) ── rfc2217://127.0.0.1:<port> ──▶ portal (bench.ts)
+      ══ WebSocket (the bridge dials OUT) ══▶ agentbox-bench.py ──▶ USB board (owner's computer)
 ```
 
 ## Pieces
@@ -14,7 +14,8 @@ agent on the VM ── rfc2217://127.0.0.1:<port> ──▶ portal (bench.ts) �
 | The integration (Integrations → **Connectivity** → Device bridge) | `setup/modules/bench/` (token, pyserial, steps, agents' instructions) |
 | The bridge the owner runs | `setup/modules/bench/bridge/agentbox-bench.py` (Python 3.9+, makes its own venv with pyserial + websockets) |
 | The portal side | `server/src/bench.ts`: `/api/bench/{connect,status,test,install.sh,bridge.py}` |
-| Arduino Uno/Nano uploads | `setup/modules/bench/bin/agentbox-avr-upload` (STK500v1 over pyserial; avrdude can't open `rfc2217://`), installed on the VM by the integration; test: `setup/modules/bench/test/test_avr_upload.py` |
+| Real-looking ports `/dev/ttyBENCH<n>`, `/dev/bench/<id>` | `setup/modules/bench/bin/agentbox-bench-tty` + `units/agentbox-bench-tty.service`: a userspace character device per shared device through the kernel's CUSE module (no kernel code). Termios, baud, DTR/RTS, flush, break, select/poll, O_NONBLOCK and VMIN/VTIME behave as on a tty, so avrdude, arduino-cli, PlatformIO, esptool and screen work unmodified. Follows plug/unplug every 2 s; the nodes belong to the agent user. |
+| Arduino Uno/Nano uploads over a slow link | `setup/modules/bench/bin/agentbox-avr-upload` (STK500v1 over pyserial; avrdude can't open `rfc2217://`), installed on the VM by the integration; test: `setup/modules/bench/test/test_avr_upload.py` |
 | The agents' skill | `server/seed-skills/bench-hardware` (given to the roles mapped to the integration) |
 | The helper's guide | `server/seed-skills/agentbox-setup` § 6 |
 
@@ -47,6 +48,13 @@ JSON text frames for control; binary frames `[u32 channel][bytes]` for data.
   `0xFF` escaping work end to end; the portal only relays bytes.
 - Ports: `ports.bench` (default 7740) and the next 39; a device keeps its port across reconnects
   (`<data>/bench-ports.json`).
+
+## Latency
+The ports hide the network, not the distance. Tools with tight timeouts (avrdude's 250 ms drain while
+syncing with an Arduino bootloader) need the VM close to the owner: from India, a VM in us-central1
+(~250 ms round trip) made avrdude fall out of sync; the same upload through `/dev/bench` works from
+asia-south1 (~35 ms: 5000 bytes written and verified in 17 s). Put the VM in the owner's region;
+`agentbox-avr-upload` (pipelined, delay-tolerant) remains for slow links.
 
 ## Simulated devices
 `~/.agentbox-bench/config.json` → `"extra_devices": [{"id": "sim-uno", "url": "socket://127.0.0.1:5599"}]`
