@@ -4,6 +4,8 @@
 # shellcheck shell=bash disable=SC2034  # variables for the scripts that source this
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# Callers may inherit UMask=0077 (the portal's and guide's sudo): system files need normal modes.
+[ "$(id -u)" -ne 0 ] || umask 022
 # wait_for_apt: call before every apt-get / dpkg action (prints why it waits; see the file).
 # shellcheck source=setup/lib/apt-wait.sh
 source "$(dirname "${BASH_SOURCE[0]}")/apt-wait.sh"

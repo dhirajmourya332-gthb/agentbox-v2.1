@@ -12,6 +12,9 @@ import {
   integrationState, normalizeIntegration, parseAssignments, remainingGates, render, renderContext, stepViews, validateSettings,
 } from "./integrations.mjs";
 
+// The portal and the guide run with UMask=0077, and their agents' sudo inherits it: as root, system
+// files (the config, apt keyrings, units) must get normal modes, or the agent user and apt can't read them.
+if (process.getuid?.() === 0) process.umask(0o022);
 const SELF = fileURLToPath(import.meta.url);
 const CONFIG = process.env.AGENTBOX_CONFIG || "/etc/agentbox/config.yaml";
 const REQUIRED = ["core", "claude", "access"];
@@ -68,6 +71,7 @@ function validate(parts, value) {
 function writeDoc(doc) {
   const tmp = `${CONFIG}.tmp-${process.pid}`;
   fs.writeFileSync(tmp, String(doc), { mode: 0o644 });
+  fs.chmodSync(tmp, 0o644); // the mode above is masked by the umask; the config is world-readable, no secrets
   fs.renameSync(tmp, CONFIG);
 }
 

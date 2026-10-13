@@ -1,5 +1,7 @@
 # Shared helpers for the access module's scripts. Sourced, not run.
 # Never prints secrets: tokens and certificates are only ever tested for presence.
+# Callers may inherit UMask=0077 (the portal's and guide's sudo): system files need normal modes.
+[ "$(id -u)" -ne 0 ] || umask 022
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32m✔\033[0m %s\n' "$*"; }
