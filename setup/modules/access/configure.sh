@@ -7,6 +7,19 @@
 #   ssh-tunnel: prints the port-forward commands.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+
+# `tailscale serve` waits forever, printing only a consent link, while Serve/HTTPS isn't enabled for the
+# tailnet. Run it with a timeout and surface that link instead of hanging silently.
+serve_or_explain() {
+  local out rc=0
+  out="$(timeout 30 tailscale serve "$@" 2>&1)" || rc=$?
+  local url; url="$(grep -oE 'https://login\.tailscale\.com/[^[:space:]]+' <<<"$out" | head -1 || true)"
+  if [ -n "$url" ]; then
+    die "Serve (HTTPS) isn't enabled on your tailnet yet. Open this link, approve it, then run this step again:
+  $url"
+  fi
+  [ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; return 1; }
+}
 . "$here/lib.sh"
 
 port="$(portal_port)"
@@ -40,7 +53,7 @@ configure_tailscale() {
     die "tailscale serve already sends https://$host/ to $current. The portal needs '/': see docs/ACCESS.md › 'Tailscale and the phone gateway'."
   fi
   if [ -z "$current" ]; then
-    tailscale serve --bg --https=443 "http://127.0.0.1:$port" >/dev/null \
+    serve_or_explain --bg --https=443 "http://127.0.0.1:$port" \
       || die "tailscale serve failed. Turn on HTTPS certificates in the Tailscale admin console (DNS page) and run this again."
   fi
   ok "tailscale serve: https://$host/ → 127.0.0.1:$port (tailnet only)"

@@ -4,6 +4,19 @@
 # itself is the access module's job, and nothing here takes the machine off the tailnet (that would
 # cut the owner's way in).
 source "$(dirname "$0")/../../lib/common.sh"
+
+# `tailscale serve` waits forever, printing only a consent link, while Serve/HTTPS isn't enabled for the
+# tailnet. Run it with a timeout and surface that link instead of hanging silently.
+serve_or_explain() {
+  local out rc=0
+  out="$(timeout 30 tailscale serve "$@" 2>&1)" || rc=$?
+  local url; url="$(grep -oE 'https://login\.tailscale\.com/[^[:space:]]+' <<<"$out" | head -1 || true)"
+  if [ -n "$url" ]; then
+    die "Serve (HTTPS) isn't enabled on your tailnet yet. Open this link, approve it, then run this step again:
+  $url"
+  fi
+  [ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; return 1; }
+}
 need_root
 GW="$(cfg ports.gateway)"
 SP="$(cfg mobile.serve_port)"; SP="${SP:-8443}"
@@ -25,7 +38,7 @@ funnel_on && die "Tailscale Funnel is ON. Turn it off (sudo tailscale funnel res
 funnel_capable && die "your tailnet policy grants this machine the funnel capability. Remove the \"funnel\" nodeAttr for its tag (and \"*\", autogroup:tagged)."
 
 log "tailscale serve :$SP → 127.0.0.1:$GW (tailnet only)"
-tailscale serve --bg --https="$SP" "http://127.0.0.1:$GW" >/dev/null || die "tailscale serve failed. Enable MagicDNS and HTTPS certificates for your tailnet (admin console → DNS)."
+serve_or_explain --bg --https="$SP" "http://127.0.0.1:$GW" || die "tailscale serve failed. Enable MagicDNS and HTTPS certificates for your tailnet (admin console → DNS)."
 if funnel_on; then
   tailscale serve --https="$SP" off >/dev/null 2>&1 || true
   die "Funnel came on after serve; the gateway was taken off again."
