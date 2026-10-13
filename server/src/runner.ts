@@ -15,7 +15,7 @@ import { heartbeat } from "./progress.ts";
 import { config, enabled, paths } from "./config.ts";
 import fs from "node:fs";
 import { effectiveSkills, integrationsForTurn, integrationsLayer } from "./integrations.ts";
-import { isSetupAgent } from "./setup.ts";
+import { HELPER_SKILL, isSetupAgent } from "./setup.ts";
 import { setupServer } from "./setupTools.ts";
 import { grantSetupSudo, releaseSetupSudo, sudoActive } from "./sudo.ts";
 import { prepareWorktrees, reposLayer, setSender, worktreeDirs, worktreesFor } from "./repos.ts";
@@ -569,9 +569,12 @@ async function runTask(taskId: string) {
   const repoPrep = await prepareWorktrees(agent);
   // Assigned skills plus the visible integrations' skills, minus those of integrations it can't see.
   // A task working in a repo also gets onboard-repo (mapping and refreshing a repo's knowledge pack).
-  const skills = [...new Set([...effectiveSkills(agent, skillsOf(agent.id)), ...(worktreesFor(agent.id).length ? ["onboard-repo"] : [])])].filter(skillExists);
-  try { syncLinks(agent, skills); } catch (e) { console.error("skills: link sync failed", e); }
+  // The helper always has its setup guide (agentbox-setup).
   const setup = isSetupAgent(agent);
+  const skills = [...new Set([
+    ...effectiveSkills(agent, skillsOf(agent.id)), ...(worktreesFor(agent.id).length ? ["onboard-repo"] : []), ...(setup ? [HELPER_SKILL] : []),
+  ])].filter(skillExists);
+  try { syncLinks(agent, skills); } catch (e) { console.error("skills: link sync failed", e); }
   let sudo: SudoGrant | undefined;
   if (setup) sudo = grantSetupSudo(taskId);
 

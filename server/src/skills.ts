@@ -239,3 +239,17 @@ export function ensureSeedSkill(name: string) {
   if (!fs.existsSync(dirOf(name))) fs.cpSync(src, dirOf(name), { recursive: true });
   run(`INSERT INTO meta (key, value) VALUES (?, ?)`, key, now());
 }
+
+/**
+ * A skill that ships with agentbox and is kept equal to its seed at every start, like the helper's
+ * CLAUDE.md (e.g. agentbox-setup, the helper's setup guide). Owner edits to it are replaced.
+ */
+export function ensureBuiltinSkill(name: string) {
+  const src = path.join(SEED_DIR, name, "SKILL.md");
+  if (!fs.existsSync(src)) return;
+  const text = fs.readFileSync(src, "utf8");
+  if (fs.existsSync(skillFile(name)) && fs.readFileSync(skillFile(name), "utf8") === text) return;
+  fs.mkdirSync(dirOf(name), { recursive: true });
+  fs.writeFileSync(skillFile(name), text);
+  publish({ type: "skill.updated", skill: getSkill(name)! });
+}

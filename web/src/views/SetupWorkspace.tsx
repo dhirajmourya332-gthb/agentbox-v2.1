@@ -247,10 +247,11 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
 }
 
 const STARTERS = [
+  "Guide me through setting up agentbox, step by step",
+  "Set up the phone app",
   "Make the tech-lead only orchestrate and delegate",
   "Create a sales agent for me",
   "Add a skill and give it to an agent",
-  "Set up GitHub and AWS",
   "What's connected, and what needs attention?",
 ];
 

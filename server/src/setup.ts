@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 import { createAgent, getAgent, readInstructions, writeInstructions, type Agent } from "./agents.ts";
+import { ensureBuiltinSkill, setAgentSkills, skillsOf } from "./skills.ts";
 
 /**
  * The setup agent (docs/V2-ARCHITECTURE.md §10.4): a permanent built-in role, seeded at start.
@@ -14,8 +15,10 @@ import { createAgent, getAgent, readInstructions, writeInstructions, type Agent 
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const SETUP_TEMPLATE = path.resolve(here, "../setup-agent/CLAUDE.md");
+/** The helper's own skill: guiding the owner through setting up agentbox (server/seed-skills/). */
+export const HELPER_SKILL = "agentbox-setup";
 export const SETUP_TITLE = "Helper: team, skills & integrations";
-const SETUP_SUMMARY = "Your helper: creates and changes agents, skills and team rules on your approval, connects integrations and repos, and starts work with the right agent. Built into agentbox.";
+const SETUP_SUMMARY = "Your helper: guides you step by step through setting up agentbox (phone app included), creates and changes agents, skills and team rules on your approval, connects integrations and repos, and starts work with the right agent. Built into agentbox.";
 
 // Additive migration: which roles are built in, and the owner's notes for them.
 {
@@ -58,6 +61,12 @@ export function ensureSetupRole(): Agent {
     run(`UPDATE agents SET name = ?, title = ?, summary = ? WHERE id = ?`, name, SETUP_TITLE, SETUP_SUMMARY, role.id);
     role = getAgent(role.id)!;
     publish({ type: "agent.updated", agent: role });
+  }
+  // Its setup guide is a skill: refreshed from the seed, and shown on its page (the runner adds it to
+  // every helper turn regardless).
+  ensureBuiltinSkill(HELPER_SKILL);
+  if (!skillsOf(role.id).includes(HELPER_SKILL)) {
+    try { setAgentSkills(role.id, [...skillsOf(role.id), HELPER_SKILL]); } catch { /* the runner still adds it */ }
   }
   return role;
 }

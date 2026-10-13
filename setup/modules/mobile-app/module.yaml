@@ -20,10 +20,21 @@ steps:
     instructions: |
       Create a free account at https://expo.dev if you don't have one, then in the terminal run
         `eas login`
-      Then set your Expo owner (and, after the first `eas init`, the project id):
+      Then set your Expo owner:
         `sudo agentbox config set mobile.expo_owner <your-expo-username>`
     copy: "eas login"
     check: "eas whoami"
+  - id: project
+    title: Create the Expo project (once)
+    human: true
+    instructions: |
+      In the terminal run
+        `agentbox-mobile-build --init`
+      It prepares the app's folder and runs `eas init`: answer yes to create the project. Then save
+      the project id it prints:
+        `sudo agentbox config set mobile.eas_project_id <id>`
+    copy: "agentbox-mobile-build --init"
+    check: "test -n \"$(agentbox config get mobile.eas_project_id)\""
   - id: build
     title: Build the APK
     run: build.sh

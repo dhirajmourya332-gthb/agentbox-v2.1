@@ -91,6 +91,25 @@ approve it.
 - **Its skill proposals** go straight to cards. For the helper, `mcp__team__propose_skill` (the
   draft-for-review tool) is hidden.
 
+## Guided setup (the `agentbox-setup` skill)
+"Guide me through setting up agentbox" (or "set up the phone app") in the helper workspace: the helper
+looks at what's there (`agentbox status`, integrations, repos, team), sends one short status (done /
+missing / optional), asks which optional parts you want, writes one checklist, and walks you through
+it one step at a time; each step ticks itself when its check passes.
+
+- The guide is a built-in skill, `server/seed-skills/agentbox-setup/SKILL.md`: the order (base →
+  Claude login → code hosting → repos → team → integrations → routines → extras), prerequisites,
+  and the full phone-app walkthrough (tailnet policy, gateway, Expo build, pairing, notifications).
+- Like the helper's CLAUDE.md it belongs to agentbox: `ensureSetupRole` rewrites it from the seed at
+  every start and assigns it to the helper, and the runner adds it to every helper turn even if it's
+  unassigned (`skills.ts › ensureBuiltinSkill`, `runner.ts`).
+- **The phone app is optional** (`mobile` → `mobile-app` → `push`, then pairing on Computer →
+  Devices) and needs `access: tailscale`. On another access mode the helper explains the switch and
+  leaves the decision and the commands to you. Connecting `mobile` or `push` needs a portal restart
+  (`sudo agentbox restart`), which the CLI now says; the helper never restarts the portal itself.
+  The `mobile-app` module has a "Create the Expo project (once)" step (`agentbox-mobile-build
+  --init`, then `mobile.eas_project_id`), which the first build needs.
+
 ## Not done yet
 
 - **Skill files:** importing or editing a skill's scripts. Only SKILL.md is proposed; other files are

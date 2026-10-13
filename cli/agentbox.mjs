@@ -651,7 +651,9 @@ async function integrationCmd(argv) {
       printGates(v);
       if (v.state === "connected") console.log(green(`\n${id} connected.`));
       else if (!v.gates.length) console.log(yellow(`\n${id}: installed; run \`agentbox integration verify ${id}\` to finish.`));
-      console.log(dim("(The portal picks up the change on its own; nothing was restarted.)"));
+      // The phone gateway and push start with the portal (server/src/index.ts); the rest is picked up live.
+      if (STARTS_WITH_PORTAL.has(id)) console.log(yellow(`\nRestart the portal to start ${id === "push" ? "push notifications" : "the phone gateway"}: sudo agentbox restart (when no agent tasks are running).`));
+      else console.log(dim("(The portal picks up the change on its own; nothing was restarted.)"));
       return 0;
     }
 
@@ -1131,6 +1133,9 @@ async function main(argv) {
   }
   fail(`unknown command: ${cmd}\n${USAGE}`);
 }
+
+/** Integrations the portal only starts at startup: connecting one needs a restart. */
+const STARTS_WITH_PORTAL = new Set(["mobile", "push"]);
 
 function restartPortalIfUp() {
   if (!systemd()) return;

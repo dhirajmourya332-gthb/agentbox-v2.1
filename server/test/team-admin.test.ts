@@ -243,3 +243,19 @@ test("the helper can't write agents, skills or team rules directly; its own home
   // Other agents aren't affected by this guard.
   assert.ok(!denied(await G.helperGuard(coderTask)(edit(path.join(dirs.skills, "x", "SKILL.md")))));
 });
+
+test("the helper has its setup guide skill, kept equal to the seed at every start", () => {
+  const seed = fs.readFileSync(path.resolve(import.meta.dirname, "../seed-skills/agentbox-setup/SKILL.md"), "utf8");
+  const file = path.join(dirs.skills, S.HELPER_SKILL, "SKILL.md");
+  assert.equal(fs.readFileSync(file, "utf8"), seed);
+  assert.ok(K.skillsOf(helper.id).includes("agentbox-setup"));
+  assert.match(K.getSkill("agentbox-setup")!.description, /phone app/);
+  // An edit (or an unassignment) is put back at the next start.
+  fs.writeFileSync(file, "---\nname: agentbox-setup\ndescription: edited\n---\nx\n");
+  K.setAgentSkills(helper.id, K.skillsOf(helper.id).filter((s) => s !== "agentbox-setup"));
+  S.ensureSetupRole();
+  assert.equal(fs.readFileSync(file, "utf8"), seed);
+  assert.ok(K.skillsOf(helper.id).includes("agentbox-setup"));
+  // Its job description points to it.
+  assert.match(A.readInstructions(A.getAgent(helper.id)!), /`agentbox-setup` skill/);
+});

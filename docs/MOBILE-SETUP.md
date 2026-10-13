@@ -1,5 +1,12 @@
 # Mobile app: owner setup
 
+> **The phone app is optional.** The easiest way in: open **Helper** (or ⌘K) and say *"Set up the
+> phone app"*. The helper checks the prerequisites (it needs `access: tailscale`), writes the
+> checklist and walks you through it: the tailnet policy, `mobile` (the gateway; then
+> `sudo agentbox restart`), `mobile-app` (`eas login`, `agentbox-mobile-build --init` once, then
+> `agentbox-mobile-build`), pairing on **Computer → Devices**, and optionally `push`. The manual
+> steps below are the same thing by hand.
+
 The agentbox Android app reaches your VM only over your **tailnet** (Tailscale). Nothing is
 exposed to the internet. The full design is in [MOBILE-PROTOCOL.md](MOBILE-PROTOCOL.md).
 

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Build the agentbox phone app (Android APK) with EAS. Run as the agent user after `eas login`.
 #   agentbox-mobile-build [--profile preview]
+#   agentbox-mobile-build --init     once, before the first build: create the Expo project (`eas init`)
 # Copies <src>/mobile to <work>/agentbox-mobile (the source may be read-only), adds
 # google-services.json from the secrets when the push module provided it, and starts the build.
 # EXPO_OWNER / EAS_PROJECT_ID come from the config (mobile.expo_owner, mobile.eas_project_id).
 set -euo pipefail
-profile=preview
+profile=preview; init=
 [ "${1:-}" = --profile ] && profile="${2:?}"
+[ "${1:-}" = --init ] && init=1
 cfg() { agentbox config get "$1" 2>/dev/null || true; }
 SRC="$(cfg paths.src)"; WORK="$(cfg paths.work)"; SECRETS="$(cfg paths.secrets)"
 DEST="$WORK/agentbox-mobile"
@@ -19,4 +21,11 @@ export EXPO_OWNER="${EXPO_OWNER:-$(cfg mobile.expo_owner)}"
 export EAS_PROJECT_ID="${EAS_PROJECT_ID:-$(cfg mobile.eas_project_id)}"
 cd "$DEST"
 npm install --no-audit --no-fund --loglevel=error
+if [ -n "$init" ]; then
+  eas init
+  echo
+  echo "Save the project id it printed: sudo agentbox config set mobile.eas_project_id <id>"
+  exit 0
+fi
+[ -n "$EAS_PROJECT_ID" ] || { echo "error: no Expo project yet; run 'agentbox-mobile-build --init' first, then save the id with 'sudo agentbox config set mobile.eas_project_id <id>'" >&2; exit 1; }
 exec eas build --platform android --profile "$profile" --non-interactive
