@@ -10,3 +10,5 @@ docs/internal/
 # Built page of the setup guide (guide/install.sh builds it on the VM)
 guide/dist/
 .gstack/
+__pycache__/
+*.pyc
