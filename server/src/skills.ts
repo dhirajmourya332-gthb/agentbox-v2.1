@@ -55,7 +55,8 @@ function parse(text: string): { description: string; body: string } {
   return { description: desc.replace(/^["']|["']$/g, "").trim(), body: m[2].replace(/^\n+/, "") };
 }
 
-function render(name: string, description: string, body: string) {
+/** A skill's SKILL.md as saved (frontmatter + body). */
+export function render(name: string, description: string, body: string) {
   const oneLine = description.replace(/\s+/g, " ").trim();
   return `---\nname: ${name}\ndescription: ${JSON.stringify(oneLine)}\n---\n\n${body.trim()}\n`;
 }

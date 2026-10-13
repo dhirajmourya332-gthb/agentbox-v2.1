@@ -11,6 +11,11 @@ import { completeBySetupAgent, getRequest, listRequests } from "./setupRequests.
 import { isSetupAgent, postIntegrationCard } from "./setup.ts";
 import { addSteps, planChecker, planView, setPlan, updateStep, type PlanView, type StepInput } from "./setupPlan.ts";
 import { ownerTerminal } from "./terminal.ts";
+import {
+  agentDetail, findRole, proposeAgentChange, proposeBundle, proposeNewAgent, proposeSkillAssign, proposeSkillChange, skillDetail,
+  teamOverview, testDrive,
+} from "./teamAdmin.ts";
+import { startOwnerWork } from "./work.ts";
 
 /**
  * The setup agent's MCP tools ("setup", §10.4). Attached only for the setup role (runner.ts); each
@@ -363,6 +368,150 @@ export function setupTools(agent: Agent, taskId: string) {
           } catch (e: any) {
             return refuse(e.message);
           }
+        }),
+
+      // --- the team: agents, skills, work (teamAdmin.ts) ---------------------------------------------
+      tool("team_overview", "Every agent (role) with its title, model, limits, skills, integrations, repos and live tasks, and the skill library. Read this before proposing a team change.", {}, async () => {
+        const no = guard();
+        if (no) return no;
+        return text(teamOverview());
+      }),
+
+      tool("get_agent", "One agent's full job description (CLAUDE.md exactly as saved) and settings. Read it before proposing a change to it.",
+        { agent: z.string().describe("its name, e.g. tech-lead") },
+        async ({ agent: ref }) => {
+          const no = guard();
+          if (no) return no;
+          try { return text(agentDetail(ref)); } catch (e: any) { return refuse(e.message); }
+        }),
+
+      tool("get_skill", "One skill's description, text and who has it.", { name: z.string() }, async ({ name }) => {
+        const no = guard();
+        if (no) return no;
+        try { return text(skillDetail(name)); } catch (e: any) { return refuse(e.message); }
+      }),
+
+      tool("propose_new_agent", "Propose a new agent (role). The owner sees it as an approval card (they can edit the job description) and it's created only when they approve. For an agent that needs new skills too, use propose_changes.",
+        {
+          name: z.string().describe("short name the owner @mentions, e.g. sales"),
+          title: z.string().describe("role title, e.g. Sales assistant"),
+          summary: z.string().optional().describe("one sentence: what it does (shown in the team list and to teammates)"),
+          model: z.enum(["opus", "sonnet", "haiku"]).optional().describe("opus for judgement-heavy work, sonnet for most, haiku for simple routine checks (default sonnet)"),
+          instructions: z.string().describe("the complete job description (its CLAUDE.md), written to the agent in the second person"),
+          skills: z.array(z.string()).optional().describe("existing skills to give it"),
+          integrations: z.array(z.string()).optional().describe("integration ids it may use, e.g. github"),
+          repos: z.array(z.string()).optional().describe("repos it may work in (only matters for repos limited to some agents)"),
+          max_replicas: z.number().int().optional().describe("parallel tasks per starter, 0–6 (0 = default 5)"),
+          can_scale: z.boolean().optional().describe("true for a lead that starts other agents' tasks; only the owner starts a lead's work"),
+          reason: z.string().optional(),
+        },
+        async (args) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const a = proposeNewAgent(agent, taskId, args);
+            return text(`Proposed ${a.title} (approval ${a.id}). The owner sees a card in this chat; nothing is created until they approve.`);
+          } catch (e: any) { return refuse(e.message); }
+        }),
+
+      tool("propose_agent_change", "Propose changes to one agent: its job description (give the complete new CLAUDE.md), settings, skills, integrations or repos. The owner sees a diff card and can edit it; applied only when they approve, and they can undo it afterwards.",
+        {
+          agent: z.string().describe("its name"),
+          instructions: z.string().optional().describe("the complete new job description; leave out to keep it. Start from get_agent's text and change only what the owner asked"),
+          title: z.string().optional(), summary: z.string().optional(),
+          model: z.enum(["opus", "sonnet", "haiku"]).optional(),
+          max_turns: z.number().int().optional().describe("steps per turn, 5–500"),
+          max_replicas: z.number().int().optional().describe("parallel tasks per starter, 0–6"),
+          can_scale: z.boolean().optional().describe("a lead that starts other agents' tasks"),
+          add_skills: z.array(z.string()).optional(), remove_skills: z.array(z.string()).optional(),
+          add_integrations: z.array(z.string()).optional(), remove_integrations: z.array(z.string()).optional(),
+          add_repos: z.array(z.string()).optional(), remove_repos: z.array(z.string()).optional(),
+          reason: z.string().optional().describe("one or two sentences: what the owner asked for"),
+        },
+        async (args) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const a = proposeAgentChange(agent, taskId, args);
+            return text(`Proposed: ${a.title} (approval ${a.id}). The owner sees the diff in this chat; nothing changes until they approve.`);
+          } catch (e: any) { return refuse(e.message); }
+        }),
+
+      tool("propose_skill", "Propose a new skill for the library, or a change to one (give the complete text), optionally giving it to agents. Approval card; applied only when the owner approves.",
+        {
+          name: z.string().describe("kebab-case, e.g. release-checklist"),
+          description: z.string().describe("one sentence: what it does and when to use it (agents pick skills by this)"),
+          body: z.string().describe("the complete Markdown instructions: steps, commands, checks"),
+          agents: z.array(z.string()).optional().describe("agents to give it to"),
+          source: z.string().optional().describe("the https:// page it was adapted from, when imported"),
+          reason: z.string().optional(),
+        },
+        async (args) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const a = proposeSkillChange(agent, taskId, args);
+            return text(`Proposed: ${a.title} (approval ${a.id}). The owner sees it in this chat; nothing changes until they approve.`);
+          } catch (e: any) { return refuse(e.message); }
+        }),
+
+      tool("propose_skill_assignment", "Propose giving an existing skill to agents, or taking it away. Approval card.",
+        { skill: z.string(), add: z.array(z.string()).optional(), remove: z.array(z.string()).optional(), reason: z.string().optional() },
+        async (args) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const a = proposeSkillAssign(agent, taskId, args);
+            return text(`Proposed: ${a.title} (approval ${a.id}).`);
+          } catch (e: any) { return refuse(e.message); }
+        }),
+
+      tool("propose_changes", "Propose several team changes as ONE card the owner approves at once (e.g. a new agent plus the skills it needs). Items can refer to agents and skills the same bundle creates. All are applied together, or none.",
+        {
+          title: z.string().describe("what the bundle does, e.g. \"Sales agent with lead-research and follow-up skills\""),
+          reason: z.string().optional(),
+          items: z.array(z.object({
+            type: z.enum(["new_agent", "agent_change", "skill", "skill_assignment"]),
+          }).passthrough()).describe("each item: { type, ...the same fields as propose_new_agent / propose_agent_change / propose_skill / propose_skill_assignment }"),
+        },
+        async (args) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const a = proposeBundle(agent, taskId, args as any);
+            return text(`Proposed "${a.title}" with ${a.payload.items.length} changes (approval ${a.id}). The owner approves it as one card.`);
+          } catch (e: any) { return refuse(e.message); }
+        }),
+
+      tool("test_drive", "Dry run: ask an agent what it would do with a task, as its job description stands or as a pending proposal would make it (approval_id). Nothing runs: no tools, no files. Use it to show the owner a change takes.",
+        {
+          agent: z.string().describe("its name (for a proposed new agent, the proposed name)"),
+          task: z.string().describe("a realistic task to try, e.g. \"Fix the login bug in portal-a\""),
+          approval_id: z.string().optional().describe("a pending proposal that sets this agent's job description"),
+        },
+        async ({ agent: ref, task, approval_id }) => {
+          const no = guard();
+          if (no) return no;
+          try { return text(await testDrive(ref, task, approval_id)); } catch (e: any) { return refuse(e.message); }
+        }),
+
+      tool("start_work", "Start a task for the owner with the right agent, as if they'd started it on the New task page (it shows under Work). Only when the owner asked you to get something done; never for your own ideas. Then tell them where it is and finish your turn: you don't follow it.",
+        {
+          agent: z.string().describe("the agent to do it, e.g. tech-lead for anything that needs several agents"),
+          task: z.string().describe("what to do: the owner's request, made clear and complete (it's the agent's first message)"),
+          repos: z.array(z.string()).optional().describe("repos the task works in"),
+          title: z.string().optional().describe("short title"),
+        },
+        async ({ agent: ref, task, repos, title }) => {
+          const no = guard();
+          if (no) return no;
+          try {
+            const role = findRole(ref);
+            if (!role) throw new Error(`No agent called "${ref}"`);
+            if (role.builtin) throw new Error("That's you; do it yourself if it's helper work");
+            const inst = startOwnerWork({ role, text: task, repos, title });
+            return text(`Started ${inst.name}: "${inst.label}". The owner finds it under Work (#/work/${inst.id}).`);
+          } catch (e: any) { return refuse(e.message); }
         }),
   ];
 }

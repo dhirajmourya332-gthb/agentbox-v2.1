@@ -14,7 +14,8 @@ import { createAgent, getAgent, readInstructions, writeInstructions, type Agent 
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const SETUP_TEMPLATE = path.resolve(here, "../setup-agent/CLAUDE.md");
-export const SETUP_TITLE = "Setup & integrations";
+export const SETUP_TITLE = "Helper: team, skills & integrations";
+const SETUP_SUMMARY = "Your helper: creates and changes agents, skills and team rules on your approval, connects integrations and repos, and starts work with the right agent. Built into agentbox.";
 
 // Additive migration: which roles are built in, and the owner's notes for them.
 {
@@ -43,15 +44,20 @@ export function ensureSetupRole(): Agent {
   if (!role) {
     // A user-made agent may already be called "setup": leave it alone and use another name.
     const name = get(`SELECT 1 FROM agents WHERE slug = 'setup'`) ? "setup-agent" : "setup";
-    role = createAgent({
-      name, title: SETUP_TITLE, model: "sonnet", instructions: text, interview: { builtin: "setup" },
-      summary: "Connects, verifies and disconnects integrations (code hosting, cloud, clusters, databases…) and repairs base modules. Built into agentbox.",
-    });
+    role = createAgent({ name, title: SETUP_TITLE, model: "sonnet", instructions: text, interview: { builtin: "setup" }, summary: SETUP_SUMMARY });
     run(`UPDATE agents SET builtin = 'setup' WHERE id = ?`, role.id);
     role = getAgent(role.id)!;
     publish({ type: "agent.updated", agent: role });
   } else if (readInstructions(role) !== text) {
     writeInstructions(role, text);
+  }
+  // Since it looks after the whole team it's called "helper" (it was "setup", briefly "admin"; its home
+  // stays /agents/<slug>), unless the owner has an agent of that name; title and summary are agentbox's.
+  const name = ["setup", "admin"].includes(role.name) && !get(`SELECT 1 FROM agents WHERE (slug = 'helper' OR lower(name) = 'helper') AND id != ?`, role.id) ? "helper" : role.name;
+  if (name !== role.name || role.title !== SETUP_TITLE || role.summary !== SETUP_SUMMARY) {
+    run(`UPDATE agents SET name = ?, title = ?, summary = ? WHERE id = ?`, name, SETUP_TITLE, SETUP_SUMMARY, role.id);
+    role = getAgent(role.id)!;
+    publish({ type: "agent.updated", agent: role });
   }
   return role;
 }

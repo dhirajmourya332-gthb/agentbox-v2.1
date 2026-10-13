@@ -359,7 +359,8 @@ test("skills: integration skills only while connected and mapped; others' skills
 test("setup role: seeded once, can't be deleted, renamed or have its CLAUDE.md edited; notes instead", () => {
   assert.equal(S.ensureSetupRole().id, setup.id, "idempotent");
   assert.equal(setup.builtin, "setup");
-  assert.equal(setup.title, "Setup & integrations");
+  assert.equal(S.ensureSetupRole().title, "Helper: team, skills & integrations");
+  assert.equal(S.ensureSetupRole().name, "helper", "the setup role is called helper");
   assert.throws(() => A.deleteAgent(setup.id), /can't be deleted/);
   assert.throws(() => A.editInstructions(setup, "# mine\n"), /maintained by agentbox/);
   assert.throws(() => A.updateAgent(setup.id, { title: "Something else" }), /built in/);
@@ -406,8 +407,8 @@ test("setup role: Connect opens or reuses one task per integration, with a steps
 // --- approvals -----------------------------------------------------------------------------------
 test("approvals: other roles refused; mapping applies only on approve; reject discards", () => {
   const tid = fakeTask(setupTask.id);
-  assert.throws(() => AP.proposeMapping(coderTask, fakeTask(coderTask.id), "github", ["writer"]), /Only the setup agent/);
-  assert.throws(() => AP.proposeTeamRule(coderTask, null, "x.md", "x"), /Only the setup agent/);
+  assert.throws(() => AP.proposeMapping(coderTask, fakeTask(coderTask.id), "github", ["writer"]), /Only the helper agent/);
+  assert.throws(() => AP.proposeTeamRule(coderTask, null, "x.md", "x"), /Only the helper agent/);
   assert.throws(() => AP.proposeMapping(setupTask, tid, "github", ["nobody"]), /No agent called "nobody"/);
   assert.throws(() => AP.proposeMapping(setupTask, tid, "github", ["setup"]), /No agent called/, "the setup agent can't map itself");
 
@@ -525,7 +526,7 @@ test("tools: list, status (posts a card), settings via the CLI, connect streams 
   const thread = A.dmThreadOf(setupTask.id)!;
   const tools = T.setupTools(setupTask, tid);
   assert.deepEqual(tools.map((t) => t.name).sort(),
-    ["add_repo", "add_steps", "complete_setup_request", "connect", "disconnect", "integration_status", "list_integrations", "list_repos", "list_setup_requests", "propose_mapping", "propose_team_rule", "read_terminal", "save_settings", "set_plan", "update_step", "verify"]);
+    ["add_repo", "add_steps", "complete_setup_request", "connect", "disconnect", "get_agent", "get_skill", "integration_status", "list_integrations", "list_repos", "list_setup_requests", "propose_agent_change", "propose_changes", "propose_mapping", "propose_new_agent", "propose_skill", "propose_skill_assignment", "propose_team_rule", "read_terminal", "save_settings", "set_plan", "start_work", "team_overview", "test_drive", "update_step", "verify"]);
 
   const l = await call(tools, "list_integrations", {});
   assert.match(l.content[0].text, /code-hosting:\n {2}- github: GitHub \[connected\]/);

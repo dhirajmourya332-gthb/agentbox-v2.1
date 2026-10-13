@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { getAgent, type Agent } from "./agents.ts";
+import { getAgent, homeOf, listAgents, type Agent } from "./agents.ts";
+import { paths } from "./config.ts";
 import { isSetupAgent } from "./setup.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations, rolesFor } from "./integrations.ts";
 import { reposRoot, worktreesRoot } from "./repos.ts";
@@ -124,5 +125,31 @@ export function orchestratorGuard(agent: Agent) {
     const what = handsOn(input);
     if (!what) return {};
     return deny(`You orchestrate; you don't do hands-on work (${what}). Delegate it with mcp__team__delegate_task: implementation and rework to coder (rework to the instance that wrote it), CI, deploys and infra to devops, vulnerabilities to security. Reading, planning, reviewing and merging PRs are yours.`);
+  };
+}
+
+// --- the helper ----------------------------------------------------------------------------------------
+
+/**
+ * The helper (setup agent) changes agents, skills and team rules only through approval cards: never with
+ * the edit tools or the shell, although it has sudo while it works. Its own home stays writable.
+ */
+export function helperGuard(agent: Agent) {
+  return async (input: any) => {
+    if (input?.hook_event_name !== "PreToolUse" || !isSetupAgent(agent)) return {};
+    const own = path.resolve(homeOf(agent));
+    const homes = listAgents().filter((a) => !a.base_agent_id).map((a) => path.resolve(homeOf(a))).filter((h) => h !== own);
+    const roots = [path.resolve(paths.skills), path.resolve(paths.team), ...homes];
+    const msg = "Agents' job descriptions, skills and team rules change only through approval cards: use propose_agent_change, propose_new_agent, propose_skill, propose_skill_assignment, propose_changes or propose_team_rule. Don't work around this.";
+    if (EDIT_TOOLS.has(String(input.tool_name))) {
+      const f = String(input.tool_input?.file_path ?? input.tool_input?.notebook_path ?? "");
+      const abs = f ? path.resolve(f) : "";
+      if (abs && roots.some((r) => abs === r || abs.startsWith(r + path.sep))) return deny(msg);
+      return {};
+    }
+    if (input.tool_name !== "Bash") return {};
+    const command = String(input.tool_input?.command ?? "");
+    if (roots.some((r) => writesUnder(command, r))) return deny(msg);
+    return {};
   };
 }

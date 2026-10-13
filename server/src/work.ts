@@ -1,6 +1,8 @@
 import { all, now } from "./db.ts";
-import { getAgent, instanceTree, listAgents, retireReplica, type Agent } from "./agents.ts";
-import { agentStatus, openTasksOf } from "./runner.ts";
+import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, spawnInstance, type Agent } from "./agents.ts";
+import { agentStatus, openTasksOf, sendMessage } from "./runner.ts";
+import { bindRepo, getRepo, roleAllowed } from "./repos.ts";
+import { setGate } from "./plans.ts";
 import { documentsInFolder, documentsForWork } from "./documents.ts";
 
 /**
@@ -113,4 +115,31 @@ export function finishTree(rootId: string) {
   if (busy.length) throw new Error(`Still working: ${busy.map((a) => `${a.name} (${a.label})`).join(", ")}. Stop them first.`);
   for (const a of tree.reverse()) retireReplica(a.id);
   return { finished: tree.length, at: now() };
+}
+
+/**
+ * Start a top-level task for the owner (the New task page, or the helper agent asked to by the owner):
+ * a new instance of the role, its repos bound, the request as its first message.
+ */
+export function startOwnerWork(input: { role: Agent; text: string; images?: string[]; repos?: string[]; title?: string; requirePlan?: boolean }) {
+  const { role } = input;
+  if (role.base_agent_id) throw new Error("Pick an agent, not an instance");
+  const text = input.text.trim();
+  const images = input.images ?? [];
+  if (!text && !images.length) throw new Error("Say what needs doing");
+  const firstLine = text.split("\n")[0] || "Task from an image";
+  const label = String(input.title ?? "").trim() || (firstLine.length > 70 ? firstLine.slice(0, 67) + "…" : firstLine);
+  // Repos for this task (each gets its worktree before the first turn): checked before it starts.
+  const repoNames = [...new Set((input.repos ?? []).map((x) => String(x).trim()).filter(Boolean))];
+  for (const n of repoNames) {
+    const repo = getRepo(n);
+    if (!repo || repo.status === "archived") throw new Error(`No repo called "${n}"`);
+    if (repo.status !== "ready") throw new Error(`${repo.name} isn't ready (${repo.status})`);
+    if (!roleAllowed(repo, role)) throw new Error(`${role.name} isn't allowed to use ${repo.name}`);
+  }
+  const inst = spawnInstance(role.id, { label, createdBy: "owner" });
+  for (const n of repoNames) bindRepo(inst, n);
+  if (input.requirePlan) setGate(inst.id, true);
+  sendMessage(inst.id, dmThreadOf(inst.id)!, text, images);
+  return inst;
 }

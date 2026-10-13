@@ -16,11 +16,13 @@ import { addRepo, checkAccess, checkBranch, checkName, getRepo, listRepos, parse
  * from any other role are refused.
  */
 
-export type ApprovalKind = "mapping" | "team_rule" | "repo_add";
+export type ApprovalKind = "mapping" | "team_rule" | "repo_add" | "agent_create" | "agent_change" | "skill" | "skill_assign" | "bundle";
 export type Approval = {
-  id: string; kind: ApprovalKind; status: "pending" | "approved" | "rejected" | "failed";
+  id: string; kind: ApprovalKind; status: "pending" | "approved" | "rejected" | "failed" | "undone";
   proposed_by: string; task_id: string | null; thread_id: string | null;
   title: string; payload: any; error: string | null; created_at: string; decided_at: string | null;
+  /** Team changes (teamAdmin.ts): how to put things back, recorded when applied. */
+  undo?: unknown[] | null;
 };
 
 run(`CREATE TABLE IF NOT EXISTS approvals (
@@ -37,8 +39,20 @@ run(`CREATE TABLE IF NOT EXISTS approvals (
   decided_at TEXT
 )`);
 run(`CREATE INDEX IF NOT EXISTS approvals_thread ON approvals(thread_id, created_at)`);
+if (!all<{ name: string }>(`PRAGMA table_info(approvals)`).some((c) => c.name === "undo")) run(`ALTER TABLE approvals ADD COLUMN undo TEXT`);
 
-const row = (r: any): Approval | undefined => (r ? { ...r, payload: JSON.parse(r.payload) } : undefined);
+const row = (r: any): Approval | undefined => (r ? { ...r, payload: JSON.parse(r.payload), undo: r.undo ? JSON.parse(r.undo) : null } : undefined);
+
+/**
+ * Kinds applied by another module (teamAdmin.ts: agents and skills). `apply` returns the undo
+ * steps; `undo` runs them. Both throw (with a statusCode) when the change can't be made as proposed.
+ */
+export type KindImpl = {
+  apply: (a: Approval, edits: Record<string, any>) => unknown[];
+  undo: (a: Approval, steps: unknown[]) => void;
+};
+const kinds = new Map<string, KindImpl>();
+export function registerKind(kind: ApprovalKind, impl: KindImpl) { kinds.set(kind, impl); }
 export const getApproval = (id: string) => row(get(`SELECT * FROM approvals WHERE id = ?`, id));
 export const listApprovals = (q: { threadId?: string; status?: string } = {}) =>
   all(
@@ -46,11 +60,11 @@ export const listApprovals = (q: { threadId?: string; status?: string } = {}) =>
     q.threadId ?? null, q.threadId ?? null, q.status ?? null, q.status ?? null,
   ).map((r) => row(r)!);
 
-function mustSetup(agent: Agent) {
-  if (!isSetupAgent(agent)) throw new Error("Only the setup agent can propose integration mappings, team-rule changes and repos.");
+export function mustSetup(agent: Agent) {
+  if (!isSetupAgent(agent)) throw new Error("Only the helper agent can propose integration mappings, team changes, skills and repos.");
 }
 
-function create(agent: Agent, taskId: string | null, kind: ApprovalKind, title: string, payload: unknown): Approval {
+export function create(agent: Agent, taskId: string | null, kind: ApprovalKind, title: string, payload: unknown): Approval {
   const thread = taskId ? get<{ thread_id: string }>(`SELECT thread_id FROM tasks WHERE id = ?`, taskId)?.thread_id ?? null : null;
   const a: Approval = {
     id: newId(), kind, status: "pending", proposed_by: agent.id, task_id: taskId, thread_id: thread,
@@ -201,11 +215,20 @@ function decide(a: Approval, status: Approval["status"], error: string | null = 
   return next;
 }
 
-/** Apply a pending proposal. Only called from the owner's POST route. */
-export function approve(id: string): Approval {
+/**
+ * Apply a pending proposal. Only called from the owner's POST route. `edits` are the owner's changes
+ * to a team proposal's text before approving it (by item: "0" for a single change).
+ */
+export function approve(id: string, edits: Record<string, any> = {}): Approval {
   const a = getApproval(id);
   if (!a) throw Object.assign(new Error("No such approval"), { statusCode: 404 });
   if (a.status !== "pending") throw Object.assign(new Error(`Already ${a.status}`), { statusCode: 409 });
+  const impl = kinds.get(a.kind);
+  if (impl) {
+    const steps = impl.apply(a, edits && typeof edits === "object" ? edits : {});
+    run(`UPDATE approvals SET undo = ? WHERE id = ?`, JSON.stringify(steps), a.id);
+    return decide(a, "approved");
+  }
   if (a.kind === "repo_add") {
     const p = a.payload;
     addRepo({ url: p.url, name: p.name, default_branch: p.default_branch ?? undefined, allowed_roles: (p.roles as string[]).filter((r) => getAgent(r)), description: p.description });
@@ -228,6 +251,16 @@ export function approve(id: string): Approval {
   fs.writeFileSync(tmp, a.payload.content, { mode: 0o644 });
   fs.renameSync(tmp, abs);
   return decide(a, "approved");
+}
+
+/** Put an applied team change back (the owner's Undo on its card). */
+export function undoApproval(id: string): Approval {
+  const a = getApproval(id);
+  if (!a) throw Object.assign(new Error("No such approval"), { statusCode: 404 });
+  const impl = kinds.get(a.kind);
+  if (a.status !== "approved" || !impl || !a.undo) throw Object.assign(new Error(a.status === "undone" ? "Already undone" : "This change can't be undone here"), { statusCode: 409 });
+  impl.undo(a, a.undo);
+  return decide(a, "undone");
 }
 
 export function reject(id: string): Approval {

@@ -89,13 +89,20 @@ export type SetupSession = {
   id: string; label: string | null; name: string; retired_at: string | null; created_at: string;
   plan: { title: string; done: number; total: number; current: string | null } | null;
 };
+export type LineDiff = { op: " " | "-" | "+"; text: string };
+export type ApprovalKind = "mapping" | "team_rule" | "repo_add" | "agent_create" | "agent_change" | "skill" | "skill_assign" | "bundle";
+/** One change in a team proposal (a bundle holds several). */
+export type TeamItem = { kind: "agent_create" | "agent_change" | "skill" | "skill_assign"; title: string; payload: any };
 export type Approval = {
-  id: string; kind: "mapping" | "team_rule"; status: "pending" | "approved" | "rejected" | "failed";
+  id: string; kind: ApprovalKind; status: "pending" | "approved" | "rejected" | "failed" | "undone";
   proposed_by: string; proposed_by_name?: string | null; task_id: string | null; thread_id: string | null;
-  title: string; error: string | null; created_at: string; decided_at: string | null;
+  title: string; error: string | null; created_at: string; decided_at: string | null; undo?: unknown[] | null;
   payload: {
     integration_id?: string; integration_title?: string; roles?: string[]; before?: string[]; added?: string[]; removed?: string[];
-    file?: string; relative?: string; reason?: string; created?: boolean; diff?: { op: " " | "-" | "+"; text: string }[];
+    file?: string; relative?: string; reason?: string; created?: boolean; diff?: LineDiff[];
+    url?: string; name?: string; default_branch?: string; role_names?: string[]; description?: string;
+    items?: TeamItem[];
+    [k: string]: any;
   };
 };
 export type DocumentInfo = {
@@ -449,7 +456,8 @@ export const api = {
   setupStep: (instanceId: string, stepId: string, action: "check" | "skip" | "done" | "reopen") =>
     call<{ plan: SetupPlan | null; result: PlanCheck | null }>("POST", `/api/setup/plans/${instanceId}/steps/${encodeURIComponent(stepId)}`, { action }),
   terminalInfo: () => call<{ available: boolean; error: string | null }>("GET", "/api/setup/terminal/info"),
-  approve: (id: string) => call<Approval>("POST", `/api/approvals/${id}/approve`),
+  approve: (id: string, edits?: Record<string, Record<string, string>>) => call<Approval>("POST", `/api/approvals/${id}/approve`, { edits: edits ?? {} }),
+  undoApproval: (id: string) => call<Approval>("POST", `/api/approvals/${id}/undo`),
   // Repos (docs/V2-ARCHITECTURE.md, Changes (repos)).
   repos: () => call<{ repos: Repo[]; map_routine: { id: string; enabled: boolean } | null }>("GET", "/api/repos"),
   repo: (name: string) => call<Repo>("GET", `/api/repos/${encodeURIComponent(name)}`),

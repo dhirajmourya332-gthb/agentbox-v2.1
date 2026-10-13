@@ -38,7 +38,7 @@ export function AgentChat({ agentId, threadParam, msgParam }: { agentId: string;
 }
 
 function SetupRedirect({ id }: { id: string }) {
-  useEffect(() => { location.replace(`#/setup/${id}`); }, [id]);
+  useEffect(() => { location.replace(`#/helper/${id}`); }, [id]);
   return <div className="page" />;
 }
 

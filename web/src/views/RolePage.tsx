@@ -35,7 +35,7 @@ export function RolePage({ role }: { role: Agent }) {
             <p className="hint" style={{ marginTop: 2 }}>{role.title} · {role.model}</p>
           </div>
           {role.builtin === "setup"
-            ? <a className="btn primary" href="#/setup"><Icon name="terminal" />Open the Setup workspace</a>
+            ? <a className="btn primary" href="#/helper"><Icon name="terminal" />Open the helper</a>
             : <a className="btn primary" href={`#/new/${role.id}`}><Icon name="plus" />New task</a>}
         </div>
         <p className="lede" style={{ marginTop: 12 }}>{role.summary}</p>

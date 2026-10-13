@@ -23,7 +23,7 @@ import { repoGuard } from "./repoGuard.ts";
 import { memoryLayer } from "./memory.ts";
 import { planGuard, planNote } from "./plans.ts";
 import { roadmapNote } from "./roadmaps.ts";
-import { integrationGuard, orchestratorGuard } from "./roleGuards.ts";
+import { helperGuard, integrationGuard, orchestratorGuard } from "./roleGuards.ts";
 
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_MCP = path.join(path.dirname(require.resolve("@playwright/mcp/package.json")), "cli.js");
@@ -602,7 +602,7 @@ async function runTask(taskId: string) {
         },
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(agent, sudo, repoPrep.problems) },
         env: { ...process.env, DISPLAY: ":99", BROWSER: "/usr/local/bin/agentbox-open" },
-        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), integrationGuard(agent), orchestratorGuard(agent), repoGuard(agent), planGuard(agent), sudoGuard(agent), ...(enabled("display") ? [screenGuard(agent, taskId)] : [])] }] },
+        hooks: { PreToolUse: [{ hooks: [rulesGuard(agent), helperGuard(agent), integrationGuard(agent), orchestratorGuard(agent), repoGuard(agent), planGuard(agent), sudoGuard(agent), ...(enabled("display") ? [screenGuard(agent, taskId)] : [])] }] },
       },
     });
     let result: any;

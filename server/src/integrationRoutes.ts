@@ -5,7 +5,7 @@ import {
   allMappings, cachedIntegrations, integrationStatus, jobOf, listIntegrations, mappedIntegrations, outputOf, rolesFor,
   setIntegrationRoles, setRoleIntegrations, ID_RE,
 } from "./integrations.ts";
-import { approve, getApproval, listApprovals, reject } from "./approvals.ts";
+import { approve, getApproval, listApprovals, reject, undoApproval } from "./approvals.ts";
 import { postIntegrationCard, setOwnerNotes, setupRole, setupTaskFor } from "./setup.ts";
 import { sudoActive } from "./sudo.ts";
 import { LOCAL_TOKEN_HEADER } from "./access.ts";
@@ -101,7 +101,11 @@ export function registerIntegrationRoutes(app: FastifyInstance) {
   };
   app.post("/api/approvals/:id/approve", async (req) => {
     ownerOnly(req);
-    return wrap(() => approve((req.params as any).id));
+    return wrap(() => approve((req.params as any).id, (req.body as any)?.edits ?? {}));
+  });
+  app.post("/api/approvals/:id/undo", async (req) => {
+    ownerOnly(req);
+    return wrap(() => undoApproval((req.params as any).id));
   });
   app.post("/api/approvals/:id/reject", async (req) => {
     ownerOnly(req);
