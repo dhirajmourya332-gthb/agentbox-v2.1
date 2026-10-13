@@ -43,7 +43,9 @@ One `set_plan` per conversation, titled for what they asked ("Set up agentbox", 
 - For an integration, add its steps with `{ integration: "<id>" }` (they're checked through
   `agentbox integration status`), and only add your own steps for what it doesn't cover.
 - Owner steps: `human: true`, the exact single-line `commands`, and a read-only `check`. Your steps:
-  `human: false`, and you run them.
+  `human: false`, and you run them. A step nothing can check reliably (a portal restart, a change
+  in a web console with no trace on the VM) gets **no** `check`: the owner clicks "Mark done".
+  Never write a check that passes either way.
 - Every step gets a one-line `why`, in plain words ("so agents can open PRs").
 - Then guide the **current** step only. When its check passes you get a "[agentbox setup] Plan
   update" note: say in one line what's done and what's next. Never poll or sleep; finish your turn.
@@ -53,7 +55,10 @@ One `set_plan` per conversation, titled for what they asked ("Set up agentbox", 
 At the end: a short summary of what's set up (accounts, repos, agents) and what's still optional.
 
 ## 4. Base modules (part 1)
-If the owner can talk to you, core, claude and access already work; check them anyway. Repair with
+If the owner can talk to you, core, claude and access already work: the portal is up, or this
+chat wouldn't exist. So if `agentbox status` says the portal (core `app`) is down, the check is
+looking at the wrong service for this install (a renamed unit, a second install on the same VM):
+say so, and don't put "repair core" on the checklist. Repair other failing base modules with
 `agentbox module install <id>`. **Never change the access mode, the owner identity or the
 firewall/serve setup yourself**: explain and give the command; the owner runs it.
 
