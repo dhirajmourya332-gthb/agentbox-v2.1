@@ -51,7 +51,8 @@ export function parse(hash: string): Route {
   if (parts[0] === "activity") return { name: "activity" };
   if (parts[0] === "integrations") return { name: "integrations" };
   if (parts[0] === "repos") return { name: "repos", repo: parts[1] };
-  if (parts[0] === "setup") return { name: "setup", id: parts[1] };
+  // The helper's workspace (#/setup from before it was the helper still works).
+  if (parts[0] === "helper" || parts[0] === "setup") return { name: "setup", id: parts[1] };
   if (parts[0] === "new") return { name: "new-task", role: parts[1] };
   if (parts[0] === "work" && parts[1]) return { name: "room", id: parts[1] };
   if (parts[0] === "documents") return { name: "documents" };
@@ -77,7 +78,7 @@ export function href(r: Route): string {
     case "skill": return `#/skills/${r.skill}`;
     case "new-skill": return "#/skills/new";
     case "draft": return `#/skills/drafts/${r.id}`;
-    case "setup": return r.id ? `#/setup/${r.id}` : "#/setup";
+    case "setup": return r.id ? `#/helper/${r.id}` : "#/helper";
     case "repos": return r.repo ? `#/repos/${r.repo}` : "#/repos";
     default: return `#/${r.name}`;
   }

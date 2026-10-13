@@ -1,10 +1,10 @@
 /**
- * The admin's team changes (teamAdmin.ts): new agents, agent changes, skills, assignments and bundles as
+ * The helper's team changes (teamAdmin.ts): new agents, agent changes, skills, assignments and bundles as
  * approval cards; applied only on approve (with the owner's edits), refused when stale, undone on Undo;
- * the admin's write guard; test drive and start_work. In-process against a throwaway database; never
+ * the helper's write guard; test drive and start_work. In-process against a throwaway database; never
  * starts Claude.
  *
- *   node --disable-warning=ExperimentalWarning --import tsx --test test/team-admin.test.ts
+ *   node --disable-warning=ExperimentalWarning --import tsx --test test/team-helper.test.ts
  */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agentbox-admin-")));
+const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agentbox-helper-")));
 const dirs = Object.fromEntries(["data", "agents", "work", "skills", "team", "secrets", "integrations"].map((d) => {
   fs.mkdirSync(path.join(tmp, d), { recursive: true });
   return [d, path.join(tmp, d)];
@@ -42,8 +42,8 @@ const mk = (name: string, instructions = `# ${name}\n\n## Your job\nYou do ${nam
   A.createAgent({ name, title: name, summary: `${name} role`, model: "sonnet", instructions, interview: {} });
 const lead = mk("tech-lead", "# tech-lead\n\n## Your job\nYou plan the work and write the code yourself when it's quick.\n\n## Reporting\nShort.\n");
 const coder = mk("coder");
-const admin = S.ensureSetupRole();
-const adminTask = A.spawnInstance(admin.id, { label: "Team changes", createdBy: "owner" });
+const helper = S.ensureSetupRole();
+const adminTask = A.spawnInstance(helper.id, { label: "Team changes", createdBy: "owner" });
 const coderTask = A.spawnInstance(coder.id, { label: "Fix #1", createdBy: "owner" });
 const fakeTask = (agentId: string) => {
   const id = newId();
@@ -62,14 +62,17 @@ const approvalIn = (text: string) => AP.getApproval(text.match(/approval ([0-9a-
 const skill = (name: string, body = "Do it.") => K.saveSkill({ name, description: `${name} skill`, body }, { create: true });
 skill("review-pr");
 
-test("the setup role is the admin; only it proposes team changes", async () => {
-  assert.equal(admin.name, "admin");
-  assert.equal(admin.builtin, "setup");
-  assert.throws(() => TA.proposeAgentChange(coderTask, null, { agent: "coder", model: "opus" }), /Only the admin agent/);
+test("the setup role is the helper; only it proposes team changes", async () => {
+  assert.equal(helper.name, "helper");
+  assert.equal(helper.builtin, "setup");
+  // Installs where it was briefly called "admin" are renamed too.
+  run(`UPDATE agents SET name = 'admin' WHERE id = ?`, helper.id);
+  assert.equal(S.ensureSetupRole().name, "helper");
+  assert.throws(() => TA.proposeAgentChange(coderTask, null, { agent: "coder", model: "opus" }), /Only the helper agent/);
   const other = T.setupTools(coderTask, fakeTask(coderTask.id));
   assert.equal((await call("propose_new_agent", { name: "x", title: "x", instructions: "x" }, other)).isError, true);
   // Its own instructions aren't changeable this way.
-  assert.match((await call("propose_agent_change", { agent: "admin", instructions: "# me\n" })).content[0].text, /built into agentbox/);
+  assert.match((await call("propose_agent_change", { agent: "helper", instructions: "# me\n" })).content[0].text, /built into agentbox/);
 });
 
 test("overview and details read the team", async () => {
@@ -95,7 +98,7 @@ test("agent change: a diff card; applied only on approve, with the owner's edit;
   assert.ok(a.payload.instructions.diff.some((d: any) => d.op === "+" && /never write code/.test(d.text)));
   assert.deepEqual(a.payload.settings, [{ key: "model", before: "sonnet", after: "opus" }]);
   assert.equal(A.readInstructions(lead), before, "nothing changes before approval");
-  // A card in the admin's chat.
+  // A card in the helper's chat.
   assert.ok(get(`SELECT 1 FROM messages WHERE author = 'approval' AND content = ?`, a.id));
 
   const edited = next.replace("You never write code yourself.", "You never write code yourself; reviews are yours.");
@@ -222,21 +225,21 @@ test("test drive uses the proposed job description; start_work starts an owner t
   assert.equal(inst.created_by, "owner");
   assert.equal(inst.label, "Health endpoint");
   assert.ok(get(`SELECT 1 FROM tasks WHERE agent_id = ? AND prompt LIKE '%health endpoint%'`, id));
-  assert.match((await call("start_work", { agent: "admin", task: "x" })).content[0].text, /That's you/);
+  assert.match((await call("start_work", { agent: "helper", task: "x" })).content[0].text, /That's you/);
 });
 
-test("the admin can't write agents, skills or team rules directly; its own home is fine", async () => {
-  const guard = G.adminGuard(adminTask);
+test("the helper can't write agents, skills or team rules directly; its own home is fine", async () => {
+  const guard = G.helperGuard(adminTask);
   const denied = (r: any) => r?.hookSpecificOutput?.permissionDecision === "deny";
   const edit = (file_path: string) => ({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path, content: "x" } });
   const bash = (command: string) => ({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: "/" });
   assert.ok(denied(await guard(edit(A.instructionsPath(lead)))));
   assert.ok(denied(await guard(edit(path.join(dirs.skills, "review-pr", "SKILL.md")))));
   assert.ok(denied(await guard(edit(path.join(dirs.team, "rules.md")))));
-  assert.ok(!denied(await guard(edit(path.join(A.homeOf(admin), "docs", "notes.md")))));
+  assert.ok(!denied(await guard(edit(path.join(A.homeOf(helper), "docs", "notes.md")))));
   assert.ok(denied(await guard(bash(`echo hi >> ${A.instructionsPath(lead)}`))));
   assert.ok(denied(await guard(bash(`sudo cp /tmp/x ${dirs.skills}/review-pr/SKILL.md`))));
   assert.ok(!denied(await guard(bash(`cat ${A.instructionsPath(lead)}`))));
   // Other agents aren't affected by this guard.
-  assert.ok(!denied(await G.adminGuard(coderTask)(edit(path.join(dirs.skills, "x", "SKILL.md")))));
+  assert.ok(!denied(await G.helperGuard(coderTask)(edit(path.join(dirs.skills, "x", "SKILL.md")))));
 });

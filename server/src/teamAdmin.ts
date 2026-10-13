@@ -13,7 +13,7 @@ import { ID_RE, cachedIntegrations, mappedIntegrations, setRoleIntegrations } fr
 import { getRepo, listRepos, updateRepo } from "./repos.ts";
 
 /**
- * Team changes proposed by the admin agent (the built-in setup role): new agents, changes to an agent
+ * Team changes proposed by the helper agent (the built-in setup role): new agents, changes to an agent
  * (its job description, settings, skills, integrations, repos), new or changed skills and who has them,
  * and bundles of these. Every proposal is an approval card (approvals.ts); only the owner's click in the
  * portal applies it, optionally after editing its text. Applying records undo steps, so the card's Undo
@@ -56,7 +56,7 @@ function roleRef(ref: string, ctx: Ctx): { ref: string; name: string } {
 
 function roleId(ref: string): string {
   if (!ref.startsWith("new:")) {
-    if (!getAgent(ref)) throw fail("An agent in this proposal no longer exists; ask the admin to propose it again");
+    if (!getAgent(ref)) throw fail("An agent in this proposal no longer exists; ask the helper to propose it again");
     return ref;
   }
   const r = get<{ id: string }>(`SELECT id FROM agents WHERE slug = ? AND base_agent_id IS NULL`, ref.slice(4));
@@ -277,7 +277,7 @@ function bundleCtx(items: any[]): Ctx {
   return ctx;
 }
 
-// --- proposing (the admin's tools) --------------------------------------------------------------------
+// --- proposing (the helper's tools) --------------------------------------------------------------------
 
 const propose = (agent: Agent, taskId: string | null, item: Item) => {
   mustSetup(agent);
@@ -363,18 +363,18 @@ function edited(item: Item, e: any): Item {
 function check(item: Item) {
   const p = item.payload;
   if (item.kind === "agent_create") {
-    if (get(`SELECT 1 FROM agents WHERE slug = ?`, p.slug)) throw fail(`An agent called "${p.slug}" exists now; ask the admin to propose it again`);
+    if (get(`SELECT 1 FROM agents WHERE slug = ?`, p.slug)) throw fail(`An agent called "${p.slug}" exists now; ask the helper to propose it again`);
   }
   if (item.kind === "agent_change") {
     const role = getAgent(p.role_id);
     if (!role || role.retired_at) throw fail(`${p.role_name} no longer exists`);
     if (p.instructions && sha(readInstructions(role)) !== p.instructions.base_hash) {
-      throw fail(`${p.role_name}'s job description changed since this was proposed; ask the admin to propose it again`);
+      throw fail(`${p.role_name}'s job description changed since this was proposed; ask the helper to propose it again`);
     }
   }
   if (item.kind === "skill") {
     if (p.created ? !!getSkill(p.name) : skillHash(p.name) !== p.base_hash) {
-      throw fail(`The skill "${p.name}" changed since this was proposed; ask the admin to propose it again`);
+      throw fail(`The skill "${p.name}" changed since this was proposed; ask the helper to propose it again`);
     }
   }
 }
@@ -385,7 +385,7 @@ function applyItems(items: Item[], steps: Step[]) {
   for (const it of items) {
     const p = it.payload;
     if (it.kind === "agent_create") {
-      const a = createAgent({ name: p.name, title: p.title, summary: p.summary, model: p.model, instructions: p.instructions + "\n", interview: { source: "admin" } });
+      const a = createAgent({ name: p.name, title: p.title, summary: p.summary, model: p.model, instructions: p.instructions + "\n", interview: { source: "helper" } });
       steps.push({ op: "delete_agent", role_id: a.id });
       if (p.max_replicas !== null || p.can_scale !== null) {
         updateAgent(a.id, { ...(p.max_replicas !== null ? { max_replicas: p.max_replicas } : {}), ...(p.can_scale !== null ? { can_scale: p.can_scale ? 1 : 0 } : {}) });
@@ -517,7 +517,7 @@ function undoSteps(raw: Step[], checkFirst: boolean) {
 
 for (const kind of ["agent_create", "agent_change", "skill", "skill_assign", "bundle"] as const) registerKind(kind, { apply, undo });
 
-// --- reading the team (the admin's tools) ----------------------------------------------------------------
+// --- reading the team (the helper's tools) ----------------------------------------------------------------
 
 const liveTasks = (roleId: string) =>
   (get<{ n: number }>(`SELECT COUNT(*) AS n FROM agents WHERE base_agent_id = ? AND retired_at IS NULL`, roleId)?.n ?? 0) as number;
@@ -603,7 +603,7 @@ export const setDriveImpl = (fn: DriveImpl) => { driveImpl = fn; };
 
 /**
  * Ask an agent, as its job description stands (or as a pending proposal would make it), what it would
- * do with a task. Nothing runs: no tools, no files. The admin uses it to show a change takes.
+ * do with a task. Nothing runs: no tools, no files. The helper uses it to show a change takes.
  */
 export async function testDrive(agentRef: string, scenario: string, approvalId?: string): Promise<string> {
   const role = findRole(agentRef);

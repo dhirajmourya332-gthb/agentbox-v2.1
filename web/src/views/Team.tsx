@@ -76,7 +76,7 @@ export function Team() {
             const working = live.filter((x) => x.status === "working").length;
             return (
               <div key={a.id} className="card">
-                <a className="who" href={a.builtin === "setup" ? "#/setup" : `#/agents/${a.id}`} style={{ color: "var(--text)", textDecoration: "none" }}>
+                <a className="who" href={a.builtin === "setup" ? "#/helper" : `#/agents/${a.id}`} style={{ color: "var(--text)", textDecoration: "none" }}>
                   <Avatar name={a.name} color={a.color} size={32} />
                   <div style={{ minWidth: 0 }}>
                     <strong>{a.name}</strong>{a.builtin && <span className="builtin-badge" title="Built into agentbox">built-in</span>}
@@ -89,7 +89,7 @@ export function Team() {
                     {live.length ? `${live.length} live task${live.length > 1 ? "s" : ""}${working ? ` · ${working} working` : ""}` : "No live tasks"}
                   </span>
                   {a.builtin === "setup"
-                    ? <a className="btn sm" href="#/setup">Open setup</a>
+                    ? <a className="btn sm" href="#/helper">Open helper</a>
                     : <a className="btn sm" href={`#/new/${a.id}`}>New task</a>}
                 </div>
               </div>

@@ -12,7 +12,7 @@ export function NewTask({ roleId }: { roleId?: string }) {
   // The setup agent starts from Configure → Setup (its own workspace), not here.
   const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
   const setupLink = roleId && agents.some((a) => a.id === roleId && a.builtin === "setup");
-  useEffect(() => { if (setupLink) location.replace("#/setup"); }, [setupLink]);
+  useEffect(() => { if (setupLink) location.replace("#/helper"); }, [setupLink]);
   const lead = roles.find((r) => r.can_scale);
   const [picked, setPicked] = useState<string | null>(roleId ?? null);
   const [text, setText] = useState("");

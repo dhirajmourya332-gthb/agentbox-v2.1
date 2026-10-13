@@ -440,7 +440,7 @@ function ByUrl({ onDone }: { onDone: () => void }) {
           agentbox can't read it: {check.error}
           <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="btn sm primary" disabled={!!busy} onClick={getAccess}>{busy === "setup" ? "Opening…" : "Open setup to get access"}</button>
-            <span className="hint">The admin plans it with you (an account login or a deploy key).</span>
+            <span className="hint">The helper plans it with you (an account login or a deploy key).</span>
           </div>
         </div>
       )}

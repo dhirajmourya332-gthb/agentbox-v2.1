@@ -508,7 +508,7 @@ export function setupTools(agent: Agent, taskId: string) {
           try {
             const role = findRole(ref);
             if (!role) throw new Error(`No agent called "${ref}"`);
-            if (role.builtin) throw new Error("That's you; do it yourself if it's admin work");
+            if (role.builtin) throw new Error("That's you; do it yourself if it's helper work");
             const inst = startOwnerWork({ role, text: task, repos, title });
             return text(`Started ${inst.name}: "${inst.label}". The owner finds it under Work (#/work/${inst.id}).`);
           } catch (e: any) { return refuse(e.message); }

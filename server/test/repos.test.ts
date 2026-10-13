@@ -473,7 +473,7 @@ test("setup tools: list_repos, add_repo as an approval card (applied on approve)
   assert.deepEqual(R.getRepo("svc")!.allowed_roles, [coder.id]);
   const other = ST.setupTools(fix, fakeTask(fix.id));
   assert.equal((await call(other, "list_repos", {})).isError, true);
-  await assert.rejects(AP.proposeRepo(fix, null, { url: remote.url }), /Only the admin agent/);
+  await assert.rejects(AP.proposeRepo(fix, null, { url: remote.url }), /Only the helper agent/);
 });
 
 // --- setup requests ---------------------------------------------------------------------------------

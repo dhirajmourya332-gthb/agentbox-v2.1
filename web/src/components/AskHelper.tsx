@@ -5,11 +5,11 @@ import { go } from "../router.ts";
 import { Icon } from "./ui.tsx";
 
 /**
- * Ask the admin from anywhere: ⌘K / Ctrl+K (or the rail's button) opens a box; Enter starts a new admin
+ * Ask the helper from anywhere: ⌘K / Ctrl+K (or the rail's button) opens a box; Enter starts a new helper
  * conversation with what you typed and opens it. With a conversation already open, you can add to it
  * instead.
  */
-export function AskAdmin() {
+export function AskHelper() {
   const { agents } = useStore();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -28,8 +28,8 @@ export function AskAdmin() {
     };
     const onOpen = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    window.addEventListener("agentbox:ask-admin", onOpen);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("agentbox:ask-admin", onOpen); };
+    window.addEventListener("agentbox:ask-helper", onOpen);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("agentbox:ask-helper", onOpen); };
   }, []);
   useEffect(() => { if (open) { setError(null); setTimeout(() => ref.current?.focus(), 0); } }, [open]);
   if (!open || !role) return null;
@@ -58,16 +58,16 @@ export function AskAdmin() {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
   };
   return (
-    <div className="ask-admin-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="ask-admin" role="dialog" aria-modal="true" aria-label="Ask the admin">
-        <div className="ask-admin-head">
-          <strong>Ask the admin</strong>
+    <div className="ask-helper-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
+      <div className="ask-helper" role="dialog" aria-modal="true" aria-label="Ask the helper">
+        <div className="ask-helper-head">
+          <strong>Ask the helper</strong>
           <span className="hint">Change an agent, add a skill, create an agent, connect something, or get work started.</span>
         </div>
         <textarea ref={ref} rows={3} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown}
           placeholder="e.g. Make the tech-lead only orchestrate and delegate, never write code" aria-label="What do you want?" />
         {error && <div className="error-box">{error}</div>}
-        <div className="ask-admin-actions">
+        <div className="ask-helper-actions">
           <button className="btn sm primary" disabled={busy || !text.trim()} onClick={() => submit()}>
             <Icon name="send" size={14} />New conversation
           </button>
@@ -84,4 +84,4 @@ export function AskAdmin() {
 }
 
 /** Open the box from a button. */
-export const openAskAdmin = () => window.dispatchEvent(new Event("agentbox:ask-admin"));
+export const openAskHelper = () => window.dispatchEvent(new Event("agentbox:ask-helper"));

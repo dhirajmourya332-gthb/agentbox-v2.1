@@ -1,6 +1,6 @@
-# The admin agent
+# The helper agent
 
-Branch: `feature/admin-agent`.
+Branch: `feature/helper-agent`.
 
 ## Code
 
@@ -8,12 +8,12 @@ Branch: `feature/admin-agent`.
 |---|---|
 | Server | `server/src/teamAdmin.ts`; changes in `approvals.ts`, `setupTools.ts`, `setup.ts`, `roleGuards.ts`, `work.ts` |
 | Job description | `server/setup-agent/CLAUDE.md` |
-| UI | `web/src/components/Setup.tsx` (approval cards), `web/src/components/AskAdmin.tsx` |
-| Tests | `server/test/team-admin.test.ts` |
+| UI | `web/src/components/Setup.tsx` (approval cards), `web/src/components/AskHelper.tsx` |
+| Tests | `server/test/team-helper.test.ts` |
 
 ## What it is
 
-The built-in setup agent is now the owner's **admin**. You talk to it in plain words. It turns what you
+The built-in setup agent is now the owner's **helper**. You talk to it in plain words. It turns what you
 ask into exact changes, and you approve each one with a click. It can:
 - **Change how an agent works.** For example, "Make the tech-lead only orchestrate and delegate, never
   write code." It rewrites only the parts of the job description that need to change, and shows you the
@@ -25,21 +25,21 @@ ask into exact changes, and you approve each one with a click. It can:
 - **Do what the setup agent did:** connect integrations, add repos, propose team rules, handle setup
   requests from agents, and repair base modules.
 - **Get work started.** When you ask for real work, it starts the task with the right agent
-  (`start_work`). The task shows under Work, exactly as if you had started it. The admin never does the
+  (`start_work`). The task shows under Work, exactly as if you had started it. The helper never does the
   work itself.
 - **Answer questions** about the team: who does what, what's running, why something stopped.
 
 **Where to find it:**
-- **Admin** in the sidebar (Configure → Admin), the same workspace as before.
-- **Ask admin** under New task, or ⌘K / Ctrl+K anywhere. Either starts a new conversation, or adds
+- **Helper** in the sidebar (Configure → Helper), the same workspace as before.
+- **Ask helper** under New task, or ⌘K / Ctrl+K anywhere. Either starts a new conversation, or adds
   to the open one.
 
 The role's internal id stays `builtin = 'setup'`, and its home folder stays where it was. Its name
-becomes `admin`, unless another agent already has that name.
+becomes `helper`, unless another agent already has that name.
 
 ## How changes are applied
 
-Every team change is an **approval card** in the admin's chat. There are 5 kinds:
+Every team change is an **approval card** in the helper's chat. There are 5 kinds:
 
 | Kind | Tool | What the card shows |
 |---|---|---|
@@ -77,24 +77,24 @@ given to a new agent. Order doesn't matter. Applying runs in 2 passes:
 
 `test_drive(agent, task, approval_id?)` asks an agent what it would do with a realistic task. It answers
 from its current job description, or from the one a pending proposal would give it. It's a dry run with
-no tools and no files, on Sonnet. The admin uses it to show you a behaviour change took before you
+no tools and no files, on Sonnet. The helper uses it to show you a behaviour change took before you
 approve it.
 
 ## Guardrails
 
-- **Only through cards.** The admin can't write other agents' homes, `/skills` or `/team` with the edit
-  tools or the shell (`adminGuard`), even while it has temporary sudo. Its own home stays writable.
+- **Only through cards.** The helper can't write other agents' homes, `/skills` or `/team` with the edit
+  tools or the shell (`helperGuard`), even while it has temporary sudo. Its own home stays writable.
 - **What it can't change:** its own instructions (you add notes on its page). It also can't delete
   agents or skills; you do that on their pages.
 - **Built-in roles** can't be changed through these proposals.
-- **Only for the admin:** other agents can't call these tools, and their proposals are refused.
-- **Its skill proposals** go straight to cards. For the admin, `mcp__team__propose_skill` (the
+- **Only for the helper:** other agents can't call these tools, and their proposals are refused.
+- **Its skill proposals** go straight to cards. For the helper, `mcp__team__propose_skill` (the
   draft-for-review tool) is hidden.
 
 ## Not done yet
 
 - **Skill files:** importing or editing a skill's scripts. Only SKILL.md is proposed; other files are
   left as they are.
-- **Retiring agents and deleting skills** through the admin: you do these on their pages.
-- **A needs-you item for pending admin cards** when you've left the conversation: the card sits in the
-  admin's chat, like mapping and team-rule cards.
+- **Retiring agents and deleting skills** through the helper: you do these on their pages.
+- **A needs-you item for pending helper cards** when you've left the conversation: the card sits in the
+  helper's chat, like mapping and team-rule cards.

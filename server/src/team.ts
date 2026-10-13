@@ -229,7 +229,7 @@ export function teamServer(agent: Agent, taskId: string) {
     name: "team",
     version: "1.0.0",
     instructions: "agentbox team tools: how agents on this team hand work to each other.",
-    // The admin proposes skills with its own tool (straight to an approval card), not as a draft.
+    // The helper proposes skills with its own tool (straight to an approval card), not as a draft.
     tools: teamTools(agent, taskId).filter((t) => !(isSetupAgent(agent) && t.name === "propose_skill")),
   });
 }

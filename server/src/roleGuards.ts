@@ -128,13 +128,13 @@ export function orchestratorGuard(agent: Agent) {
   };
 }
 
-// --- the admin ----------------------------------------------------------------------------------------
+// --- the helper ----------------------------------------------------------------------------------------
 
 /**
- * The admin (setup agent) changes agents, skills and team rules only through approval cards: never with
+ * The helper (setup agent) changes agents, skills and team rules only through approval cards: never with
  * the edit tools or the shell, although it has sudo while it works. Its own home stays writable.
  */
-export function adminGuard(agent: Agent) {
+export function helperGuard(agent: Agent) {
   return async (input: any) => {
     if (input?.hook_event_name !== "PreToolUse" || !isSetupAgent(agent)) return {};
     const own = path.resolve(homeOf(agent));

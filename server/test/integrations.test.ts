@@ -359,8 +359,8 @@ test("skills: integration skills only while connected and mapped; others' skills
 test("setup role: seeded once, can't be deleted, renamed or have its CLAUDE.md edited; notes instead", () => {
   assert.equal(S.ensureSetupRole().id, setup.id, "idempotent");
   assert.equal(setup.builtin, "setup");
-  assert.equal(S.ensureSetupRole().title, "Admin: team, skills & integrations");
-  assert.equal(S.ensureSetupRole().name, "admin", "the setup role is called admin");
+  assert.equal(S.ensureSetupRole().title, "Helper: team, skills & integrations");
+  assert.equal(S.ensureSetupRole().name, "helper", "the setup role is called helper");
   assert.throws(() => A.deleteAgent(setup.id), /can't be deleted/);
   assert.throws(() => A.editInstructions(setup, "# mine\n"), /maintained by agentbox/);
   assert.throws(() => A.updateAgent(setup.id, { title: "Something else" }), /built in/);
@@ -407,8 +407,8 @@ test("setup role: Connect opens or reuses one task per integration, with a steps
 // --- approvals -----------------------------------------------------------------------------------
 test("approvals: other roles refused; mapping applies only on approve; reject discards", () => {
   const tid = fakeTask(setupTask.id);
-  assert.throws(() => AP.proposeMapping(coderTask, fakeTask(coderTask.id), "github", ["writer"]), /Only the admin agent/);
-  assert.throws(() => AP.proposeTeamRule(coderTask, null, "x.md", "x"), /Only the admin agent/);
+  assert.throws(() => AP.proposeMapping(coderTask, fakeTask(coderTask.id), "github", ["writer"]), /Only the helper agent/);
+  assert.throws(() => AP.proposeTeamRule(coderTask, null, "x.md", "x"), /Only the helper agent/);
   assert.throws(() => AP.proposeMapping(setupTask, tid, "github", ["nobody"]), /No agent called "nobody"/);
   assert.throws(() => AP.proposeMapping(setupTask, tid, "github", ["setup"]), /No agent called/, "the setup agent can't map itself");
 

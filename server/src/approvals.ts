@@ -61,7 +61,7 @@ export const listApprovals = (q: { threadId?: string; status?: string } = {}) =>
   ).map((r) => row(r)!);
 
 export function mustSetup(agent: Agent) {
-  if (!isSetupAgent(agent)) throw new Error("Only the admin agent can propose integration mappings, team changes, skills and repos.");
+  if (!isSetupAgent(agent)) throw new Error("Only the helper agent can propose integration mappings, team changes, skills and repos.");
 }
 
 export function create(agent: Agent, taskId: string | null, kind: ApprovalKind, title: string, payload: unknown): Approval {

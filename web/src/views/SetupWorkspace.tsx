@@ -14,7 +14,7 @@ import { Composer, FinishButton, TaskTitle, Timeline } from "./AgentChat.tsx";
 import { clearReturn, returnFor, type SetupReturn } from "../components/returnTo.ts";
 
 /**
- * The admin workspace (#/setup/<session>): the admin (setup) agent's own screen, in the spirit of the
+ * The helper workspace (#/helper/<session>): the helper (setup) agent's own screen, in the spirit of the
  * first-run guide. One screen with the chat, the owner's terminal and a checklist the agent writes
  * (set_plan) with a "current step" pointer that moves by itself when a step's check passes.
  *
@@ -84,12 +84,12 @@ export function SetupWorkspace({ instanceId }: { instanceId?: string }) {
   const loadSessions = useCallback(() => api.setupSessions().then((r) => setSessions(r.sessions)).catch(() => setSessions([])), []);
   useEffect(() => { loadSessions(); }, [loadSessions, instanceId, agents.length]);
 
-  // #/setup: the latest live session, or a fresh start.
+  // #/helper: the latest live session, or a fresh start.
   const fresh = instanceId === "new";
   useEffect(() => {
     if (instanceId || !sessions) return;
     const live = sessions.find((s) => !s.retired_at);
-    location.replace(live ? `#/setup/${live.id}` : "#/setup/new");
+    location.replace(live ? `#/helper/${live.id}` : "#/helper/new");
   }, [instanceId, sessions]);
 
   const session = instanceId && !fresh ? (agents.find((a) => a.id === instanceId) ?? (everyone.find((a) => a.id === instanceId) as Agent | undefined)) : undefined;
@@ -101,7 +101,7 @@ export function SetupWorkspace({ instanceId }: { instanceId?: string }) {
 
   if (!loaded) return <div className="page" />;
   if (!setupRole) {
-    return <div className="page"><div className="page-inner"><h1>Admin</h1><p className="lede">The admin agent is missing. Restart agentbox to restore it.</p></div></div>;
+    return <div className="page"><div className="page-inner"><h1>Helper</h1><p className="lede">The helper agent is missing. Restart agentbox to restore it.</p></div></div>;
   }
   if (!instanceId) return <div className="page" />;
   if (!fresh && !agent) return <div className="page"><div className="page-inner"><p className="lede">Loading…</p></div></div>;
@@ -169,7 +169,7 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
   const stepsBadge = plan ? `${plan.done_count}/${plan.total}` : undefined;
 
   const chatPanel = (
-    <Panel {...panelProps("chat")} title="Admin" onKeyDown={onChatKey}
+    <Panel {...panelProps("chat")} title="Helper" onKeyDown={onChatKey}
       actions={agent && <>
         {done ? <span className="chip">Done</span> : <StatusGlyph status={agent.status} withLabel />}
         {running && <button className="btn sm danger" onClick={() => api.stop(running.id)} title="Stop (Esc in the chat)"><Icon name="stop" size={14} />Stop</button>}
@@ -180,10 +180,10 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
           <LiveBar items={Object.values(progress).filter((p) => p.agent_id === agent.id)} log={false} />
           {threadId && !done && (
             <Composer agent={agent} threadId={threadId} empty={!thread || thread.messages.length === 0}
-              starters={STARTERS} placeholder="Ask the admin: change an agent, add a skill, set something up, or ask about a step…" />
+              starters={STARTERS} placeholder="Ask the helper: change an agent, add a skill, set something up, or ask about a step…" />
           )}
           {done && (
-            <p className="composer-hint ws-done-hint">This setup session is done; its history stays here. <a href="#/setup/new">Start a new one</a></p>
+            <p className="composer-hint ws-done-hint">This conversation is done; its history stays here. <a href="#/helper/new">Start a new one</a></p>
           )}
         </>
       ) : <StartChat role={role} />}
@@ -193,27 +193,27 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
   return (
     <InsertCtx.Provider value={agent && !done ? insert : null}>
       <TerminalCtx.Provider value={showTerminal}>
-        <section className="setup-ws" aria-label="Admin workspace">
+        <section className="setup-ws" aria-label="Helper workspace">
           <header className="ws-head">
             <span className="ws-mark" aria-hidden="true"><Icon name="sparkle" size={16} /></span>
             <div className="ws-title">
               {agent ? <TaskTitle agent={agent} /> : <strong>New conversation</strong>}
               <span className="hint">
-                Admin · team changes come as cards you approve; setups get a checklist and your terminal
+                Helper · team changes come as cards you approve; setups get a checklist and your terminal
                 {current ? <> · now: <strong>{current.title}</strong></> : null}
               </span>
             </div>
             <div className="ws-actions">
               <SessionPicker current={agent?.id ?? null} sessions={sessions} />
-              <a className="btn sm" href="#/setup/new" title="Start a new conversation with the admin"><Icon name="plus" size={14} />New</a>
+              <a className="btn sm" href="#/helper/new" title="Start a new conversation with the helper"><Icon name="plus" size={14} />New</a>
               {agent && !done && <FinishButton agent={agent} />}
-              <a className="icon-btn" href={`#/agents/${role.id}`} title="About the admin and your notes for it" aria-label="Admin settings"><Icon name="agent" /></a>
+              <a className="icon-btn" href={`#/agents/${role.id}`} title="About the helper and your notes for it" aria-label="Helper settings"><Icon name="agent" /></a>
             </div>
           </header>
           {agent && <ReturnBar sessionId={agent.id} />}
 
           {narrow && (
-            <nav className="tabs ws-tabs" role="tablist" aria-label="Admin panels">
+            <nav className="tabs ws-tabs" role="tablist" aria-label="Helper panels">
               {(["steps", "chat", "terminal"] as PanelId[]).map((p) => (
                 <button key={p} role="tab" aria-selected={layout.tab === p} onClick={() => setLayout({ tab: p })}>
                   {p === "steps" ? "Steps" : p === "chat" ? "Chat" : "Terminal"}
@@ -235,7 +235,7 @@ function Workspace({ role, agent, sessions }: { role: Agent; agent: Agent | null
             terminal={
               <Panel {...panelProps("terminal")} title="Terminal"
                 actions={<span className={`conn ${termStatus}`}>{termStatus === "open" ? "connected" : termStatus === "closed" ? "reconnecting…" : termStatus === "fallback" ? "not readable by the agent" : "connecting…"}</span>}
-                note="Your shell on this computer. Logins happen here, never in the chat. The admin can read it (secrets hidden) but never types.">
+                note="Your shell on this computer. Logins happen here, never in the chat. The helper can read it (secrets hidden) but never types.">
                 <OwnerTerminal onHandle={(h) => { term.current = h; }} onStatus={setTermStatus} />
               </Panel>
             } />
@@ -254,7 +254,7 @@ const STARTERS = [
   "What's connected, and what needs attention?",
 ];
 
-/** A new conversation: the first message starts the admin's task and lands here. */
+/** A new conversation: the first message starts the helper's task and lands here. */
 function StartChat({ role }: { role: Agent }) {
   // Another page can hand over a prefilled request ("agentbox.setup.prefill", read once).
   const [text, setText] = useState(() => {
@@ -285,10 +285,10 @@ function StartChat({ role }: { role: Agent }) {
   return (
     <div className="ws-start">
       <div className="ws-start-intro">
-        <strong>What can the admin do for you?</strong>
+        <strong>What can the helper do for you?</strong>
         <p className="hint">
           Say it in your own words. Team changes (a new agent, how an agent works, skills and who has them) come
-          back as cards you approve, edit or undo. Setups ("set up gh and aws") get a checklist; the admin installs
+          back as cards you approve, edit or undo. Setups ("set up gh and aws") get a checklist; the helper installs
           what it can and walks you through the logins in your terminal. Real work goes to the right agent.
         </p>
         <div className="choices">{STARTERS.map((s) => <button key={s} className="pill" disabled={busy} onClick={() => start(s)}>{s}</button>)}</div>
@@ -454,8 +454,8 @@ function PlanPanel({ plan, agent, onInsert, terminalUp }: { plan: SetupPlan | nu
         <p><strong>No checklist yet.</strong></p>
         <p className="hint">
           {agent
-            ? "Only setups need one (installs, logins, connections); team changes are cards in the chat. When something needs setting up, the admin writes the steps here, each with its commands and a check that ticks it off by itself."
-            : "When you ask for a setup, the admin writes the steps here; the pointer moves on by itself when a step's check passes."}
+            ? "Only setups need one (installs, logins, connections); team changes are cards in the chat. When something needs setting up, the helper writes the steps here, each with its commands and a check that ticks it off by itself."
+            : "When you ask for a setup, the helper writes the steps here; the pointer moves on by itself when a step's check passes."}
         </p>
       </div>
     );

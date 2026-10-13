@@ -510,13 +510,13 @@ a.feed-row:hover { background: var(--surface); }
 
 /* ---- Work-first navigation (backlog #3–#6) --------------------------------- */
 .new-task-btn { margin: 4px 2px 6px; justify-content: center; }
-.ask-admin-btn { margin: 0 2px 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); }
-.ask-admin-btn kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
-.ask-admin-backdrop { position: fixed; inset: 0; z-index: 1000; background: color-mix(in srgb, #000 45%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: 12vh 16px 16px; }
-.ask-admin { width: min(640px, 100%); display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 18px 50px rgb(0 0 0 / .35); }
-.ask-admin-head { display: grid; gap: 2px; }
-.ask-admin textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 72px; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--bg); color: var(--text); }
-.ask-admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ask-helper-btn { margin: 0 2px 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.ask-helper-btn kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
+.ask-helper-backdrop { position: fixed; inset: 0; z-index: 1000; background: color-mix(in srgb, #000 45%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: 12vh 16px 16px; }
+.ask-helper { width: min(640px, 100%); display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 18px 50px rgb(0 0 0 / .35); }
+.ask-helper-head { display: grid; gap: 2px; }
+.ask-helper textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 72px; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--bg); color: var(--text); }
+.ask-helper-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rail-nav { display: flex; flex-direction: column; gap: 1px; }
 .rail-toggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .rail-toggle .chev, .rail-more .chev, .work-row .chev { display: inline-flex; transition: transform .12s ease-out; }

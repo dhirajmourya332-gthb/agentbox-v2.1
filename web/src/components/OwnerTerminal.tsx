@@ -104,7 +104,7 @@ export function OwnerTerminal({ onHandle, onStatus }: { onHandle: (h: TerminalHa
     return (
       <div className="ws-term-fallback">
         <p className="hint ws-term-note">
-          The admin can't read this terminal{why ? ` (${why})` : ""}; tell it what you see. Inserting commands works by copying them.
+          The helper can't read this terminal{why ? ` (${why})` : ""}; tell it what you see. Inserting commands works by copying them.
         </p>
         <iframe src={TERMINAL_URL} title="Terminal on the agentbox computer" />
       </div>

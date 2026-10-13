@@ -57,7 +57,7 @@ function YourTurn({ gate }: { gate: IntegrationGate }) {
       <div className="sc-your-turn">
         <div className="sc-yt-head">Your turn · setting</div>
         <p>{gate.title} <span className="hint">({gate.key})</span></p>
-        <div className="hint">Tell the admin in the chat (never a token or password), or set it yourself in the terminal:</div>
+        <div className="hint">Tell the helper in the chat (never a token or password), or set it yourself in the terminal:</div>
         {gate.command && <CopyRow text={gate.command} />}
       </div>
     );
@@ -67,7 +67,7 @@ function YourTurn({ gate }: { gate: IntegrationGate }) {
       <div className="sc-yt-head">Your turn</div>
       {gate.instructions && <Markdown text={gate.instructions} />}
       {gate.copy && <CopyRow text={gate.copy} />}
-      <div className="hint">When you're done, tell the admin; it checks and continues.</div>
+      <div className="hint">When you're done, tell the helper; it checks and continues.</div>
     </div>
   );
 }
@@ -221,7 +221,7 @@ const TEAM_KINDS = new Set(["agent_create", "agent_change", "skill", "skill_assi
 type Edits = Record<string, Record<string, string>>;
 
 /**
- * A proposal from the admin agent: applied only when the owner approves here. Team changes (agents,
+ * A proposal from the helper agent: applied only when the owner approves here. Team changes (agents,
  * skills, bundles) can be edited before approving and undone afterwards.
  */
 export function ApprovalCard({ id }: { id: string }) {

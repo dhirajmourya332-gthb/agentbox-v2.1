@@ -118,7 +118,7 @@ export function finishTree(rootId: string) {
 }
 
 /**
- * Start a top-level task for the owner (the New task page, or the admin agent asked to by the owner):
+ * Start a top-level task for the owner (the New task page, or the helper agent asked to by the owner):
  * a new instance of the role, its repos bound, the request as its first message.
  */
 export function startOwnerWork(input: { role: Agent; text: string; images?: string[]; repos?: string[]; title?: string; requirePlan?: boolean }) {
