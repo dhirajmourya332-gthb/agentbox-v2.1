@@ -43,8 +43,17 @@ avrdude -c arduino -p m328p -P $P -b 115200 -U flash:w:build/sketch.ino.hex:i   
 ```
 - The board is on the owner's desk, reached over the network: allow a little more time than a local
   cable. If esptool's writes fail at 460800, retry once at 115200.
-- If avrdude/arduino-cli reports "not in sync" or "not responding" (a slow link), use
+- **arduino-cli + Nano/Uno "programmer is not responding" while plain `avrdude` works:** arduino-cli's
+  bundled avrdude 8 drops DTR right after the reset pulse, and some boards (FTDI Nanos) then never
+  answer — on a local cable too. Make arduino-cli use the system avrdude 7 (once):
+  ```bash
+  D=$(ls -d ~/.arduino15/packages/arduino/hardware/avr/*/ | tail -1)
+  printf 'tools.avrdude.path=/usr\ntools.avrdude.cmd.path=/usr/bin/avrdude\ntools.avrdude.config.path=/etc/avrdude.conf\n' > $D/platform.local.txt
+  ```
+- If uploads report "not in sync" on a slow link, use
   `agentbox-avr-upload --device <id> build/sketch.ino.hex` (Uno/Nano; tolerant of delay).
+- **Before overwriting a board that runs the owner's program, back it up** and say where:
+  `avrdude -c arduino -p m328p -P $P -b 115200 -U flash:r:backup.hex:i` (restore: `-D -U flash:w:backup.hex:i`).
 - A board that won't enter its bootloader needs the owner to hold BOOT (ESP32) or press RESET
   (Arduino) as you start: ask once, don't loop.
 

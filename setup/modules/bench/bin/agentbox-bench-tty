@@ -78,8 +78,18 @@ IOCTL_SIZES = {
 }
 
 
+DEBUG = os.environ.get("AGENTBOX_BENCH_TTY_DEBUG") == "1"  # every request, timestamped (diagnosis)
+NAMES = {FUSE_OPEN: "open", FUSE_RELEASE: "release", FUSE_READ: "read", FUSE_WRITE: "write", FUSE_IOCTL: "ioctl",
+         FUSE_POLL: "poll", FUSE_FLUSH: "flush", FUSE_INTERRUPT: "interrupt"}
+
+
 def log(msg):
     print("agentbox-bench-tty: %s" % msg, flush=True)
+
+
+def debug(msg):
+    if DEBUG:
+        print("%.3f %s" % (time.time() % 1000, msg), flush=True)
 
 
 def cfg(key):
@@ -130,6 +140,7 @@ class Port:
 
     def set_mctrl(self, bits):
         self.mctrl = bits & (TIOCM_DTR | TIOCM_RTS)
+        debug("%s mctrl dtr=%d rts=%d" % (self.dev["id"], bool(self.mctrl & TIOCM_DTR), bool(self.mctrl & TIOCM_RTS)))
         if self.ser:
             self.ser.dtr = bool(self.mctrl & TIOCM_DTR)
             self.ser.rts = bool(self.mctrl & TIOCM_RTS)
@@ -186,6 +197,7 @@ class Port:
                     self.wake()
                     return
                 if data:
+                    debug("%s rx %s" % (self.dev["id"], data[:16].hex()))
                     self.rx += data
                     self.lock.notify_all()
                     self.wake()
@@ -270,6 +282,14 @@ class Cuse:
 
     def dispatch(self, op, unique, body):
         p = self.port
+        if DEBUG and op != FUSE_POLL:
+            extra = ""
+            if op == FUSE_IOCTL:
+                _fh, _f, cmd, _arg, ins, outs = IOCTL_IN.unpack_from(body)
+                extra = " 0x%x in=%d out=%d %s" % (cmd, ins, outs, body[IOCTL_IN.size:IOCTL_IN.size + ins].hex())
+            elif op == FUSE_WRITE:
+                extra = " " + body[WRITE_IN.size:WRITE_IN.size + 16].hex()
+            debug("%s %s%s" % (self.name, NAMES.get(op, op), extra))
         if op == CUSE_INIT:
             _major, minor, _u, _flags = struct.unpack_from("<IIII", body)
             info = ("DEVNAME=%s\0" % self.name).encode()

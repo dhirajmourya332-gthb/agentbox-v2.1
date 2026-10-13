@@ -56,6 +56,15 @@ syncing with an Arduino bootloader) need the VM close to the owner: from India, 
 asia-south1 (~35 ms: 5000 bytes written and verified in 17 s). Put the VM in the owner's region;
 `agentbox-avr-upload` (pipelined, delay-tolerant) remains for slow links.
 
+## Tested on real hardware
+An Arduino Nano (FT232R, optiboot at 115200) on the owner's Mac, from the Mumbai VM through
+`/dev/bench/usbserial-…`: reading its serial output, a 32 KB flash backup and restore with avrdude 7.1,
+and `arduino-cli upload` (5.5 s). Round trip through the whole chain: ~9 ms median.
+arduino-cli's bundled avrdude 8 failed on this board **locally as well**: it drops DTR right after the
+reset pulse and this Nano's bootloader then doesn't answer; `platform.local.txt` pointing arduino-cli at
+the system avrdude fixes it (the bench-hardware skill says how). Diagnosis: run the port service with
+`AGENTBOX_BENCH_TTY_DEBUG=1` to log every open, ioctl, control-line change and byte, timestamped.
+
 ## Simulated devices
 `~/.agentbox-bench/config.json` → `"extra_devices": [{"id": "sim-uno", "url": "socket://127.0.0.1:5599"}]`
 shares any pyserial URL as a device: a simulator's serial port, or a fake bootloader for tests.
