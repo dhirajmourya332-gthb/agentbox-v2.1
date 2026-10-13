@@ -33,6 +33,7 @@ import { createAccess, registerAccessRoutes } from "./access.ts";
 import { startPush, wirePush } from "./push.ts";
 import { listProgress, startProgress } from "./progress.ts";
 import { listRuns, runDetail, startRoutineRuns } from "./routineRuns.ts";
+import { registerBench } from "./bench.ts";
 import { listAttention, markAllSeen, markRoomSeen, markSeen, onAttention, startAttention } from "./attention.ts";
 import { config, enabled, ports, publicConfig } from "./config.ts";
 import { ensureSetupRole } from "./setup.ts";
@@ -522,6 +523,9 @@ registerPdfRoutes(app);
 registerWakeupRoutes(app);
 registerMemoryRoutes(app);
 
+// --- device bridge (bench.ts): checked per request, so connecting/disconnecting needs no restart ---
+registerBench(app);
+
 // --- paired phones (portal only; refused for anything that came through the gateway) ---
 // Without the mobile module none of /api/devices* exists (404) and Tailscale is never polled.
 if (MOBILE) registerDeviceAdmin(app, mobilePort);
@@ -548,6 +552,7 @@ app.addHook("onClose", async () => setupWorkspace.stop());
 refreshIntegrations(0).catch(() => {});
 startRoutines();
 ensureSeedSkill("onboard-repo"); // added after the first seeding: copied once
+ensureSeedSkill("bench-hardware"); // the device bridge integration's skill
 const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, daily sweep, cleanup on task close
 const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true
 app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });

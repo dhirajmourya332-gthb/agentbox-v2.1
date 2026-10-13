@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Integration, type SettingValue } from "../api.ts";
+import { api, type BenchStatus, type Integration, type SettingValue } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Icon } from "../components/ui.tsx";
 import { STATE_LABEL, STATE_STEP, STEP_ICON } from "../components/Setup.tsx";
@@ -12,6 +12,7 @@ const CATEGORIES: { id: string; label: string }[] = [
   { id: "cluster", label: "Clusters" },
   { id: "database", label: "Databases" },
   { id: "chat", label: "Chat" },
+  { id: "connectivity", label: "Connectivity" },
   { id: "extras", label: "Extras" },
 ];
 
@@ -87,6 +88,7 @@ function IntegrationCard({ it, onChange }: { it: Integration; onChange: () => vo
       {!it.available && <div className="hint">Coming soon: listed so you know it's planned; it can't be connected yet.</div>}
       {it.available && it.state === "error" && it.last?.ok === false && it.last.error && <div className="hint">Last {it.last.action}: {it.last.error}</div>}
       {it.available && it.gates.length > 0 && <div className="hint">Waiting for you: {it.gates.map((g) => g.title).join("; ")}</div>}
+      {it.id === "bench" && it.state !== "available" && it.state !== "disconnected" && <BenchPanel />}
       {it.available && <RoleChips it={it} onChange={onChange} />}
       {error && <div className="error-box">{error}</div>}
       {it.available && (
@@ -103,6 +105,50 @@ function IntegrationCard({ it, onChange }: { it: Integration; onChange: () => vo
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Device bridge: download the bridge, see what it shares right now, run the connectivity test. */
+function BenchPanel() {
+  const { onEvent } = useStore();
+  const [st, setSt] = useState<BenchStatus | null>(null);
+  const [test, setTest] = useState<{ ok: boolean; steps: { name: string; ok: boolean; detail: string }[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { api.benchStatus().then(setSt).catch((e) => setError(e.message)); }, []);
+  useEffect(() => onEvent((e: any) => { if (e.type === "bench.status") setSt(e.status); }), [onEvent]);
+  const run = async () => {
+    setBusy(true); setError(null);
+    try { const r = await api.benchTest(); setTest(r); setSt(r.status); } catch (e: any) { setError(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="bench-panel">
+      <div className="bench-line">
+        <span className={`dot ${st?.connected ? "ok" : ""}`} aria-hidden="true" />
+        {st?.connected
+          ? <span>Bridge on <strong>{st.bridge?.host}</strong> ({st.bridge?.os}), sharing {st.devices.length} device{st.devices.length === 1 ? "" : "s"}</span>
+          : <span>No bridge running: download it, run the installer on your computer, then start it.</span>}
+      </div>
+      {st?.connected && st.devices.length > 0 && (
+        <ul className="bench-devices">
+          {st.devices.map((d) => (
+            <li key={d.id}><code>{d.id}</code> <span className="hint">{d.description}{d.vid ? ` · ${d.vid}:${d.pid}` : ""}</span> <code className="hint">{d.url}</code>{d.in_use && <span className="tag">in use</span>}</li>
+          ))}
+        </ul>
+      )}
+      {test && (
+        <ul className="bench-test">
+          {test.steps.map((s) => <li key={s.name} className={s.ok ? "ok" : "bad"}>{s.ok ? "✔" : "✖"} <strong>{s.name}</strong> <span className="hint">{s.detail}</span></li>)}
+        </ul>
+      )}
+      {error && <div className="error-box">{error}</div>}
+      <div className="int-actions">
+        <a className="btn sm" href="/api/bench/install.sh" download="agentbox-bench-install.sh"><Icon name="download" size={14} />Download for your computer</a>
+        <button className="btn sm" disabled={busy} onClick={run}>{busy ? "Testing…" : "Test connection"}</button>
+      </div>
+      <div className="hint">Then on your computer: <code>bash ~/Downloads/agentbox-bench-install.sh</code>, and to share: <code>python3 ~/.agentbox-bench/agentbox-bench.py</code> (Ctrl+C stops sharing). It dials out; nothing listens on your computer.</div>
     </div>
   );
 }

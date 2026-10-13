@@ -34,7 +34,8 @@ Each part needs the ones above it. Required parts first; optional parts only if 
 | 5 | **The team** | needed for any work | `team_overview`; propose missing agents (`propose_new_agent` / `propose_changes`) |
 | 6 | **Integrations the work needs**: aws, gcp, azure, kubernetes, db-tunnel, env-files | as the team's work needs | `connect(id)`, then `propose_mapping` to the agents that use it |
 | 7 | **Routines** | optional | the Routines page; offer, don't create unasked |
-| 8 | **Extras**: voice (voice-input cleanup), **phone app** (mobile → mobile-app → push) | optional | below |
+| 8 | **Connectivity**: the **device bridge** (`bench`): the owner's computer shares USB boards (ESP32, Arduino) with agents | optional; for hardware work | §6 |
+| 9 | **Extras**: voice (voice-input cleanup), **phone app** (mobile → mobile-app → push) | optional | below |
 
 Slack and Teams are "coming soon": say so if asked.
 
@@ -140,7 +141,26 @@ and wait.
   settings or devices.
 - A new app version means a new build (`agentbox-mobile-build`); there are no over-the-air updates.
 
-## 6. Rules that matter most here
+## 6. The device bridge (optional; Integrations → Connectivity)
+For hardware work: a small script on the owner's computer dials out to the portal and shares what
+they enable (today: USB serial devices and a loopback test port). Nothing listens on their computer;
+it works in every access mode except cloudflare. Agents get each device as
+`rfc2217://127.0.0.1:<port>` and use the `bench-hardware` skill.
+1. `connect("bench")`: makes the bridge token and installs pyserial on the VM. Settings: `serial`
+   (share USB serial devices, default on) and `loopback` (the test port, default on).
+2. **The owner, on their own computer** (not the helper terminal; Python 3.9+): Integrations →
+   Device bridge → **Download for your computer**, then `bash ~/Downloads/agentbox-bench-install.sh`
+   (it installs into `~/.agentbox-bench` only and checks the connection), then
+   `python3 ~/.agentbox-bench/agentbox-bench.py` to share (Ctrl+C stops sharing). In tailscale mode
+   their computer must be on the tailnet as the owner; in ssh-tunnel mode their port forward must be open.
+3. The checklist's `computer` step ticks when the bridge connects. Then `verify("bench")`: round
+   trip plus a serial echo through the loopback port. Show the owner the result and the devices
+   (`agentbox api /bench/status`).
+4. Map it to the agents that work on hardware (`propose_mapping`), so they get the skill.
+Disconnecting deletes the token: an old bridge can't come back. The bridge's installer contains the
+token; tell the owner not to share it.
+
+## 7. Rules that matter most here
 - Logins and secrets happen **only in the owner's terminal** (or the provider's page), never in chat.
 - You never type into the terminal; the owner runs every command.
 - No Funnel, no public ports, no services on anything but 127.0.0.1.

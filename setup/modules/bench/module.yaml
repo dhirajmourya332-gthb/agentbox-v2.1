@@ -1,0 +1,40 @@
+id: bench
+kind: integration
+category: connectivity
+title: Device bridge (your computer)
+description: Share your computer's USB serial devices (ESP32, Arduino, …) with agents. A small script on your computer dials out to the portal; nothing listens on your computer, and you choose what it shares.
+optional: true
+depends: [core]
+settings:
+  - { key: serial, type: boolean, prompt: "Share USB serial devices (boards, adapters)", default: true }
+  - { key: loopback, type: boolean, prompt: "Offer the loopback test port (echoes; for connectivity tests)", default: true }
+instructions:
+  summary: |
+    Device bridge: the owner's computer shares hardware with you while its bridge runs. `agentbox api /bench/status` lists the devices, each at rfc2217://127.0.0.1:<port>. Use the bench-hardware skill before you flash or open a serial port.
+  file: instructions.md
+skills: [bench-hardware]
+default_roles: []
+revoke: |
+  Stop the bridge on your computer (Ctrl+C) and delete ~/.agentbox-bench there (it holds the token).
+  Disconnecting here deletes the token on the VM, so an old bridge can't reconnect.
+steps:
+  - id: install
+    title: Bridge token and serial tools on the VM
+    run: install.sh
+    check: "test -s \"$(agentbox config get paths.secrets)/bench.token\" && python3 -c 'import serial.rfc2217'"
+  - id: computer
+    title: Run the bridge on your computer
+    human: true
+    instructions: |
+      On YOUR computer (not in this terminal), with Python 3.9+:
+        1. Download the installer: in the portal, Integrations → Device bridge → "Download for your computer"
+           (or open <portal>/api/bench/install.sh in the browser you use for the portal).
+        2. Run it: `bash ~/Downloads/agentbox-bench-install.sh` — it puts the bridge in ~/.agentbox-bench and checks the connection.
+        3. Start sharing: `python3 ~/.agentbox-bench/agentbox-bench.py` (keep it running; Ctrl+C stops sharing).
+      It dials out to the portal; nothing listens on your computer. Plug boards in any time.
+    copy: "bash ~/Downloads/agentbox-bench-install.sh"
+    check: "agentbox api /bench/status | grep -q '\"connected\":true'"
+  - id: verify
+    title: Connectivity test (round trip and serial relay)
+    run: verify.sh
+    check: "agentbox api -X POST /bench/test | grep -q '^{\"ok\":true'"

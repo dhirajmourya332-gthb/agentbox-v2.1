@@ -20,6 +20,7 @@ ports:                    # all bound to 127.0.0.1
   terminal: 7702
   gateway: 7710
   guide: 7699
+  bench: 7740              # first of 40 ports for devices shared by the device bridge (bench)
 modules:                  # base: core, claude and access are always on; display and terminal too by default
   display: true
   terminal: true
@@ -38,6 +39,7 @@ modules:                  # base: core, claude and access are always on; display
   mobile: false           # needs access: tailscale
   mobile-app: false
   push: false
+  bench: false            # device bridge: your computer's USB devices for agents
 tailscale: { hostname: "" }                         # set by the access module
 cloudflare: { hostname: "", team_domain: "", aud: "" }  # set by the access module
 owner: { tailscale_login: "", email: "" }           # who may use the portal (set during setup)

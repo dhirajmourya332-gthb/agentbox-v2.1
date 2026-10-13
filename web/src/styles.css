@@ -1316,3 +1316,12 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .split-menu > * { all: unset; box-sizing: border-box; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 4px; font: 13px var(--sans); color: var(--text); }
 .split-menu > *:hover, .split-menu > *:focus-visible { background: var(--surface); }
 .split-error { position: absolute; right: 0; top: calc(100% + 4px); white-space: nowrap; font-size: 12px; color: var(--bad); background: var(--raised); padding: 4px 8px; border-radius: 4px; }
+
+/* Device bridge panel (Integrations → Device bridge) */
+.bench-panel { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--surface); font-size: 12.5px; }
+.bench-line { display: flex; align-items: center; gap: 8px; }
+.bench-line .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.bench-line .dot.ok { background: var(--ok); }
+.bench-devices, .bench-test { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.bench-devices li, .bench-test li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
+.bench-test li.bad strong { color: var(--bad); }

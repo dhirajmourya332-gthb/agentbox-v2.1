@@ -21,7 +21,7 @@ export const MODULE_IDS = [
   "core", "claude", "access", "display", "terminal",
   // integrations (§10.2)
   "github", "gitlab", "bitbucket", "aws", "gcp", "azure", "kubernetes", "db-tunnel", "env-files",
-  "voice", "mobile", "mobile-app", "push", "teams", "slack",
+  "voice", "mobile", "mobile-app", "push", "teams", "slack", "bench",
 ] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 /** Always on, whatever the file says. */
@@ -41,7 +41,7 @@ export type Config = {
     /** Integration settings and rendered prompt summaries (§10.2): <id>.yaml, <id>.summary.md. */
     integrations: string;
   };
-  ports: { portal: number; screen: number; terminal: number; gateway: number; guide: number };
+  ports: { portal: number; screen: number; terminal: number; gateway: number; guide: number; bench: number };
   modules: Record<ModuleId, boolean>;
   tailscale: { hostname: string };
   cloudflare: { hostname: string; team_domain: string; aud: string };
@@ -61,13 +61,13 @@ const FILE_DEFAULTS: Omit<Config, "source"> = {
     src: "/opt/agentbox/src", app: "/opt/agentbox/app", data: "/opt/agentbox/data", work: "/work", agents: "/agents",
     team: "/team", skills: "/skills", secrets: "/secrets", integrations: "/etc/agentbox/integrations",
   },
-  ports: { portal: 7700, screen: 7701, terminal: 7702, gateway: 7710, guide: 7699 },
+  ports: { portal: 7700, screen: 7701, terminal: 7702, gateway: 7710, guide: 7699, bench: 7740 },
   modules: {
     core: true, claude: true, access: true, display: true, terminal: true,
     // Integrations are off until connected (setup/config.default.yaml).
     github: false, gitlab: false, bitbucket: false, aws: false, gcp: false, azure: false, kubernetes: false,
     "db-tunnel": false, "env-files": false, voice: false, mobile: false, "mobile-app": false, push: false,
-    teams: false, slack: false,
+    teams: false, slack: false, bench: false,
   },
   tailscale: { hostname: "" },
   cloudflare: { hostname: "", team_domain: "", aud: "" },

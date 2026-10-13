@@ -314,6 +314,13 @@ export type RepoChanges = {
 export type ReviewComment = { worktree_id: string; repo: string; path: string; line: number; side: "old" | "new"; text: string };
 export type Review = { id: string; root_id: string; instance_id: string; verdict: "approve" | "changes" | "reject"; note: string; comments: ReviewComment[]; heads: Record<string, string>; created_at: string };
 
+/** The device bridge (server/src/bench.ts): the owner's computer sharing USB devices with agents. */
+export type BenchStatus = {
+  enabled: boolean; token: boolean; settings: { serial: boolean; loopback: boolean }; connected: boolean;
+  bridge: { host: string; os: string; version: number; since: string; capabilities: Record<string, boolean> } | null;
+  devices: { id: string; kind: string; description: string; manufacturer: string; vid: string; pid: string; port: number; url: string; in_use: boolean }[];
+};
+
 /** An API error with what the server attached (409s from repos carry `detail`). */
 export class ApiError extends Error {
   constructor(message: string, public status: number, public data: any) { super(message); }
@@ -444,6 +451,8 @@ export const api = {
   integrations: () => call<{ integrations: Integration[]; setup_role_id: string | null; error: string | null }>("GET", "/api/integrations"),
   integration: (id: string) => call<Integration>("GET", `/api/integrations/${id}`),
   setIntegrationRoles: (id: string, roles: string[]) => call<{ roles: string[] }>("PUT", `/api/integrations/${id}/roles`, { roles }),
+  benchStatus: () => call<BenchStatus>("GET", "/api/bench/status"),
+  benchTest: () => call<{ ok: boolean; steps: { name: string; ok: boolean; detail: string }[]; status: BenchStatus }>("POST", "/api/bench/test", {}),
   integrationTask: (id: string, action: "connect" | "reconnect" | "disconnect") =>
     call<{ instance_id: string; created: boolean }>("POST", `/api/integrations/${id}/task`, { action }),
   roleIntegrations: (roleId: string) => call<{ integrations: string[] }>("GET", `/api/agents/${roleId}/integrations`),
