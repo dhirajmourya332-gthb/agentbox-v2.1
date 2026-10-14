@@ -28,8 +28,12 @@ class Mock(BaseHTTPRequestHandler):
         if method == "GET" and p == "/api/v12/users/sessioninfo":
             return self.send(200, {"id": "u1", "email": "owner@example.com", "name": "Owner"})
         if method == "GET" and p == "/api/v12/documents":
-            q = re.search(r"q=([^&]*)", self.path); q = __import__("urllib.parse").parse.unquote_plus(q.group(1)) if q else ""
-            return self.send(200, {"items": [{"id": k, "name": v["name"], "public": v["public"]} for k, v in self.docs.items() if q.lower() in v["name"].lower()]})
+            qs = __import__("urllib.parse").parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            q, limit, offset = qs.get("q", [""])[0], int(qs.get("limit", ["20"])[0]), int(qs.get("offset", ["0"])[0])
+            if limit > 20:  # the real API's cap
+                return self.send(400, {"message": "must be less than or equal to 20", "invalidValue": str(limit)})
+            items = [{"id": k, "name": v["name"], "public": v["public"]} for k, v in self.docs.items() if q.lower() in v["name"].lower()]
+            return self.send(200, {"items": items[offset:offset + limit]})
         if method == "POST" and p == "/api/v12/documents":
             d = json.loads(body)
             if not d.get("isPublic") and not self.private_ok:
@@ -89,6 +93,18 @@ class Test(unittest.TestCase):
         self.assertFalse(Mock.docs["d001"]["public"])
         r2 = self.run_tool("upload", self.step, "--doc", "wheel-module", "--tab", "v2")
         self.assertEqual(r2.returncode, 0, r2.stderr); self.assertFalse(json.loads(r2.stdout)["created"]); self.assertEqual(Mock.uploads[-1][:2], ("d001", "v2.step"))
+
+    def test_finds_the_document_past_the_first_page(self):
+        for i in range(25):  # 25 near-matches fill more than one page (20) before the exact name
+            Mock.docs["x%03d" % i] = {"name": "arm-%02d" % i, "public": False, "elements": []}
+        Mock.docs["d900"] = {"name": "arm", "public": False, "elements": []}
+        try:
+            r = self.run_tool("upload", self.step, "--doc", "arm", "--tab", "v1")
+            self.assertEqual(r.returncode, 0, r.stderr); self.assertFalse(json.loads(r.stdout)["created"]); self.assertEqual(Mock.uploads[-1][0], "d900")
+            r = self.run_tool("docs", "arm"); self.assertEqual(r.returncode, 0, r.stderr); self.assertEqual(len(r.stdout.splitlines()), 26)
+        finally:
+            for k in [k for k in Mock.docs if k[0] == "x"] + ["d900"]:
+                del Mock.docs[k]
 
     def test_plan_without_private_documents_is_explained(self):
         Mock.private_ok = False

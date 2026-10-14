@@ -28,6 +28,7 @@ import urllib.request
 import uuid
 
 API = "/api/v12"
+PAGE = 20  # Onshape rejects a larger `limit` on list calls (400 "must be less than or equal to 20")
 
 
 class Fail(Exception):
@@ -113,12 +114,16 @@ class Onshape:
             u += "/e/%s" % eid
         return u
 
+    def documents(self, q="", pages=10, **extra):
+        """The owner's documents matching q, a page (PAGE) at a time, at most `pages` pages."""
+        for n in range(pages):
+            items = self.call("GET", "/documents", query=dict(q=q, filter=0, limit=PAGE, offset=n * PAGE, **extra)).get("items", [])
+            yield from items
+            if len(items) < PAGE:
+                return
+
     def find_doc(self, name):
-        r = self.call("GET", "/documents", query={"q": name, "filter": 0, "limit": 50})
-        for it in r.get("items", []):
-            if it.get("name") == name:
-                return it
-        return None
+        return next((it for it in self.documents(name) if it.get("name") == name), None)
 
     def ensure_doc(self, name, note=""):
         d = self.find_doc(name)
@@ -207,8 +212,7 @@ def cmd_upload(o, path, doc_name, tab, version, note):
 
 
 def cmd_docs(o, query):
-    r = o.call("GET", "/documents", query={"q": query or "", "filter": 0, "limit": 50, "sortColumn": "modifiedAt", "sortOrder": "desc"})
-    for it in r.get("items", []):
+    for it in o.documents(query or "", pages=3, sortColumn="modifiedAt", sortOrder="desc"):
         print("%-48s %s %s" % (it.get("name", "")[:48], "public " if it.get("public") else "private", o.link(it["id"])))
 
 
