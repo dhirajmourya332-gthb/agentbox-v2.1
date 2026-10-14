@@ -152,6 +152,11 @@ export function createOwnerTerminal(opts: {
   /** The owner's input (keys, pastes and "Insert in terminal"), from the page only. */
   async function input(d: string) {
     if (typeof d !== "string" || !d || d.length > MAX_INPUT) return;
+    // Every connected page answers a program's colour query, late (over the network), so the answers
+    // reached the shell as typed input ("could not prompt: unexpected escape sequence" in gh). Drop them
+    // here, whichever page (an old tab too) sent them; programs fall back to their default colours.
+    d = stripColorReplies(d);
+    if (!d) return;
     lastInputAt = now();
     const p = pty ?? (await ensure().catch(() => null));
     p?.write(d);
@@ -243,3 +248,7 @@ export function stripAnsi(s: string) {
 let current: OwnerTerminal | null = null;
 export const setOwnerTerminal = (t: OwnerTerminal | null) => { current = t; };
 export const ownerTerminal = () => current;
+
+/** Terminal answers to colour queries (OSC 4/10/11/12 "…;rgb:…"), removed from a page's input. */
+export const COLOR_REPLY = /\x1b\](?:4;\d+|1[0-2]);rgb:[0-9a-fA-F/]*(?:\x07|\x1b\\)/g;
+export const stripColorReplies = (d: string) => d.replace(COLOR_REPLY, "");

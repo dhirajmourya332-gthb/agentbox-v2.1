@@ -69,7 +69,10 @@ export function createTerminal(opts: { env: NodeJS.ProcessEnv; cwd?: string; spa
       try { m = JSON.parse(String(raw)); } catch { return; }
       if (m?.t === "i" && typeof m.d === "string" && m.d.length <= 64 * 1024) {
         const p = pty ?? (await ensure().catch(() => null));
-        p?.write(m.d);
+        // Drop answers to colour queries (OSC 4/10/11/12): every connected page sends one, late, and they
+        // reached the shell as typed input (gh: "unexpected escape sequence from terminal").
+        const d = m.d.replace(/\x1b\](?:4;\d+|1[0-2]);rgb:[0-9a-fA-F/]*(?:\x07|\x1b\\)/g, "");
+        if (d) p?.write(d);
       } else if (m?.t === "r" && Number.isInteger(m.c) && Number.isInteger(m.r) && m.c > 1 && m.r > 1 && m.c < 1000 && m.r < 500) {
         try { pty?.resize(m.c, m.r); } catch { /* exited */ }
       }

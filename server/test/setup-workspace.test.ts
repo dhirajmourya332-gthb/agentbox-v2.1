@@ -476,3 +476,13 @@ test("terminal WebSocket: the owner's page attaches (replayed); local tools and 
 });
 
 test.after(() => { P.setPlanChecker(null); fs.rmSync(tmp, { recursive: true, force: true }); });
+
+test("terminal input: answers to colour queries are dropped, keystrokes and other sequences kept", async () => {
+  const { stripColorReplies } = await import("../src/terminal.ts");
+  assert.equal(stripColorReplies("\x1b]11;rgb:0b0b/0c0c/0f0f\x1b\\"), "");
+  assert.equal(stripColorReplies("\x1b]10;rgb:ffff/ffff/ffff\x07"), "");
+  assert.equal(stripColorReplies("\x1b]4;1;rgb:cdcd/0000/0000\x1b\\"), "");
+  assert.equal(stripColorReplies("y\x1b]11;rgb:0b0b/0c0c/0f0f\x1b\\\r"), "y\r");
+  assert.equal(stripColorReplies("\x1b[A\x1b[B\r"), "\x1b[A\x1b[B\r"); // arrow keys
+  assert.equal(stripColorReplies("\x1b]0;title\x07"), "\x1b]0;title\x07");
+});
