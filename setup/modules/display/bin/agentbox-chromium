@@ -10,8 +10,12 @@ if [ -z "$bin" ]; then
 fi
 
 # The VM is the sandbox; Ubuntu 24.04's AppArmor blocks Chromium's userns sandbox.
+# No GPU here, and Chromium no longer falls back to software WebGL by itself: SwiftShader
+# gives WebGL/WebGL2 to 3D pages (Onshape, CAD and STL viewers).
 exec "$bin" \
   --no-sandbox \
+  --use-angle=swiftshader \
+  --enable-unsafe-swiftshader \
   --no-first-run \
   --no-default-browser-check \
   --password-store=basic \
