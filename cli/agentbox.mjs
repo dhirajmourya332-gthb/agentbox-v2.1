@@ -1045,8 +1045,12 @@ async function main(argv) {
       const user = agentUser(conf);
       const me = os.userInfo().username;
       if (!isRoot() && me !== user) asRoot(argv); // stdin is inherited through sudo
-      if (process.stdin.isTTY) process.stderr.write(`Paste the value for ${name}, then press Ctrl-D:\n`);
-      const value = fs.readFileSync(0);
+      const tty = process.stdin.isTTY;
+      if (tty) process.stderr.write(`Paste or type the value for ${name}, then press Enter and Ctrl-D (input is hidden):\n`);
+      let value;
+      const echo = (on) => tty && spawnSync("stty", [on ? "echo" : "-echo"], { stdio: ["inherit", "ignore", "ignore"] });
+      echo(false); // a secret never shows on screen (nor in the helper's view of the terminal)
+      try { value = readStdin(); } finally { echo(true); if (tty) process.stderr.write("\n"); }
       if (!value.length) fail("nothing on stdin; nothing saved");
       const root = conf.paths?.secrets ?? "/secrets";
       const file = path.join(root, name);
@@ -1140,6 +1144,29 @@ async function main(argv) {
 
 /** Integrations the portal only starts at startup: connecting one needs a restart. */
 const STARTS_WITH_PORTAL = new Set(["mobile", "push"]);
+
+/**
+ * All of stdin, until EOF. readFileSync(0) fails with EAGAIN when the terminal left stdin non-blocking
+ * (the portal's browser terminals do), so read in a loop and wait briefly whenever there's nothing yet.
+ */
+function readStdin() {
+  const chunks = [];
+  const buf = Buffer.alloc(64 * 1024);
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    let n;
+    try {
+      n = fs.readSync(0, buf, 0, buf.length, null);
+    } catch (e) {
+      if (e.code === "EAGAIN") { Atomics.wait(nap, 0, 0, 20); continue; }
+      if (e.code === "EOF") break;
+      throw e;
+    }
+    if (n === 0) break;
+    chunks.push(Buffer.from(buf.subarray(0, n)));
+  }
+  return Buffer.concat(chunks);
+}
 
 function restartPortalIfUp() {
   if (!systemd()) return;
