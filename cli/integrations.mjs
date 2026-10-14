@@ -5,7 +5,7 @@
 //   - integrationState() / stepViews(): the state machine behind `integration status --json`.
 // No I/O here except what the caller passes in.
 
-export const CATEGORIES = ["code-hosting", "cloud", "cluster", "database", "chat", "connectivity", "extras"];
+export const CATEGORIES = ["code-hosting", "cloud", "cluster", "database", "chat", "design", "connectivity", "extras"];
 export const STATES = ["available", "connecting", "connected", "error", "disconnected", "unavailable"];
 const KEY = /^[a-z][a-z0-9_]*$/;
 const TYPES = ["string", "boolean", "list", "enum", "number"];

@@ -744,7 +744,7 @@ async function integrationCmd(argv) {
   fail(`usage: agentbox integration list|status|connect|verify|disconnect|settings|render [<id>]\n${USAGE_INT}`);
 }
 
-const CATEGORY_ORDER = (c) => ["code-hosting", "cloud", "cluster", "database", "chat", "connectivity", "extras"].indexOf(c);
+const CATEGORY_ORDER = (c) => ["code-hosting", "cloud", "cluster", "database", "chat", "design", "connectivity", "extras"].indexOf(c);
 
 // --- the portal ------------------------------------------------------------------------------------
 

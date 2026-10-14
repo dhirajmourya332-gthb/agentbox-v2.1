@@ -21,7 +21,7 @@ export const MODULE_IDS = [
   "core", "claude", "access", "display", "terminal",
   // integrations (§10.2)
   "github", "gitlab", "bitbucket", "aws", "gcp", "azure", "kubernetes", "db-tunnel", "env-files",
-  "voice", "mobile", "mobile-app", "push", "teams", "slack", "bench",
+  "voice", "mobile", "mobile-app", "push", "teams", "slack", "bench", "onshape",
 ] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 /** Always on, whatever the file says. */
@@ -67,7 +67,7 @@ const FILE_DEFAULTS: Omit<Config, "source"> = {
     // Integrations are off until connected (setup/config.default.yaml).
     github: false, gitlab: false, bitbucket: false, aws: false, gcp: false, azure: false, kubernetes: false,
     "db-tunnel": false, "env-files": false, voice: false, mobile: false, "mobile-app": false, push: false,
-    teams: false, slack: false, bench: false,
+    teams: false, slack: false, bench: false, onshape: false,
   },
   tailscale: { hostname: "" },
   cloudflare: { hostname: "", team_domain: "", aud: "" },

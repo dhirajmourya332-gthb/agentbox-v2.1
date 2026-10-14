@@ -12,6 +12,7 @@ const CATEGORIES: { id: string; label: string }[] = [
   { id: "cluster", label: "Clusters" },
   { id: "database", label: "Databases" },
   { id: "chat", label: "Chat" },
+  { id: "design", label: "Design & CAD" },
   { id: "connectivity", label: "Connectivity" },
   { id: "extras", label: "Extras" },
 ];

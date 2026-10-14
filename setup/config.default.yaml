@@ -40,6 +40,7 @@ modules:                  # base: core, claude and access are always on; display
   mobile-app: false
   push: false
   bench: false            # device bridge: your computer's USB devices for agents
+  onshape: false          # agents upload CAD models to your Onshape for review
 tailscale: { hostname: "" }                         # set by the access module
 cloudflare: { hostname: "", team_domain: "", aud: "" }  # set by the access module
 owner: { tailscale_login: "", email: "" }           # who may use the portal (set during setup)

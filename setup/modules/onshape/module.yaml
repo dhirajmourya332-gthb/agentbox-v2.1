@@ -1,0 +1,47 @@
+id: onshape
+kind: integration
+category: design
+title: Onshape
+description: Agents put the CAD models they make into your Onshape (one private document per part, a tab per version) so you can open, measure and comment on them. Uses an Onshape API key.
+optional: true
+depends: [core]
+settings:
+  - { key: base_url, prompt: "Your Onshape address (an Enterprise company has its own)", default: "https://cad.onshape.com", pattern: '^https://[a-z0-9.-]+\.onshape\.com$', example: "https://acme.onshape.com" }
+  - { key: doc_prefix, prompt: "Prefix for the documents agents create (keeps them together in your list)", default: "agentbox · ", example: "robotics-lab · " }
+  - { key: allow_public, type: boolean, prompt: "Allow public documents (the Free plan can only make public ones; anyone on Onshape could see them)", default: false }
+instructions:
+  summary: |
+    Onshape: upload models for the owner's review with `agentbox-onshape upload <file.step> --doc <part> --tab <version> --version "<label>"` ({{base_url}}, documents named "{{doc_prefix}}<part>"). It only adds; never delete or change the owner's Onshape work. Use the onshape skill.
+  file: instructions.md
+skills: [onshape]
+# CLIs only roles mapped to this integration may run (server/src/roleGuards.ts).
+commands: [agentbox-onshape]
+default_roles: [cad]
+account: "agentbox-onshape whoami --short"
+revoke: |
+  Delete the API key in Onshape: https://dev-portal.onshape.com/keys (or your company's developer portal), and
+  delete `$(agentbox config get paths.secrets)/onshape.env` on the VM. Documents agents created stay in your Onshape.
+steps:
+  - id: install
+    title: Install the Onshape tool for agents
+    run: install.sh
+    check: "command -v agentbox-onshape"
+  - id: keys
+    title: Create an Onshape API key and save it on the VM
+    human: true
+    instructions: |
+      1. Open https://dev-portal.onshape.com/keys (Enterprise: your company's developer portal), sign in with the
+         Onshape account the documents should belong to, and click **Create new API key**. Scopes:
+         **Read** and **Write** (no Delete, no Share). Copy the access key and the secret key: the secret is shown once.
+      2. Save them on the VM in this terminal (never in the chat):
+           `agentbox secret set onshape.env`
+         then type these two lines, Enter after each, then Ctrl-D:
+           ONSHAPE_ACCESS_KEY=<access key>
+           ONSHAPE_SECRET_KEY=<secret key>
+      Free plan: Onshape only makes public documents; agents won't create any unless you turn on allow_public.
+    copy: "agentbox secret set onshape.env"
+    check: "agentbox-onshape whoami --short"
+  - id: verify
+    title: The key works (who it belongs to)
+    run: verify.sh
+    check: "agentbox-onshape whoami --short"

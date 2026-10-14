@@ -553,6 +553,7 @@ refreshIntegrations(0).catch(() => {});
 startRoutines();
 ensureBuiltinSkill("onboard-repo"); // agentbox-owned (the onboarding flow): refreshed at every start
 ensureBuiltinSkill("bench-hardware"); // the device bridge's skill: agentbox-owned, refreshed at every start
+ensureBuiltinSkill("onshape"); // the Onshape integration's skill
 const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, daily sweep, cleanup on task close
 const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true
 app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });

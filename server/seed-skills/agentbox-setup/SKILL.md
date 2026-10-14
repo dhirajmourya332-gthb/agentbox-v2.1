@@ -34,6 +34,7 @@ Each part needs the ones above it. Required parts first; optional parts only if 
 | 5 | **The team** | needed for any work | `team_overview`; propose missing agents (`propose_new_agent` / `propose_changes`) |
 | 6 | **Integrations the work needs**: aws, gcp, azure, kubernetes, db-tunnel, env-files | as the team's work needs | `connect(id)`, then `propose_mapping` to the agents that use it |
 | 7 | **Routines** | optional | the Routines page; offer, don't create unasked |
+| 7b | **Design & CAD**: **Onshape** (agents upload models to the owner's Onshape for review) | optional; for CAD work | §6b |
 | 8 | **Connectivity**: the **device bridge** (`bench`): the owner's computer shares USB boards (ESP32, Arduino) with agents | optional; for hardware work | §6 |
 | 9 | **Extras**: voice (voice-input cleanup), **phone app** (mobile → mobile-app → push) | optional | below |
 
@@ -159,6 +160,23 @@ it works in every access mode except cloudflare. Agents get each device as
 4. Map it to the agents that work on hardware (`propose_mapping`), so they get the skill.
 Disconnecting deletes the token: an old bridge can't come back. The bridge's installer contains the
 token; tell the owner not to share it.
+
+## 6b. Onshape (optional; Integrations → Design & CAD)
+Agents (the cad role by default) upload the models they make into the owner's Onshape: one private
+document per part, a tab and an Onshape version per upload, and hand the owner the link.
+1. **Ask the plan first.** On Onshape's Free plan documents are **public** (anyone on Onshape can see
+   them); agents create only private ones unless the owner turns on `allow_public`. If they're on Free,
+   say so plainly and let them choose (upgrade, allow public, or skip Onshape).
+2. Settings (`save_settings`): `base_url` (default https://cad.onshape.com; an Enterprise company has
+   its own `https://<company>.onshape.com`), `doc_prefix` (default "agentbox · "), `allow_public` (false).
+3. `connect("onshape")` installs the agents' tool (`agentbox-onshape`) and stops at the key step.
+4. **The owner, in their browser and terminal** (never the chat): https://dev-portal.onshape.com/keys
+   (Enterprise: their company's developer portal) → Create new API key with **Read** and **Write** scopes
+   only (no Delete, no Share); then in the helper terminal `agentbox secret set onshape.env` and type
+   `ONSHAPE_ACCESS_KEY=…`, `ONSHAPE_SECRET_KEY=…`, Ctrl-D. The secret is shown once in Onshape.
+5. The step ticks when `agentbox-onshape whoami` works; `verify("onshape")` shows the account. Then
+   `propose_mapping` to the CAD agent(s), so they get the `onshape` skill and may run the tool.
+Revoking: delete the key in the developer portal and `<secrets>/onshape.env`; documents stay in Onshape.
 
 ## 7. Rules that matter most here
 - Logins and secrets happen **only in the owner's terminal** (or the provider's page), never in chat.
