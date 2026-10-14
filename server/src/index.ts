@@ -551,7 +551,7 @@ const setupWorkspace = startSetupWorkspace({ log: (m) => app.log.warn(m) }); // 
 app.addHook("onClose", async () => setupWorkspace.stop());
 refreshIntegrations(0).catch(() => {});
 startRoutines();
-ensureSeedSkill("onboard-repo"); // added after the first seeding: copied once
+ensureBuiltinSkill("onboard-repo"); // agentbox-owned (the onboarding flow): refreshed at every start
 ensureBuiltinSkill("bench-hardware"); // the device bridge's skill: agentbox-owned, refreshed at every start
 const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, daily sweep, cleanup on task close
 const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true

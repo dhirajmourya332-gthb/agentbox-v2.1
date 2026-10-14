@@ -134,7 +134,12 @@ export function inside(root: string, ...parts: string[]): string {
 }
 export const clonePath = (name: string) => inside(reposRoot(), checkName(name));
 export const mapDir = (name: string) => inside(mapsRoot(), checkName(name), "map");
-export const MAP_FILES = ["AGENTS.md", "ARCHITECTURE.md", "FEATURE-MAP.md", "COMMANDS.md", "RISK-MAP.md", "TEST-READINESS.md"];
+/**
+ * The onboarding map is deliberately high level: how the system is built and what it does. Lower-level
+ * knowledge (commands, gotchas, how a feature really works) comes from the agents' repo memory, written
+ * as they work (memory.ts), so onboarding reads the repo but never installs, builds or runs tests.
+ */
+export const MAP_FILES = ["ARCHITECTURE.md", "FEATURE-MAP.md"];
 
 // --- URLs ---------------------------------------------------------------------------------------
 
@@ -791,14 +796,14 @@ export function onboardingPrompt(repo: Repo, worktree: string) {
 
 - Your worktree: ${worktree} (branch of origin/${repo.default_branch}). Work and run commands there.
 - The canonical clone ${clonePath(repo.name)} is read-only: never edit, build or check out in it.
-- Write the knowledge pack to ${dir}/ (not into the repo): ${MAP_FILES.join(", ")}.
-- COMMANDS.md lists only commands you actually ran, with their results. Don't deploy, push or change anything outside your worktree.
+- Write the map to ${dir}/ (not into the repo): ${MAP_FILES.join(", ")}. High level only: the architecture and the features.
+- Read, don't run: no installing dependencies, builds, tests or dev servers (the team's repo memory gathers that detail as they work). Don't push or change anything outside your worktree.
 ${repo.propose_map_pr
-    ? `- The owner wants these proposed to the repo as well: after writing the pack, commit copies under docs/agent/ (AGENTS.md at the root) on your branch and open a PR to ${repo.default_branch}. Never merge it.`
-    : "- Don't open a PR or push anything: the pack stays in agentbox's store."}
-- When the pack is complete, call \`mcp__team__repo_map_done\` with name "${repo.name}", a one-line description of the repo and the test command you verified. It records the map as ready.
+    ? `- The owner wants these proposed to the repo as well: after writing the map, commit copies under docs/agent/ on your branch and open a PR to ${repo.default_branch}. Never merge it.`
+    : "- Don't open a PR or push anything: the map stays in agentbox's store."}
+- When both files are written, call \`mcp__team__repo_map_done\` with name "${repo.name}" and a one-line description of the repo. It records the map as ready.
 
-Report what you mapped, the commands that worked and anything that didn't.`;
+Report the architecture in a few lines and the main features you found.`;
 }
 
 /** Start (or restart) the onboarding run: a task for the mapping role, bound to the repo. */
@@ -832,7 +837,7 @@ export function finishMap(agent: Agent, name: string, info: { description?: stri
   if (!repo) throw new Error(`No repo called "${name}"`);
   if (!worktreesFor(agent.id).some((w) => w.repo_id === repo.id)) throw new Error(`You're not working on ${name} (use_repo first)`);
   const missing = mapFiles(name).filter((f) => !f.exists || f.size === 0).map((f) => f.file);
-  if (missing.length) throw new Error(`The pack isn't complete; missing or empty in ${mapDir(name)}: ${missing.join(", ")}`);
+  if (missing.length) throw new Error(`The map isn't complete; missing or empty in ${mapDir(name)}: ${missing.join(", ")}`);
   const desc = String(info.description ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
   const test = String(info.test_command ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, 300);
   run(`UPDATE repos SET description = CASE WHEN description = '' THEN ? ELSE description END,

@@ -32,7 +32,7 @@ one they mean, and to ask whoever gave them the task when it's ambiguous. That n
 This is separate from:
 - each agent's own `memory/` folder (personal working lessons);
 - the team rules in `/team`;
-- the repo **map** (the onboarding knowledge pack).
+- the repo **map** (onboarding: architecture and features only; everything below that level is this memory's job).
 
 ## The rules agentbox enforces
 

@@ -195,7 +195,8 @@ Integrations marked "coming soon" (e.g. Teams, Slack) can't be connected yet: sa
 
 ## Repos
 The owner's repos are first-class: a read-only canonical clone each (`/work/repos/<name>`), a git
-worktree per task, and a knowledge pack (map) made by an onboarding run when a repo is added.
+worktree per task, and a high-level map (architecture and features) made by a short, read-only
+  onboarding run when a repo is added; lower-level detail builds up in the repo memory as agents work.
 - `mcp__setup__list_repos`: what's registered, with status, default branch, map and worktrees.
 - `mcp__setup__add_repo(url, name?, default_branch?, roles?, description?)`: proposes adding one as an
   **approval card**; only the owner's approval clones it. Use https://, ssh://git@… or git@host:owner/repo

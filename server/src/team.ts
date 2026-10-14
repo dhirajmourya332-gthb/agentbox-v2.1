@@ -488,16 +488,16 @@ export function teamTools(agent: Agent, taskId: string) {
 
       tool(
         "repo_map_done",
-        "Record a repo's knowledge pack as complete (after the onboard-repo skill wrote every file to its map folder). Fills in the repo's description and test command if they're empty.",
+        "Record a repo's map as complete (after the onboard-repo skill wrote ARCHITECTURE.md and FEATURE-MAP.md to its map folder). Fills in the repo's description (and test command, if you know one) when they're empty.",
         {
           name: z.string().describe("The repo's name"),
           description: z.string().describe("One line: what the repo is"),
-          test_command: z.string().describe("The test command you actually ran and verified"),
+          test_command: z.string().optional().describe("Only if the repo states one (README, CI); onboarding doesn't run tests"),
         },
         async ({ name, description, test_command }) => {
           try {
             const r = finishMap(agent, name, { description, test_command });
-            return text(`${r.name}'s map is ready (${mapDir(r.name)}/). Description: ${r.description || "—"}. Tests: ${r.test_command || "—"}.`);
+            return text(`${r.name}'s map is ready (${mapDir(r.name)}/). Description: ${r.description || "—"}.`);
           } catch (e: any) {
             return refuse(e.message);
           }

@@ -7,7 +7,7 @@ import { fmtDuration, heartbeat } from "../components/progress.ts";
 
 /**
  * Repos (docs/V2-ARCHITECTURE.md, Changes (repos)): what agents work on. Each repo has one read-only
- * canonical clone and a git worktree per task; its map (knowledge pack) comes from an onboarding run.
+ * canonical clone and a git worktree per task; its map (architecture and features) comes from a read-only onboarding run.
  */
 
 export function useRepos() {
@@ -264,7 +264,7 @@ function RepoSettings({ repo: r, onSaved, onArchive, busy }: { repo: Repo; onSav
       <Toggle label="Agents may push and merge to protected branches" hint="Off: pushes to them and merges of PRs into them are refused; agents open PRs for you." value={v.agents_may_merge} onChange={(x) => setV({ ...v, agents_may_merge: x })} />
       {!v.agents_may_merge && <Toggle label="The work's lead merges routine PRs" hint="On: the lead (e.g. tech-lead) merges minor/medium, non-breaking PRs into protected branches once CI is green. Epics, failing or running checks and drafts are refused; those stay yours." value={v.lead_may_merge} onChange={(x) => setV({ ...v, lead_may_merge: x })} />}
       <Toggle label="Agents may deploy" hint="Off: deploy workflows (gh workflow run deploy…, release, rollout) are refused." value={v.agents_may_deploy} onChange={(x) => setV({ ...v, agents_may_deploy: x })} />
-      <Toggle label="Propose the map to the repo as a PR" hint="Off: the knowledge pack stays in agentbox's store; nothing is added to the repo." value={v.propose_map_pr} onChange={(x) => setV({ ...v, propose_map_pr: x })} />
+      <Toggle label="Propose the map to the repo as a PR" hint="Off: the map stays in agentbox's store; nothing is added to the repo." value={v.propose_map_pr} onChange={(x) => setV({ ...v, propose_map_pr: x })} />
       <div className="repo-settings-actions">
         <button className="btn sm primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save"}</button>
         {msg && <span className={msg.ok ? "hint" : "error-text"} role="status">{msg.text}</span>}

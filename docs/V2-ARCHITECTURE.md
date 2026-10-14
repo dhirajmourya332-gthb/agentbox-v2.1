@@ -462,8 +462,8 @@ one git worktree per task. Server: `repos.ts` (store, git, worktrees, maps, laye
   exists), `delegate_task(…, repos)`.
 - **Onboarding:** after a clone (and on Re-map), a task for tech-lead (else a coding role, else any
   allowed role), bound to the repo, with the seed skill `onboard-repo` (copied once into existing
-  libraries: `ensureSeedSkill`). It writes `AGENTS.md`, `ARCHITECTURE.md`, `FEATURE-MAP.md`,
-  `COMMANDS.md` (only commands it ran), `RISK-MAP.md`, `TEST-READINESS.md` to the map folder; no PR
+  libraries: `ensureSeedSkill`). It writes a high-level map, `ARCHITECTURE.md` and `FEATURE-MAP.md`, to the map folder (read-only: no installs,
+  builds or tests; lower-level detail comes from the repo memory, docs/TREE-MEMORY.md); no PR
   unless `propose_map_pr`. A task that closes without `repo_map_done` leaves `map_status: error`.
   Drift: Re-map, and a "Refresh repo maps weekly" routine template created **paused**.
 - **Adding:** the Repos page (from connected accounts: `gh repo list` for the user and their orgs,

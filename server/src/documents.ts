@@ -107,7 +107,7 @@ export function allowed(p: string) {
       return path.resolve(p);
     }
   })();
-  // Plus the repos' knowledge packs (<data>/repos/<name>/map/).
+  // Plus the repos' maps (<data>/repos/<name>/map/: architecture and features).
   return [AGENTS_ROOT, WORK_ROOT, path.resolve(paths.data, "repos")].some((root) => real === root || real.startsWith(root + path.sep));
 }
 

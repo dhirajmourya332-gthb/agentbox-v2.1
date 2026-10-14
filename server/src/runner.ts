@@ -568,7 +568,7 @@ async function runTask(taskId: string) {
   // Repos bound to this task: their worktrees exist before the turn (created, or recreated for rework).
   const repoPrep = await prepareWorktrees(agent);
   // Assigned skills plus the visible integrations' skills, minus those of integrations it can't see.
-  // A task working in a repo also gets onboard-repo (mapping and refreshing a repo's knowledge pack).
+  // A task working in a repo also gets onboard-repo (mapping a repo's architecture and features).
   // The helper always has its setup guide (agentbox-setup).
   const setup = isSetupAgent(agent);
   const skills = [...new Set([

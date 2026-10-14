@@ -410,7 +410,7 @@ test("onboarding: tech-lead maps it read-only in a worktree; repo_map_done needs
   fs.mkdirSync(R.mapDir("web"), { recursive: true });
   for (const f of R.MAP_FILES) fs.writeFileSync(path.join(R.mapDir("web"), f), `# ${f}\n`);
   await R.prepareWorktrees(inst);
-  const done = R.finishMap(inst, "web", { description: "The web app", test_command: "./test.sh" });
+  const done = R.finishMap(inst, "web", { description: "The web app", test_command: "./test.sh" }); // test command optional now
   assert.equal(done.map_status, "ready");
   assert.equal(done.description, "The web app");
   assert.equal(done.test_command, "./test.sh");
@@ -673,4 +673,11 @@ test("CLI: agentbox repo list | add | status | fetch | remap | remove against th
   } finally {
     await app.close();
   }
+});
+
+test("the onboarding map is high level only: two files, read-only, no installs or tests", () => {
+  assert.deepEqual(R.MAP_FILES, ["ARCHITECTURE.md", "FEATURE-MAP.md"]);
+  const p = R.onboardingPrompt({ name: "web", default_branch: "main", propose_map_pr: false } as any, "/w/web/x");
+  assert.match(p, /Read, don't run: no installing dependencies, builds, tests/);
+  assert.doesNotMatch(p, /COMMANDS\.md|test command you verified/);
 });
