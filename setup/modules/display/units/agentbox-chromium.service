@@ -6,6 +6,10 @@ Requires=agentbox-xvfb.service
 [Service]
 User=@USER@
 Environment=DISPLAY=:99 HOME=@HOME@
+# Only one Chromium uses the profile (this unit), so a lock left behind is always stale. It names the
+# host, so after a VM rename or a clone (a moved VM) Chromium would think another computer owns the
+# profile and never open CDP.
+ExecStartPre=/bin/sh -c 'rm -f "$HOME/.agentbox/chrome-profile/SingletonLock" "$HOME/.agentbox/chrome-profile/SingletonCookie" "$HOME/.agentbox/chrome-profile/SingletonSocket"'
 ExecStart=/usr/local/bin/agentbox-chromium
 Restart=always
 RestartSec=2
