@@ -3,13 +3,15 @@
 //   Paste: ⌘V (Ctrl+V elsewhere) sends the local clipboard's text to the VM's clipboard, then
 //          presses Ctrl+V there. A paste the owner triggers may read the clipboard: no prompt.
 //   Mac:   ⌘ acts as Ctrl in the VM (⌘C, ⌘X, ⌘A, ⌘Z… do what they do on the Mac).
-//   Copy:  text copied in the VM (the CLIPBOARD selection) lands on the local clipboard.
+//   Copy:  text copied in the VM lands on the local clipboard, after a copy the owner made here (⌘C / Ctrl+C /
+//          ⌘X, or a right-click menu). x11vnc also sends plain selections (PRIMARY), and its -noprimary
+//          stops CLIPBOARD updates too, so selections are filtered out here instead.
 import UI from "./app/ui.js";
 
 const MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
 const XK_Control_L = 0xffe3, XK_v = 0x0076;
 
-let rfb = null, connectedAt = 0, ctrlSent = false, pasteWait = null;
+let rfb = null, connectedAt = 0, ctrlSent = false, pasteWait = null, copyKeyAt = 0, menuAt = 0;
 
 // UI.rfb is replaced on every (re)connect.
 function current() {
@@ -22,7 +24,7 @@ function current() {
 }
 setInterval(current, 500);
 
-// A hidden field takes the browser's paste (a canvas doesn't receive one everywhere).
+// A hidden field takes the browser's paste where a canvas doesn't receive one.
 const sink = document.createElement("textarea");
 sink.setAttribute("aria-hidden", "true");
 sink.tabIndex = -1;
@@ -36,36 +38,45 @@ function ctrl(down) {
   r.sendKey(XK_Control_L, "ControlLeft", down);
 }
 
-function pasteIn(text, ctrlHeld) {
+function pasteIn(text) {
   const r = current();
   if (!r) return;
   if (text) r.clipboardPasteFrom(text);
-  // Let the VM take the new clipboard before the keystroke that pastes it.
+  // Let the VM take the new clipboard before the keystroke that pastes it. A Ctrl the owner holds was
+  // released when the canvas lost focus, so press it here (unless it's our own ⌘-as-Ctrl, still down).
   setTimeout(() => {
-    const held = ctrlSent || ctrlHeld;
-    if (!held) r.sendKey(XK_Control_L, "ControlLeft", true);
+    if (!ctrlSent) r.sendKey(XK_Control_L, "ControlLeft", true);
     r.sendKey(XK_v, "KeyV");
-    if (!held) r.sendKey(XK_Control_L, "ControlLeft", false);
+    if (!ctrlSent) r.sendKey(XK_Control_L, "ControlLeft", false);
   }, 60);
 }
 
 function finishPaste(text) {
   if (!pasteWait) return;
   clearTimeout(pasteWait.timer);
-  const { focus, ctrl: held } = pasteWait;
+  const { focus } = pasteWait;
   pasteWait = null;
-  pasteIn(text, !MAC && held);
+  pasteIn(text);
   focus?.focus({ preventScroll: true });
 }
 
-sink.addEventListener("paste", (e) => {
+// Chrome delivers the paste to the focused canvas, Safari/Firefox to the sink: take it wherever it lands.
+window.addEventListener("paste", (e) => {
+  const r = current();
+  if (!r || r.viewOnly || !(pasteWait || e.target === sink || r._canvas?.contains?.(e.target))) return;
   e.preventDefault();
-  finishPaste(e.clipboardData?.getData("text/plain") || "");
-});
+  e.stopImmediatePropagation();
+  const text = e.clipboardData?.getData("text/plain") || "";
+  if (pasteWait) finishPaste(text);
+  else pasteIn(text);
+}, true);
 
 function copyOut(text) {
   // The VM's clipboard as it stood when we connected isn't news; and only a focused page may write.
-  if (Date.now() - connectedAt < 1500 || !document.hasFocus() || !text) return;
+  const now = Date.now();
+  if (now - connectedAt < 1500 || !document.hasFocus() || !text) return;
+  if (now - copyKeyAt > 5000 && now - menuAt > 30000) return;  // a selection, not a copy
+  copyKeyAt = menuAt = 0;
   navigator.clipboard?.writeText(text).catch(() => {});
 }
 
@@ -79,11 +90,12 @@ window.addEventListener("keydown", (e) => {
     ctrl(true);
     return;
   }
+  if ((e.code === "KeyC" || e.code === "KeyX") && (MAC ? e.metaKey : e.ctrlKey)) copyKeyAt = Date.now();
   if (e.code === "KeyV" && (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey) {
     // Keep the key from noVNC and let the browser paste into the sink.
     e.stopImmediatePropagation();
     pasteWait = {
-      ctrl: e.ctrlKey, focus: document.activeElement,
+      focus: document.activeElement,
       // No paste event (some browsers, or nothing to paste): ask the Clipboard API, else paste what the VM has.
       timer: setTimeout(() => {
         navigator.clipboard?.readText ? navigator.clipboard.readText().then(finishPaste, () => finishPaste("")) : finishPaste("");
@@ -100,5 +112,7 @@ window.addEventListener("keyup", (e) => {
     ctrl(false);
   }
 }, true);
+
+window.addEventListener("mousedown", (e) => { if (e.button === 2) menuAt = Date.now(); }, true);
 
 window.addEventListener("blur", () => ctrl(false));

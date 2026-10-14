@@ -16,7 +16,8 @@ Bitbucket; AWS, Google Cloud or Azure; Kubernetes…) under rules you write.
 **The shared computer**
 - One Ubuntu 24.04 VM, shared by every agent: the VM is the security boundary.
 - A virtual display with a shared Chromium that keeps its logins. Agents drive it; you watch it live
-  in the portal, or take control.
+  in the portal, or take control. ⌘V / Ctrl+V pastes your clipboard's text into it, ⌘ acts as Ctrl on a
+  Mac, and text you copy there (⌘C, Ctrl+C or a right-click Copy) lands on your clipboard.
 - A terminal in the portal. One agent at a time drives the screen; the others wait.
 
 **Agents**
