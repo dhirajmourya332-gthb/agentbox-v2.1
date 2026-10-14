@@ -90,6 +90,9 @@ function TerminalPane({ finished }: { finished: boolean }) {
     const term = new Terminal({ fontFamily: '"IBM Plex Mono", ui-monospace, Menlo, monospace', fontSize: 13, cursorBlink: true, scrollback: 5000, theme: termTheme(), allowProposedApi: false });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Don't answer colour queries (OSC 4/10/11/12 "?"): over a remote link the late answer lands as typed
+    // input (gh auth login: "unexpected escape sequence from terminal"). Programs fall back to defaults.
+    for (const id of [4, 10, 11, 12]) term.parser.registerOscHandler(id, (data: string) => data.split(";").includes("?"));
     term.open(host.current!);
     let ws: WebSocket | null = null;
     let stopped = false;

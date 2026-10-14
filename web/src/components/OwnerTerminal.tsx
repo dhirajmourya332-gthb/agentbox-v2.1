@@ -50,6 +50,7 @@ export function OwnerTerminal({ onHandle, onStatus }: { onHandle: (h: TerminalHa
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    ignoreColorQueries(term);
     term.open(host.current!);
     let ws: WebSocket | null = null;
     let stopped = false;
@@ -111,4 +112,14 @@ export function OwnerTerminal({ onHandle, onStatus }: { onHandle: (h: TerminalHa
     );
   }
   return <div className="ws-term-host" ref={host} />;
+}
+
+/**
+ * Don't answer colour queries (OSC 4/10/11/12 "?"). Over a remote link the answer arrives after the asking
+ * program has started reading keys, so it lands as typed input: `gh auth login` aborted with "unexpected
+ * escape sequence from terminal" and the leftovers appeared at the shell prompt. Programs that ask fall
+ * back to their defaults, as on terminals without this query. Setting colours still works.
+ */
+export function ignoreColorQueries(term: { parser: { registerOscHandler(id: number, cb: (data: string) => boolean): unknown } }) {
+  for (const id of [4, 10, 11, 12]) term.parser.registerOscHandler(id, (data) => data.split(";").includes("?"));
 }
