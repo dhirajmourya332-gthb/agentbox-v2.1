@@ -1191,7 +1191,9 @@ async function status(json) {
   return 0;
 }
 
-main(process.argv.slice(2)).then((code) => process.exit(code ?? 0), (e) => {
+// Exit only once stdout is flushed: piped output is written asynchronously, and exiting straight away
+// cut large replies short (e.g. `agentbox api /skills | …`).
+main(process.argv.slice(2)).then((code) => process.stdout.write("", () => process.exit(code ?? 0)), (e) => {
   if (e instanceof Fail) { console.error(`agentbox: ${e.message}`); process.exit(1); }
   console.error(e);
   process.exit(1);
