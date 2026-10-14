@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api.ts";
 import { SCREEN_URL, ScreenHolder, TakeControl, TERMINAL_URL, useScreenUrl } from "../components/Controls.tsx";
 import { useStore } from "../store.tsx";
@@ -44,10 +44,10 @@ const LABELS: Record<string, string> = {
   "agentbox-chromium": "Shared browser",
 };
 
-function Row({ ok, word, name, val }: { ok: boolean; word: string; name: string; val?: string }) {
+function Row({ ok, word, name, val, neutral }: { ok: boolean; word: string; name: string; val?: ReactNode; neutral?: boolean }) {
   return (
     <div className="row">
-      <span className="status" style={{ minWidth: 84 }}><span className={`dot ${ok ? "ok" : "bad"}`} />{word}</span>
+      <span className="status" style={{ minWidth: 84 }}><span className={`dot ${neutral ? "" : ok ? "ok" : "bad"}`} />{word}</span>
       <span className="name">{name}</span>
       <span className="val">{val}</span>
     </div>
@@ -91,9 +91,14 @@ export function System() {
             </div>
             <h2>Tools</h2>
             <div className="rows">
-              {Object.entries(h.tools).map(([k, v]) => (
-                <Row key={k} ok={!!v} word={v ? "Installed" : "Missing"} name={k} val={(v as string) ?? ""} />
-              ))}
+              {Object.entries(h.tools).map(([k, v]) => {
+                // A tool of an optional integration that isn't connected isn't missing: it's not set up.
+                const it = h.tool_integrations?.[k] as { id: string; connected: boolean } | undefined;
+                if (!v && it && !it.connected) {
+                  return <Row key={k} ok neutral word="Not set up" name={k} val={<a href="#/integrations">optional · comes with the {it.id === "github" ? "GitHub" : "AWS"} integration</a>} />;
+                }
+                return <Row key={k} ok={!!v} word={v ? "Installed" : "Missing"} name={k} val={(v as string) ?? ""} />;
+              })}
             </div>
             {checked && <p className="hint" style={{ marginTop: 8 }}>Checked {checked.toLocaleTimeString()} · refreshes every 10s</p>}
           </>

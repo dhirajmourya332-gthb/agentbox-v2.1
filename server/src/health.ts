@@ -60,7 +60,9 @@ async function check() {
     browserState(),
     toolVersions(),
   ]);
-  return { services: Object.fromEntries(services), browser, tools: toolsNow };
+  // gh and aws come with optional integrations: absent is fine until those are connected.
+  const toolIntegrations = { gh: { id: "github", connected: enabled("github") }, aws: { id: "aws", connected: enabled("aws") } };
+  return { services: Object.fromEntries(services), browser, tools: toolsNow, tool_integrations: toolIntegrations };
 }
 
 export function health() {
