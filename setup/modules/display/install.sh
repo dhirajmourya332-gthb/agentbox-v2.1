@@ -10,6 +10,18 @@ if ! as_user 'ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome' >
   npx -y playwright@latest install-deps chromium >/dev/null
   as_user "npx -y playwright@latest install chromium >/dev/null"
 fi
+log "screen page (noVNC + clipboard)"
+# noVNC as packaged, plus agentbox-clipboard.js loaded by vnc.html; rebuilt on every run, so a noVNC
+# upgrade is picked up. websockify serves this directory (units/agentbox-novnc.service).
+web=/usr/local/share/agentbox-novnc
+rm -rf "$web" && install -d -m 0755 "$web"
+for f in /usr/share/novnc/*; do
+  case "$(basename "$f")" in vnc.html|vnc_auto.html) ;; *) ln -s "$f" "$web/" ;; esac
+done
+install -m 0644 "$MODULE_DIR/novnc/agentbox-clipboard.js" "$web/agentbox-clipboard.js"
+sed 's#</head>#    <script type="module" src="agentbox-clipboard.js"></script>\n</head>#' /usr/share/novnc/vnc.html > "$web/vnc.html"
+grep -q agentbox-clipboard.js "$web/vnc.html" || die "couldn't add the clipboard script to noVNC's vnc.html"
+ln -s vnc.html "$web/vnc_auto.html"
 log "helpers"
 install_bin "$MODULE_DIR/bin/agentbox-chromium"
 install_bin "$MODULE_DIR/bin/agentbox-open"
