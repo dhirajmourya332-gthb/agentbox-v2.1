@@ -486,3 +486,9 @@ test("terminal input: answers to colour queries are dropped, keystrokes and othe
   assert.equal(stripColorReplies("\x1b[A\x1b[B\r"), "\x1b[A\x1b[B\r"); // arrow keys
   assert.equal(stripColorReplies("\x1b]0;title\x07"), "\x1b]0;title\x07");
 });
+
+test("terminal input: answers to queries are recognised (only the typing page's reach the shell)", async () => {
+  const { isTerminalReport } = await import("../src/terminal.ts");
+  for (const r of ["\x1b[1;1R", "\x1b[?1;2c", "\x1b[>0;276;0c", "\x1b[0n", "\x1b]11;rgb:0b0b/0c0c/0f0f\x1b\\"]) assert.ok(isTerminalReport(r), JSON.stringify(r));
+  for (const k of ["y", "\r", "\x03", "\x1b[A", "\x1b[15~", "gh auth login\r", "\x1b[H"]) assert.ok(!isTerminalReport(k), JSON.stringify(k));
+});

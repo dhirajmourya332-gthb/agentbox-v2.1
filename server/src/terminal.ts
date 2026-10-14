@@ -80,6 +80,7 @@ export function createOwnerTerminal(opts: {
   let lastInputAt: number | null = null;
   let loadError: string | null = null;
   const clients = new Set<WebSocket>();
+  let answering: WebSocket | null = null; // the page whose answers to terminal queries reach the shell
   let spawnFn: Spawn | null = opts.spawn ?? null;
   const listeners = new Set<(chunk: string) => void>();
 
@@ -179,10 +180,20 @@ export function createOwnerTerminal(opts: {
     ws.on("message", (raw) => {
       let m: any;
       try { m = JSON.parse(String(raw)); } catch { return; }
-      if (m?.t === "i") void input(m.d);
-      else if (m?.t === "r") resize(m.c, m.r);
+      if (m?.t === "i") {
+        // Every connected page answers a program's queries (cursor position, device attributes…), so a
+        // second page's answer arrived late as typed text (gh's menu filtered by "1R1R"). Only the page the
+        // owner types in answers; the first answering page counts until someone types.
+        if (typeof m.d === "string" && isTerminalReport(m.d)) {
+          if (answering && answering !== ws && clients.has(answering)) return;
+          answering = ws;
+        } else {
+          answering = ws;
+        }
+        void input(m.d);
+      } else if (m?.t === "r") resize(m.c, m.r);
     });
-    ws.on("close", () => clients.delete(ws));
+    ws.on("close", () => { clients.delete(ws); if (answering === ws) answering = null; });
   }
 
   /** Wait until the headless screen has processed everything written so far. */
@@ -252,3 +263,11 @@ export const ownerTerminal = () => current;
 /** Terminal answers to colour queries (OSC 4/10/11/12 "…;rgb:…"), removed from a page's input. */
 export const COLOR_REPLY = /\x1b\](?:4;\d+|1[0-2]);rgb:[0-9a-fA-F/]*(?:\x07|\x1b\\)/g;
 export const stripColorReplies = (d: string) => d.replace(COLOR_REPLY, "");
+
+/**
+ * A page's input made only of answers to terminal queries (xterm.js sends each answer on its own):
+ * cursor position (CSI r;c R), device attributes (CSI ? … c / CSI > … c), status (CSI n), mode reports
+ * (CSI ? … $ y), window reports (CSI … t), and OSC / DCS replies.
+ */
+const REPORT = /^(?:\x1b\[\d+;\d+R|\x1b\[[?>][\d;]*c|\x1b\[\d*n|\x1b\[\??[\d;]*\$y|\x1b\[[\d;]*t|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bP[^\x1b]*\x1b\\)+$/;
+export const isTerminalReport = (d: string) => REPORT.test(d);

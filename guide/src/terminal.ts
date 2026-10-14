@@ -57,6 +57,8 @@ export function createTerminal(opts: { env: NodeJS.ProcessEnv; cwd?: string; spa
     return p;
   }
 
+  let answering: WebSocket | null = null; // the page whose answers to terminal queries reach the shell
+
   function attach(ws: WebSocket) {
     clients.add(ws);
     if (buffer) ws.send(buffer);
@@ -72,12 +74,20 @@ export function createTerminal(opts: { env: NodeJS.ProcessEnv; cwd?: string; spa
         // Drop answers to colour queries (OSC 4/10/11/12): every connected page sends one, late, and they
         // reached the shell as typed input (gh: "unexpected escape sequence from terminal").
         const d = m.d.replace(/\x1b\](?:4;\d+|1[0-2]);rgb:[0-9a-fA-F/]*(?:\x07|\x1b\\)/g, "");
+        // Only the page the owner types in answers terminal queries (cursor position, attributes…):
+        // a second page's late answer arrived as typed text (gh's menu filtered by "1R1R").
+        if (REPORT.test(d)) {
+          if (answering && answering !== ws && clients.has(answering)) return;
+          answering = ws;
+        } else if (d) {
+          answering = ws;
+        }
         if (d) p?.write(d);
       } else if (m?.t === "r" && Number.isInteger(m.c) && Number.isInteger(m.r) && m.c > 1 && m.r > 1 && m.c < 1000 && m.r < 500) {
         try { pty?.resize(m.c, m.r); } catch { /* exited */ }
       }
     });
-    ws.on("close", () => clients.delete(ws));
+    ws.on("close", () => { clients.delete(ws); if (answering === ws) answering = null; });
   }
 
   function close() {
@@ -89,3 +99,6 @@ export function createTerminal(opts: { env: NodeJS.ProcessEnv; cwd?: string; spa
 
   return { attach, close, get clients() { return clients.size; } };
 }
+
+/** A page's input made only of answers to terminal queries (as in server/src/terminal.ts). */
+const REPORT = /^(?:\x1b\[\d+;\d+R|\x1b\[[?>][\d;]*c|\x1b\[\d*n|\x1b\[\??[\d;]*\$y|\x1b\[[\d;]*t|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bP[^\x1b]*\x1b\\)+$/;
