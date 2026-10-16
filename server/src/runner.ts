@@ -343,6 +343,11 @@ skill covers it), or the owner asks you to remember how to do something, call
 \`mcp__team__propose_skill\` with a reusable, general version of the steps. The owner reviews
 proposals before they join the library.
 
+## Hosting what you build
+When the owner should open something you built (a page, dashboard, demo, API, preview), host it with
+\`mcp__team__host_start\` and give them the link it returns, never a command to run on their computer.
+Use the host-service skill. Hosted services stop when the work is marked done; your lead can stop them sooner.
+
 ## Documents
 When you write a document for the owner or the team (a plan, requirements, report, analysis,
 runbook), save it in ${homeOf(agent)}/docs/ (create the folder) with a dated, descriptive name,
@@ -569,10 +574,10 @@ async function runTask(taskId: string) {
   const repoPrep = await prepareWorktrees(agent);
   // Assigned skills plus the visible integrations' skills, minus those of integrations it can't see.
   // A task working in a repo also gets onboard-repo (mapping a repo's architecture and features).
-  // The helper always has its setup guide (agentbox-setup).
+  // The helper always has its setup guide (agentbox-setup); everyone else can host what they build (host-service).
   const setup = isSetupAgent(agent);
   const skills = [...new Set([
-    ...effectiveSkills(agent, skillsOf(agent.id)), ...(worktreesFor(agent.id).length ? ["onboard-repo"] : []), ...(setup ? [HELPER_SKILL] : []),
+    ...effectiveSkills(agent, skillsOf(agent.id)), ...(worktreesFor(agent.id).length ? ["onboard-repo"] : []), ...(setup ? [HELPER_SKILL] : ["host-service"]),
   ])].filter(skillExists);
   try { syncLinks(agent, skills); } catch (e) { console.error("skills: link sync failed", e); }
   let sudo: SudoGrant | undefined;

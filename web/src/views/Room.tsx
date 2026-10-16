@@ -2,6 +2,7 @@ import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 import { PlanCard } from "../components/Plan.tsx";
 import { ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
+import { HostedStrip } from "../components/Hosted.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { SetupRequestCard } from "../components/Requests.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
@@ -87,6 +88,7 @@ export function Room({ id }: { id: string }) {
           </div>
         </header>
         <RoadmapStrip instanceId={root.id} />
+        <HostedStrip roomId={root.id} />
 
         <nav className={`room-filter${showFilter ? "" : " collapsed"}`} aria-label="Show">
           <button className="room-filter-toggle" aria-expanded={showFilter} onClick={toggleFilter}

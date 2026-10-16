@@ -43,7 +43,8 @@ export type BusEvent =
   | { type: "plan_gate.updated"; rootId: string; required: boolean } // plans.ts: a task's "approve a plan first" changed
   | { type: "review.updated"; rootId: string; review: any } // changes.ts: the owner reviewed a task's changes
   | { type: "roadmap.updated"; roadmap: any } // roadmaps.ts: a roadmap was created, changed or archived
-  | { type: "wakeup.updated"; wakeup: any }; // wakeups.ts: a one-time wake-up was set, fired or cancelled
+  | { type: "wakeup.updated"; wakeup: any } // wakeups.ts: a one-time wake-up was set, fired or cancelled
+  | { type: "hosting.updated"; service: any }; // hosting.ts: a hosted service started, stopped or exited
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
@@ -53,7 +54,7 @@ emitter.setMaxListeners(100);
 // Streaming deltas and live progress are too chatty to keep; everything else is the activity log.
 // Run updates are derived state (the run rows and routine.updated already record runs).
 const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared", "routine-run.updated",
-  "integration.output", "integration.updated", "setup.plan", "setup.check", "repo.updated", "repo.progress"]);
+  "integration.output", "integration.updated", "setup.plan", "setup.check", "repo.updated", "repo.progress", "hosting.updated"]);
 
 export function publish(event: BusEvent) {
   if (!EPHEMERAL.has(event.type)) {

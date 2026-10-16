@@ -41,12 +41,15 @@ export type Config = {
     /** Integration settings and rendered prompt summaries (§10.2): <id>.yaml, <id>.summary.md. */
     integrations: string;
   };
-  ports: { portal: number; screen: number; terminal: number; gateway: number; guide: number; bench: number };
+  /** apps: the hosting gateway (hosting.ts); its services listen on apps+10 … apps+109. */
+  ports: { portal: number; screen: number; terminal: number; gateway: number; guide: number; bench: number; apps: number };
   modules: Record<ModuleId, boolean>;
   tailscale: { hostname: string };
   cloudflare: { hostname: string; team_domain: string; aud: string };
   owner: { tailscale_login: string; email: string };
   mobile: { serve_port: number };
+  /** Hosted services' link: https://<node>.ts.net:<serve_port>/<name>/ (tailscale serve: 443, 8443 or 10000). */
+  hosting: { serve_port: number };
   /** Where this config came from: a file path, or "defaults". */
   source: string;
 };
@@ -61,7 +64,7 @@ const FILE_DEFAULTS: Omit<Config, "source"> = {
     src: "/opt/agentbox/src", app: "/opt/agentbox/app", data: "/opt/agentbox/data", work: "/work", agents: "/agents",
     team: "/team", skills: "/skills", secrets: "/secrets", integrations: "/etc/agentbox/integrations",
   },
-  ports: { portal: 7700, screen: 7701, terminal: 7702, gateway: 7710, guide: 7699, bench: 7740 },
+  ports: { portal: 7700, screen: 7701, terminal: 7702, gateway: 7710, guide: 7699, bench: 7740, apps: 7790 },
   modules: {
     core: true, claude: true, access: true, display: true, terminal: true,
     // Integrations are off until connected (setup/config.default.yaml).
@@ -73,6 +76,7 @@ const FILE_DEFAULTS: Omit<Config, "source"> = {
   cloudflare: { hostname: "", team_domain: "", aud: "" },
   owner: { tailscale_login: "", email: "" },
   mobile: { serve_port: 8443 },
+  hosting: { serve_port: 10000 },
 };
 
 /** No config file: today's behaviour (everything on, data next to the server). */
@@ -133,6 +137,7 @@ export function fromObject(raw: unknown, base: Omit<Config, "source"> = FILE_DEF
   if (isObj(raw.cloudflare)) for (const k of ["hostname", "team_domain", "aud"] as const) c.cloudflare[k] = str(raw.cloudflare[k], c.cloudflare[k]);
   if (isObj(raw.owner)) for (const k of ["tailscale_login", "email"] as const) c.owner[k] = str(raw.owner[k], c.owner[k]);
   if (isObj(raw.mobile)) c.mobile.serve_port = port(raw.mobile.serve_port, c.mobile.serve_port, "mobile.serve_port");
+  if (isObj(raw.hosting)) c.hosting.serve_port = port(raw.hosting.serve_port, c.hosting.serve_port, "hosting.serve_port");
   for (const id of REQUIRED_MODULES) c.modules[id] = true;
   return c;
 }

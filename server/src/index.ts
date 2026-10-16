@@ -49,6 +49,7 @@ import { registerMemoryRoutes, startMemory } from "./memory.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
+import { roomServices, running as hostedRunning, serviceById, startHosting, stopService, view as hostedView } from "./hosting.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Ports and feature flags come from /etc/agentbox/config.yaml (config.ts). A disabled module's
@@ -523,6 +524,17 @@ registerPdfRoutes(app);
 registerWakeupRoutes(app);
 registerMemoryRoutes(app);
 
+// --- hosted services (hosting.ts): what agents serve; the owner sees and stops them -------------
+app.get("/api/hosting", async (req) => {
+  const room = String((req.query as any).room ?? "");
+  return { services: room ? roomServices(room) : hostedRunning().map(hostedView) };
+});
+app.post("/api/hosting/:id/stop", async (req) => {
+  const s = serviceById((req.params as any).id);
+  if (!s) throw new HttpError(404, "No such service");
+  return stopService(s, "stopped by the owner");
+});
+
 // --- device bridge (bench.ts): checked per request, so connecting/disconnecting needs no restart ---
 registerBench(app);
 
@@ -554,6 +566,7 @@ startRoutines();
 ensureBuiltinSkill("onboard-repo"); // agentbox-owned (the onboarding flow): refreshed at every start
 ensureBuiltinSkill("bench-hardware"); // the device bridge's skill: agentbox-owned, refreshed at every start
 ensureBuiltinSkill("onshape"); // the Onshape integration's skill
+ensureBuiltinSkill("host-service"); // hosting what agents build (hosting.ts): every agent but the helper
 const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, daily sweep, cleanup on task close
 const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true
 app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });
@@ -566,6 +579,13 @@ if (PUSH) startPush({ info: (m) => app.log.info(m), warn: (m) => app.log.warn(m)
 startProgress();
 startAttention();
 if (PUSH) wirePush(onAttention); // new "needs you" items notify paired phones
+// Hosted services' gateway (its own port and origin: hosting.ts). A failure here mustn't take the portal down.
+try {
+  const hosting = await startHosting({ log: (m) => app.log.info(m) });
+  app.addHook("onClose", async () => hosting.stop());
+} catch (e: any) {
+  app.log.error(`hosting: gateway didn't start on 127.0.0.1:${ports.apps}: ${e?.message ?? e}`);
+}
 // Loopback only: Lima forwards 127.0.0.1-bound guest ports to the Mac, and nothing else in the VM
 // (e.g. a tailnet interface) should reach the portal.
 await app.listen({ host: "127.0.0.1", port });

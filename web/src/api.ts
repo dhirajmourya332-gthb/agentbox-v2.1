@@ -337,6 +337,13 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   return data as T;
 }
 
+/** A service an agent hosts (server/src/hosting.ts). */
+export type HostedService = {
+  id: string; name: string; kind: "static" | "command"; dir: string; command: string | null; port: number | null;
+  status: "running" | "stopped" | "exited"; url: string; local_url: string; started_by: string; started_by_id: string;
+  room_id: string; created_at: string; stopped_at: string | null; stop_reason: string | null;
+};
+
 export const api = {
   state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[]; roots?: { agents: string; work: string } }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
@@ -344,6 +351,8 @@ export const api = {
   newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean) =>
     call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined }),
   room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
+  hosted: (rootId: string) => call<{ services: HostedService[] }>("GET", `/api/hosting?room=${encodeURIComponent(rootId)}`),
+  stopHosted: (id: string) => call<HostedService>("POST", `/api/hosting/${id}/stop`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
   allDocuments: () => call<(DocumentInfo & { role: string })[]>("GET", "/api/documents"),

@@ -58,6 +58,17 @@ configure_tailscale() {
   fi
   ok "tailscale serve: https://$host/ → 127.0.0.1:$port (tailnet only)"
 
+  # What agents host (hosting.ts): its own HTTPS port, so hosted pages never share the portal's origin.
+  local aport sport hcur
+  aport="$(apps_port)"; sport="$(hosting_serve_port)"
+  hcur="$(tailscale serve status --json 2>/dev/null | json_get "((d.get('Web') or {}).get('$host:$sport') or {}).get('Handlers', {}).get('/', {}).get('Proxy', '')")"
+  if [ -n "$hcur" ] && [ "$hcur" != "http://127.0.0.1:$aport" ]; then
+    warn "tailscale serve already sends https://$host:$sport/ to $hcur; hosted services won't have links. Set hosting.serve_port to a free one of 443, 8443, 10000."
+  else
+    [ -n "$hcur" ] || serve_or_explain --bg --https="$sport" "http://127.0.0.1:$aport" || warn "tailscale serve :$sport failed; hosted services won't have links"
+    ok "tailscale serve: https://$host:$sport/ → hosted services (127.0.0.1:$aport, owner only)"
+  fi
+
   cfg_set tailscale.hostname "$host"
   local owner; owner="$(cfg owner.tailscale_login)"
   if [ -z "$owner" ]; then

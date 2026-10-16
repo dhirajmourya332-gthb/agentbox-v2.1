@@ -15,6 +15,8 @@ need_root() { [ "$(id -u)" -eq 0 ] || die "Run this with sudo."; }
 
 mode()        { cfg access; }
 portal_port() { local p; p="$(cfg ports.portal)"; echo "${p:-7700}"; }
+apps_port()   { local p; p="$(cfg ports.apps)"; echo "${p:-7790}"; }
+hosting_serve_port() { local p; p="$(cfg hosting.serve_port)"; echo "${p:-10000}"; }
 app_dir()     { local p; p="$(cfg paths.app)"; echo "${p:-/opt/agentbox/app}"; }
 data_dir()    { local p; p="$(cfg paths.data)"; echo "${p:-/opt/agentbox/data}"; }
 

@@ -1325,3 +1325,9 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .bench-devices, .bench-test { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .bench-devices li, .bench-test li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
 .bench-test li.bad strong { color: var(--bad); }
+
+/* Hosted services (components/Hosted.tsx): a room's live links under its header. */
+.hosted-strip { display: grid; gap: 2px; border-bottom: 1px solid var(--line); background: var(--surface); padding: 4px 12px 4px 20px; }
+.hosted-line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); }
+.hosted-link { font-weight: 600; color: var(--accent); white-space: nowrap; }
+.hosted-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }

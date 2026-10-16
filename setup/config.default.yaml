@@ -21,6 +21,7 @@ ports:                    # all bound to 127.0.0.1
   gateway: 7710
   guide: 7699
   bench: 7740              # first of 40 ports for devices shared by the device bridge (bench)
+  apps: 7790               # hosting gateway (what agents host); the services themselves use 7800–7899
 modules:                  # base: core, claude and access are always on; display and terminal too by default
   display: true
   terminal: true
@@ -45,3 +46,4 @@ tailscale: { hostname: "" }                         # set by the access module
 cloudflare: { hostname: "", team_domain: "", aud: "" }  # set by the access module
 owner: { tailscale_login: "", email: "" }           # who may use the portal (set during setup)
 mobile: { serve_port: 8443, expo_owner: "", eas_project_id: "" }   # gateway: https://<node>.ts.net:<serve_port>
+hosting: { serve_port: 10000 }                      # hosted services: https://<node>.ts.net:<serve_port>/<name>/

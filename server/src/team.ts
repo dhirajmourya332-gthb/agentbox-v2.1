@@ -17,6 +17,7 @@ import { isOrchestrator } from "./roleGuards.ts";
 import { roadmapsOf } from "./roadmaps.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
 import { LIMITS as PLAN_LIMITS, decidePlan, getPlan, plansFor, submitPlan, type Decision } from "./plans.ts";
+import { mayControl as mayControlHosted, roomServices as roomHosted, serviceByName as hostedByName, startService, stopService as stopHosted, tailLog as tailHosted } from "./hosting.ts";
 import { LIMITS as RM_LIMITS, STATUSES as RM_STATUSES, createRoadmap, itemsOf as roadmapItems, updateRoadmap } from "./roadmaps.ts";
 
 /**
@@ -713,6 +714,46 @@ export function teamTools(agent: Agent, taskId: string) {
           return text(`Proposed skill "${d.name}". The owner will review it in agentbox.`);
         },
       ),
+
+      // --- hosting (hosting.ts): serve what you build at a link the owner can open --------------------
+      tool(
+        "host_start",
+        "Host something for the owner to open in their browser: a static folder (HTML/JS/CSS) or a command that serves HTTP on $PORT. Returns the link. Starting the same name again restarts it. Use the host-service skill.",
+        {
+          name: z.string().describe("Short lowercase name; it becomes the link's path, e.g. arm-dashboard → …/arm-dashboard/"),
+          dir: z.string().describe("Absolute folder: what to serve (static), or where to run the command"),
+          command: z.string().optional().describe("Leave out for a static folder. Otherwise a shell command that listens on 127.0.0.1:$PORT, e.g. 'python3 -m http.server $PORT --bind 127.0.0.1' or 'npm run dev -- --port $PORT --host 127.0.0.1'"),
+          keep_prefix: z.boolean().optional().describe("true: the app gets the full path (/name/…), for apps built with that base path. Default false: it gets / (the prefix is removed)"),
+        },
+        async (args) => {
+          try {
+            const v = await startService(agent, { name: args.name, dir: args.dir, command: args.command, stripPrefix: args.keep_prefix !== true });
+            return text(`Hosted "${v.name}" (${v.kind}${v.port ? `, port ${v.port}` : ""}).
+Owner's link: ${v.url}
+Your own checks from this machine: ${v.local_url}${v.port ? ` (or http://127.0.0.1:${v.port}/ directly)` : ""}
+It runs until you or your lead stop it (host_stop) or the work is marked done. Give the owner the link, not a command to run.`);
+          } catch (e: any) {
+            return refuse(e.message);
+          }
+        },
+      ),
+      tool("host_stop", "Stop a hosted service you started (a lead can stop any in its work).", { name: z.string() }, async ({ name }) => {
+        const s = hostedByName(name.trim().toLowerCase());
+        if (!s) return refuse(`Nothing called "${name}" is running.`);
+        if (!mayControlHosted(agent, s)) return refuse(`"${s.name}" was started by ${getAgent(s.started_by)?.name ?? "another task"}; ask them or your lead.`);
+        await stopHosted(s, `stopped by ${agent.name}`);
+        return text(`Stopped "${s.name}".`);
+      }),
+      tool("host_list", "List the services hosted in this work (running, and the last ones that ended), with their links.", {}, async () => {
+        const list = roomHosted(rootOf(agent).id);
+        if (!list.length) return text("Nothing hosted in this work.");
+        return text(list.map((v) => `- ${v.name}: ${v.status}${v.status === "running" ? ` — ${v.url}` : ` (${v.stop_reason ?? ""})`} · ${v.kind === "command" ? `\`${v.command}\` on port ${v.port}` : v.dir} · started by ${v.started_by}`).join("\n"));
+      }),
+      tool("host_logs", "The last lines a hosted command printed (for a crash or a failed start).", { name: z.string(), lines: z.number().int().min(1).max(400).optional() }, async ({ name, lines }) => {
+        const s = get<any>(`SELECT * FROM hosted_services WHERE name = ? AND room_id = ? ORDER BY created_at DESC LIMIT 1`, name.trim().toLowerCase(), rootOf(agent).id);
+        if (!s) return refuse(`No service called "${name}" in this work.`);
+        return text(tailHosted(s, lines ?? 60) || "(no output)");
+      }),
   ];
 }
 
