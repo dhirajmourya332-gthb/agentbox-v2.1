@@ -2,7 +2,7 @@ import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 import { PlanCard } from "../components/Plan.tsx";
 import { ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
-import { HostedStrip } from "../components/Hosted.tsx";
+import { HostedList, HostedStrip, useHosted } from "../components/Hosted.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { SetupRequestCard } from "../components/Requests.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
@@ -287,12 +287,16 @@ function RoomLifecycle({ root }: { root: InstanceSummary }) {
 }
 
 function RoomPanel({ id, members, workspace, onClose }: { id: string; members: InstanceSummary[]; workspace: string | null; onClose: () => void }) {
-  const [tab, setTab] = useState<"tasks" | "documents">("tasks");
+  const [tab, setTab] = useState<"tasks" | "documents" | "services">("tasks");
+  const hosted = useHosted(id);
   return (
     <aside className="panel" aria-label="Room details">
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}>Tasks</button>
         <button role="tab" aria-selected={tab === "documents"} onClick={() => setTab("documents")}>Documents</button>
+        <button role="tab" aria-selected={tab === "services"} onClick={() => setTab("services")}>
+          Services{hosted?.length ? <span className="tab-count">{hosted.length}</span> : null}
+        </button>
         <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close details" onClick={onClose}><Icon name="close" /></button>
       </div>
       <div className="panel-body" role="tabpanel">
@@ -313,6 +317,7 @@ function RoomPanel({ id, members, workspace, onClose }: { id: string; members: I
           </div>
         )}
         {tab === "documents" && <WorkDocuments load={() => api.roomDocuments(id)} empty="No documents from this room yet." />}
+        {tab === "services" && <HostedList roomId={id} empty="Nothing hosted in this room. Agents host pages, dashboards and servers here with a link for you." />}
       </div>
     </aside>
   );

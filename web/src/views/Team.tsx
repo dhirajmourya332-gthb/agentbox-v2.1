@@ -1,11 +1,13 @@
 import { useStore } from "../store.tsx";
 import { Avatar, Icon, StatusGlyph, relTime } from "../components/ui.tsx";
 import { NeedsYou } from "../components/Live.tsx";
+import { HostedList, useHosted } from "../components/Hosted.tsx";
 import type { Progress } from "../api.ts";
 
 /** Overview: what needs you, what's in progress, and who's on the team. */
 export function Team() {
   const { agents, loaded, work, progress } = useStore();
+  const hosted = useHosted();
   if (!loaded) return <div className="page" />;
   // The setup agent lives under Configure → Setup, not on the team.
   const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
@@ -67,6 +69,14 @@ export function Team() {
               );
             })}
           </div>
+        )}
+
+        {!!hosted?.length && (
+          <>
+            <h2>Hosted services</h2>
+            <p className="hint" style={{ marginTop: -6 }}>Pages and servers your agents are running for you. They stop when their work is marked done.</p>
+            <HostedList />
+          </>
         )}
 
         <h2>Team</h2>

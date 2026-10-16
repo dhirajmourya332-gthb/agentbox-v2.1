@@ -1331,3 +1331,8 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .hosted-line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); }
 .hosted-link { font-weight: 600; color: var(--accent); white-space: nowrap; }
 .hosted-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.hosted-row { cursor: default; align-items: center; }
+.hosted-row .doc-text { min-width: 0; flex: 1; }
+.hosted-list .hosted-link { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+.hosted-list .hosted-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.tab-count { margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--raised); color: var(--muted); }

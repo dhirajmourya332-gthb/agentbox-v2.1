@@ -352,6 +352,7 @@ export const api = {
     call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined }),
   room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
   hosted: (rootId: string) => call<{ services: HostedService[] }>("GET", `/api/hosting?room=${encodeURIComponent(rootId)}`),
+  hostedAll: () => call<{ services: HostedService[] }>("GET", "/api/hosting"),
   stopHosted: (id: string) => call<HostedService>("POST", `/api/hosting/${id}/stop`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
