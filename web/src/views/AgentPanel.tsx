@@ -6,6 +6,7 @@ import { Avatar, Icon, Markdown, StatusGlyph, relTime } from "../components/ui.t
 import { go } from "../router.ts";
 import { useStore } from "../store.tsx";
 import { AgentDocuments } from "./Documents.tsx";
+import { NotesTab, useNotes } from "../components/Notes.tsx";
 
 type Tab = "overview" | "documents" | "instructions" | "skills" | "memory";
 
@@ -157,13 +158,15 @@ export function Memory({ files, agent }: { files: { file: string; content: strin
 // A task's (instance's) side panel: what it is and what it produced.
 
 export function TaskPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
-  const [tab, setTab] = useState<"overview" | "roadmaps" | "documents">("overview");
+  const [tab, setTab] = useState<"overview" | "roadmaps" | "documents" | "notes">("overview");
+  const notes = useNotes(agent.id);
   return (
     <aside className="panel" aria-label="Task details">
       <div className="tabs" role="tablist">
-        {(["overview", "roadmaps", "documents"] as const).map((t) => (
+        {(["overview", "roadmaps", "documents", "notes"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t === "overview" ? "Overview" : t === "roadmaps" ? "Roadmaps" : "Documents"}
+            {t === "overview" ? "Overview" : t === "roadmaps" ? "Roadmaps" : t === "documents" ? "Documents" : "Notes"}
+            {t === "notes" && notes?.length ? <span className="tab-count">{notes.length}</span> : null}
           </button>
         ))}
         <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close details" onClick={onClose}>
@@ -174,6 +177,7 @@ export function TaskPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
         {tab === "overview" && <TaskOverview agent={agent} />}
         {tab === "roadmaps" && <RoadmapsTab instanceId={agent.id} />}
         {tab === "documents" && <AgentDocuments agent={agent} />}
+        {tab === "notes" && <NotesTab instanceId={agent.id} />}
       </div>
     </aside>
   );

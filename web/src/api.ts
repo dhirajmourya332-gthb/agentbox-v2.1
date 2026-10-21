@@ -338,6 +338,11 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 /** A service an agent hosts (server/src/hosting.ts). */
+/** A note in a piece of work's notebook (notes.ts): plain text, written fresh or saved from the chat. */
+export type Note = {
+  id: string; room_id: string; quote: string | null; body: string; message_id: string | null; author: string | null;
+  created_at: string; updated_at: string;
+};
 export type HostedService = {
   id: string; name: string; kind: "static" | "command"; dir: string; command: string | null; port: number | null;
   status: "running" | "stopped" | "exited"; url: string; local_url: string; started_by: string; started_by_id: string;
@@ -354,6 +359,10 @@ export const api = {
   hosted: (rootId: string) => call<{ services: HostedService[] }>("GET", `/api/hosting?room=${encodeURIComponent(rootId)}`),
   hostedAll: () => call<{ services: HostedService[] }>("GET", "/api/hosting"),
   stopHosted: (id: string) => call<HostedService>("POST", `/api/hosting/${id}/stop`),
+  notes: (instanceId: string) => call<{ room_id: string; notes: Note[] }>("GET", `/api/work/${instanceId}/notes`),
+  addNote: (instanceId: string, note: { quote?: string; body?: string; message_id?: string; author?: string }) => call<Note>("POST", `/api/work/${instanceId}/notes`, note),
+  updateNote: (id: string, body: string) => call<Note>("PATCH", `/api/notes/${id}`, { body }),
+  deleteNote: (id: string) => call<{ ok: true }>("DELETE", `/api/notes/${id}`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
   allDocuments: () => call<(DocumentInfo & { role: string })[]>("GET", "/api/documents"),

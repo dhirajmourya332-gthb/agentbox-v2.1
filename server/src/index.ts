@@ -46,6 +46,7 @@ import { registerReviewRoutes } from "./reviewRoutes.ts";
 import { registerPdfRoutes } from "./pdf.ts";
 import { registerWakeupRoutes, startWakeups } from "./wakeups.ts";
 import { registerMemoryRoutes, startMemory } from "./memory.ts";
+import { registerNoteRoutes } from "./notes.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
@@ -523,6 +524,7 @@ registerReviewRoutes(app);
 registerPdfRoutes(app);
 registerWakeupRoutes(app);
 registerMemoryRoutes(app);
+registerNoteRoutes(app);
 
 // --- hosted services (hosting.ts): what agents serve; the owner sees and stops them -------------
 app.get("/api/hosting", async (req) => {

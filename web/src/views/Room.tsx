@@ -3,6 +3,7 @@ import { PlanCard } from "../components/Plan.tsx";
 import { ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
 import { HostedList, HostedStrip, useHosted } from "../components/Hosted.tsx";
+import { NotesTab, SaveSelection, useNotes } from "../components/Notes.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { SetupRequestCard } from "../components/Requests.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
@@ -123,6 +124,7 @@ export function Room({ id }: { id: string }) {
         {done && <p className="composer-hint" style={{ padding: "12px 24px 20px", margin: 0, maxWidth: "none", textAlign: "center" }}>This task room is done; its history stays readable.</p>}
       </section>
       {panel && <RoomPanel id={id} members={members} workspace={view.workspace} onClose={() => setPanel(false)} />}
+      <SaveSelection instanceId={id} />
     </>
   );
 }
@@ -155,7 +157,7 @@ export function TimelineEntries({ msgs, pending, steps, members, byThread, taskB
             const isReply = !!task && task.agent_id === m.author;
             const author = m.author === "user" ? null : everyone.find((a) => a.id === m.author);
             return (
-              <div key={m.id} className="msg">
+              <div key={m.id} className="msg" data-msg-id={m.id} data-author={m.author}>
                 {m.author === "user"
                   ? <span className="avatar you-avatar" style={{ width: 28, height: 28, fontSize: 12 }} aria-hidden="true">You</span>
                   : <Avatar name={author?.name ?? "?"} color={author?.color ?? "var(--muted)"} size={28} />}
@@ -287,13 +289,17 @@ function RoomLifecycle({ root }: { root: InstanceSummary }) {
 }
 
 function RoomPanel({ id, members, workspace, onClose }: { id: string; members: InstanceSummary[]; workspace: string | null; onClose: () => void }) {
-  const [tab, setTab] = useState<"tasks" | "documents" | "services">("tasks");
+  const [tab, setTab] = useState<"tasks" | "documents" | "notes" | "services">("tasks");
   const hosted = useHosted(id);
+  const notes = useNotes(id);
   return (
     <aside className="panel" aria-label="Room details">
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}>Tasks</button>
         <button role="tab" aria-selected={tab === "documents"} onClick={() => setTab("documents")}>Documents</button>
+        <button role="tab" aria-selected={tab === "notes"} onClick={() => setTab("notes")}>
+          Notes{notes?.length ? <span className="tab-count">{notes.length}</span> : null}
+        </button>
         <button role="tab" aria-selected={tab === "services"} onClick={() => setTab("services")}>
           Services{hosted?.length ? <span className="tab-count">{hosted.length}</span> : null}
         </button>
@@ -317,6 +323,7 @@ function RoomPanel({ id, members, workspace, onClose }: { id: string; members: I
           </div>
         )}
         {tab === "documents" && <WorkDocuments load={() => api.roomDocuments(id)} empty="No documents from this room yet." />}
+        {tab === "notes" && <NotesTab instanceId={id} />}
         {tab === "services" && <HostedList roomId={id} empty="Nothing hosted in this room. Agents host pages, dashboards and servers here with a link for you." />}
       </div>
     </aside>

@@ -14,6 +14,7 @@ import { ChangesButton, ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
 import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 import { onFocusRequest } from "../components/focusMessage.ts";
+import { SaveSelection } from "../components/Notes.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -129,6 +130,7 @@ function TaskChat({ agent, threadParam, msgParam }: { agent: Agent; threadParam?
         )}
       </section>
       {term ? <TerminalPanel onClose={() => setTerm(false)} /> : panel && <TaskPanel agent={agent} onClose={() => setPanel(false)} />}
+      {!isSetup && <SaveSelection instanceId={agent.id} />}
     </TerminalCtx.Provider>
   );
 }
@@ -344,7 +346,7 @@ function Input({ message, task, active }: { message: Message; task?: Task; activ
   }
   if (message.author === "user") {
     return (
-      <div className="msg">
+      <div className="msg" data-msg-id={message.id} data-author="user">
         <span className="avatar you-avatar" style={{ width: 28, height: 28, fontSize: 12 }} aria-hidden="true">You</span>
         <div>
           <div className="msg-meta"><strong>You</strong><time dateTime={message.created_at}>{relTime(message.created_at)}</time></div>
@@ -371,7 +373,7 @@ function Input({ message, task, active }: { message: Message; task?: Task; activ
   }
   const from = everyone.find((a) => a.id === message.author);
   return (
-    <div className="msg">
+    <div className="msg" data-msg-id={message.id} data-author={message.author}>
       {from ? <Avatar name={from.name} color={from.color} size={28} /> : <span className="avatar you-avatar" style={{ width: 28, height: 28 }} />}
       <div style={{ minWidth: 0 }}>
         <div className="msg-meta">
@@ -399,7 +401,7 @@ function Turn({ agent, task, steps, reply, live }: { agent: Agent; task: Task; s
   const running = task.status === "running";
   const content = reply?.content ?? live ?? "";
   return (
-    <div className="msg" id={reply ? `msg-${reply.id}` : undefined}>
+    <div className="msg" id={reply ? `msg-${reply.id}` : undefined} data-msg-id={reply?.id} data-author={agent.id}>
       <Avatar name={agent.name} color={agent.color} size={28} />
       <div style={{ minWidth: 0 }}>
         <div className="msg-meta">

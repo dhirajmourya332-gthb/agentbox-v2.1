@@ -1339,3 +1339,23 @@ a.row.run-link > svg { color: var(--muted); flex: none; }
 .hosted-list { grid-template-columns: minmax(0, 1fr); }
 .hosted-list > li { min-width: 0; }
 .hosted-row .btn { flex: none; }
+
+/* Notes (Notes.tsx): the work's notebook in the panel, and "Save to notes" on a chat selection. */
+.notes { display: grid; gap: 14px; }
+.note-new { display: grid; gap: 8px; }
+textarea.text.note-input { min-height: 0; resize: none; font-size: 13px; line-height: 1.5; }
+.note-actions { display: flex; align-items: center; gap: 8px; }
+.note-actions > :first-child { margin-right: auto; min-width: 0; }
+.note-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+.note { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); min-width: 0; }
+.note-quote {
+  margin: 0; padding: 2px 0 2px 10px; border-left: 3px solid var(--accent); color: var(--text); font-size: 13px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.note-quote.clamp { max-height: 120px; overflow-y: auto; }
+.note-body { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-meta { display: flex; align-items: center; gap: 2px; }
+.note-meta > .hint { margin-right: auto; font-size: 12px; }
+.icon-btn.note-btn { width: 26px; height: 26px; }
+.note-pick { position: fixed; z-index: 40; transform: translate(-50%, calc(-100% - 8px)); box-shadow: 0 6px 18px rgb(0 0 0 / .3); background: var(--surface); }
+.popover.note-form { position: fixed; right: auto; width: 340px; z-index: 40; }
