@@ -15,6 +15,7 @@ import { confirmNote, deleteNote, draftDir, ensureDrafts, finishPromotion, moveN
 import { isSetupAgent } from "./setup.ts";
 import { isOrchestrator } from "./roleGuards.ts";
 import { crewIdOf, crewName, crewmates, sameCrew } from "./crews.ts";
+import { linksOf, readLinked } from "./linkedWork.ts";
 import { roadmapsOf } from "./roadmaps.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
 import { LIMITS as PLAN_LIMITS, decidePlan, getPlan, plansFor, submitPlan, type Decision } from "./plans.ts";
@@ -269,6 +270,30 @@ export function teamTools(agent: Agent, taskId: string) {
               (lines.length ? `\n  Live tasks:\n${lines.join("\n")}` : "\n  No live tasks.");
           });
           return text(rows.length ? rows.join("\n") : "No matching agents.");
+        },
+      ),
+
+      tool(
+        "read_linked_work",
+        "Read other work the owner linked to yours (often another crew's): its progress and roadmap, conversation, documents or hosted links. Read-only. Call with no work to list what's linked.",
+        {
+          work: z.string().optional().describe("The linked work's title or id (from the list)"),
+          part: z.enum(["progress", "conversation", "documents", "services"]).optional().describe("progress (default): tasks, roadmap, latest message; conversation: messages, newest last; documents; services: hosted links"),
+          limit: z.number().int().min(1).max(40).optional().describe("conversation: how many messages (default 20)"),
+          before: z.number().int().min(0).optional().describe("conversation: skip this many of the newest, to read further back"),
+        },
+        async ({ work, part, limit, before }) => {
+          try {
+            if (!work) {
+              const { links } = linksOf(agent.id);
+              return text(links.length
+                ? links.map((l) => `- "${l.work.label}" (${l.work.crew_name} crew, led by ${l.work.name}; ${l.work.status}) — id ${l.work.id}`).join("\n")
+                : "No work is linked to yours. Only the owner links work.");
+            }
+            return text(readLinked(agent, work, part ?? "progress", { limit, before }));
+          } catch (e: any) {
+            return refuse(e.message);
+          }
         },
       ),
 

@@ -9,6 +9,7 @@ import { displayWithImages, imagesForAgent } from "./uploads.ts";
 import { baseOf, DEFAULT_PER_CREATOR, ensureWorkspace, getAgent, homeOf, rootOf, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillExists, skillsOf, syncLinks } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
+import { linkedSection } from "./linkedWork.ts";
 import { afterAgentReply, groupPrompt, isNoReply } from "./groups.ts";
 import { displayState, releaseDisplay, setPaused, useDisplay, whenRunning } from "./control.ts";
 import { heartbeat } from "./progress.ts";
@@ -311,6 +312,7 @@ ${enabled("display") ? `- Shared screen: X display :99, watched live by the owne
 ## Your team
 ${rosterFor(agent)}
 
+${linkedSection(agent)}
 Hand work to teammates with the team tools, never with Teams, email or GitHub comments:
 - \`mcp__team__delegate_task\`: give a teammate a task. To an **agent** (e.g. to="coder") it starts a
   fresh instance (coder#N) for that one task; to a live **instance** (to="coder#3") it's a follow-up

@@ -121,7 +121,11 @@ export function finishTree(rootId: string) {
  * Start a top-level task for the owner (the New task page, or the helper agent asked to by the owner):
  * a new instance of the role, its repos bound, the request as its first message.
  */
-export function startOwnerWork(input: { role: Agent; text: string; images?: string[]; repos?: string[]; title?: string; requirePlan?: boolean }) {
+export function startOwnerWork(input: {
+  role: Agent; text: string; images?: string[]; repos?: string[]; title?: string; requirePlan?: boolean;
+  /** Runs once the task exists, before its first turn is queued (e.g. linking other work to it). */
+  beforeStart?: (inst: Agent) => void;
+}) {
   const { role } = input;
   if (role.base_agent_id) throw new Error("Pick an agent, not an instance");
   const text = input.text.trim();
@@ -140,6 +144,7 @@ export function startOwnerWork(input: { role: Agent; text: string; images?: stri
   const inst = spawnInstance(role.id, { label, createdBy: "owner" });
   for (const n of repoNames) bindRepo(inst, n);
   if (input.requirePlan) setGate(inst.id, true);
+  input.beforeStart?.(inst);
   sendMessage(inst.id, dmThreadOf(inst.id)!, text, images);
   return inst;
 }

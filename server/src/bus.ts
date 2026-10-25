@@ -46,7 +46,8 @@ export type BusEvent =
   | { type: "wakeup.updated"; wakeup: any } // wakeups.ts: a one-time wake-up was set, fired or cancelled
   | { type: "hosting.updated"; service: any } // hosting.ts: a hosted service started, stopped or exited
   | { type: "notes.updated"; roomId: string } // notes.ts: a note in a piece of work's notebook was added, changed or deleted
-  | { type: "crews.updated"; crews: any[] }; // crews.ts: a crew was created, renamed, given a lead or deleted, or an agent moved
+  | { type: "crews.updated"; crews: any[] } // crews.ts: a crew was created, renamed, given a lead or deleted, or an agent moved
+  | { type: "links.updated"; roomId: string }; // linkedWork.ts: the owner linked or unlinked other work to a piece of work
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
@@ -57,7 +58,7 @@ emitter.setMaxListeners(100);
 // Run updates are derived state (the run rows and routine.updated already record runs).
 const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared", "routine-run.updated",
   "integration.output", "integration.updated", "setup.plan", "setup.check", "repo.updated", "repo.progress", "hosting.updated",
-  "notes.updated", "crews.updated"]);
+  "notes.updated", "crews.updated", "links.updated"]);
 
 export function publish(event: BusEvent) {
   if (!EPHEMERAL.has(event.type)) {

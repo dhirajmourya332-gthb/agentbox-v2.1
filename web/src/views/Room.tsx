@@ -4,6 +4,7 @@ import { ReviewCard } from "./Changes.tsx";
 import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
 import { HostedList, HostedStrip, useHosted } from "../components/Hosted.tsx";
 import { NotesTab, SaveSelection, useNotes } from "../components/Notes.tsx";
+import { LinkWorkButton, LinkedStrip } from "../components/LinkedWork.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { SetupRequestCard } from "../components/Requests.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
@@ -84,12 +85,14 @@ export function Room({ id }: { id: string }) {
                 <Icon name="stop" size={14} />Stop
               </button>
             )}
+            {!done && <LinkWorkButton instanceId={root.id} />}
             <RoomLifecycle root={root} />
             <button className="icon-btn" aria-pressed={panel} aria-label="Room details" onClick={() => setPanel(!panel)}><Icon name="panel" /></button>
           </div>
         </header>
         <RoadmapStrip instanceId={root.id} />
         <HostedStrip roomId={root.id} />
+        <LinkedStrip instanceId={root.id} />
 
         <nav className={`room-filter${showFilter ? "" : " collapsed"}`} aria-label="Show">
           <button className="room-filter-toggle" aria-expanded={showFilter} onClick={toggleFilter}

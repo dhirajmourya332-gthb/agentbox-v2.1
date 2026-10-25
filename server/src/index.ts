@@ -48,6 +48,7 @@ import { registerWakeupRoutes, startWakeups } from "./wakeups.ts";
 import { registerMemoryRoutes, startMemory } from "./memory.ts";
 import { registerNoteRoutes } from "./notes.ts";
 import { listCrews, registerCrewRoutes, setRoleCrew } from "./crews.ts";
+import { addLink, registerLinkRoutes } from "./linkedWork.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
@@ -208,10 +209,14 @@ app.post("/api/work", async (req) => {
   const role = mustAgent(String(b?.role_id ?? ""));
   let images: string[];
   try { images = checkImages(b?.images); } catch (e: any) { throw new HttpError(400, e.message); }
+  const links = Array.isArray(b?.links) ? b.links.map((x: unknown) => String(x)) : [];
+  for (const w of links) if (!getAgent(w)?.base_agent_id) throw new HttpError(400, "A linked piece of work no longer exists");
   try {
     const inst = startOwnerWork({
       role, text: String(b?.text ?? ""), images, title: b?.title, requirePlan: !!b?.require_plan,
       repos: Array.isArray(b?.repos) ? b.repos.map((x: unknown) => String(x)) : [],
+      // Other work this task may read (linkedWork.ts), linked before its first turn so it sees them.
+      beforeStart: (inst) => { for (const w of links) addLink(inst.id, w); },
     });
     return agentView(inst);
   } catch (e: any) {
@@ -528,6 +533,7 @@ registerWakeupRoutes(app);
 registerMemoryRoutes(app);
 registerNoteRoutes(app);
 registerCrewRoutes(app);
+registerLinkRoutes(app);
 
 // --- hosted services (hosting.ts): what agents serve; the owner sees and stops them -------------
 app.get("/api/hosting", async (req) => {

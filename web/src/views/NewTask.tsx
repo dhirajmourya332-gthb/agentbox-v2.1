@@ -6,6 +6,7 @@ import { useStore } from "../store.tsx";
 import { go } from "../router.ts";
 import { Avatar, Icon } from "../components/ui.tsx";
 import { crewLead } from "./Crews.tsx";
+import { LinkChoices } from "../components/LinkedWork.tsx";
 
 const LAST_CREW = "agentbox.newtask.crew";
 
@@ -35,6 +36,7 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [pickedRepos, setPickedRepos] = useState<string[]>([]);
   const [planFirst, setPlanFirst] = useState(false);
+  const [links, setLinks] = useState<string[]>([]);
   useEffect(() => { api.repos().then((d) => setRepos(d.repos.filter((r) => r.status === "ready"))).catch(() => setRepos([])); }, []);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -74,7 +76,7 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
     setError(null);
     try {
       if (crews.length && crew !== null) { try { localStorage.setItem(LAST_CREW, crew); } catch { /* fine without it */ } }
-      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined, planFirst && !role.builtin);
+      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined, planFirst && !role.builtin, links);
       att.clear();
       // The setup agent works in its own workspace (chat, terminal and checklist on one screen).
       go(role.builtin === "setup" ? { name: "setup", id: inst.id } : { name: "agent", id: inst.id });
@@ -173,6 +175,7 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
             </div>
           </div>
         )}
+        {role && !role.builtin && <LinkChoices picked={links} setPicked={setLinks} />}
         {role && !role.builtin && (
           <label className="field" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
             <input type="checkbox" checked={planFirst} style={{ marginTop: 3 }} onChange={(e) => setPlanFirst(e.target.checked)} />

@@ -15,6 +15,7 @@ import { RoadmapCard, RoadmapStrip } from "../components/Roadmap.tsx";
 import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 import { onFocusRequest } from "../components/focusMessage.ts";
 import { SaveSelection } from "../components/Notes.tsx";
+import { LinkWorkButton, LinkedStrip } from "../components/LinkedWork.tsx";
 
 const STARTERS = [
   "Introduce yourself: what's your job, and what do you need from me to start?",
@@ -95,6 +96,7 @@ function TaskChat({ agent, threadParam, msgParam }: { agent: Agent; threadParam?
             {!isSetup && <PlanChip instanceId={agent.id} />}
             {done ? <span className="chip">Done</span> : <StatusGlyph status={agent.status} withLabel />}
             {!isSetup && <ChangesButton instanceId={agent.id} />}
+            {!isSetup && !done && agent.base_agent_id && <LinkWorkButton instanceId={agent.id} />}
             {running && (
               <button className="btn sm danger" onClick={() => api.stop(running.id)} title="Stop (Esc)">
                 <Icon name="stop" size={14} />Stop
@@ -113,6 +115,7 @@ function TaskChat({ agent, threadParam, msgParam }: { agent: Agent; threadParam?
         </header>
 
         {!isSetup && <RoadmapStrip instanceId={agent.id} />}
+        {!isSetup && agent.base_agent_id && <LinkedStrip instanceId={agent.id} />}
         {threadList.length > 1 && <ThreadTabs agent={agent} threads={threadList} current={threadId} />}
         {thread ? <Timeline agent={agent} thread={thread} live={live} focus={msgParam} /> : <div className="timeline" />}
         {/* The work log is already in the timeline here: the bar only says what's happening, and flags a stall. */}

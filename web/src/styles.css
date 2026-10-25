@@ -1379,3 +1379,18 @@ select.text.crew-move { width: auto; flex: none; padding-top: 4px; padding-botto
 }
 .rail-crew-name:hover { color: var(--text); }
 @media (max-width: 640px) { .crew-new { grid-template-columns: minmax(0, 1fr); } }
+
+/* Linked work (LinkedWork.tsx): other work a task may read, under the header. */
+.linked-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 24px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.linked-label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.linked-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); max-width: 100%; min-width: 0; }
+.linked-chip a { color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.linked-chip a:hover { text-decoration: underline; }
+.linked-x { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; }
+.linked-x:hover { background: var(--raised); color: var(--text); }
+.linked-from { margin-left: auto; }
+.popover.link-picker { width: 340px; }
+.link-options { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; display: grid; }
+.link-options .menu-item { min-height: 40px; }
+.link-option-text { display: flex; flex-direction: column; min-width: 0; }
+.link-option-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

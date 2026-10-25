@@ -120,6 +120,9 @@ export type InstanceSummary = {
   created_by: string | null; created_at: string; retired_at: string | null; kept: boolean;
   status: AgentStatus | "done"; current: string | null; queued: number;
 };
+/** Linked work (linkedWork.ts): other work this one's agents may read. */
+export type LinkedWorkInfo = { id: string; label: string; name: string; crew: string | null; crew_name: string; status: "live" | "done" | "deleted" };
+export type WorkLink = { id: string; created_at: string; work: LinkedWorkInfo };
 export type WorkRoom = { root: InstanceSummary; members: InstanceSummary[]; last_activity: string | null; hides_at?: string | null };
 export type RoomView = {
   root: InstanceSummary; members: InstanceSummary[]; workspace: string | null; threads: { id: string; agent_id: string; kind: string }[];
@@ -357,8 +360,11 @@ export const api = {
   state: () => call<{ agents: Agent[]; crews?: Crew[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[]; roots?: { agents: string; work: string } }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
-  newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean) =>
-    call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined }),
+  newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean, links?: string[]) =>
+    call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined, links: links?.length ? links : undefined }),
+  links: (instanceId: string) => call<{ room_id: string; links: WorkLink[]; linked_from: WorkLink[] }>("GET", `/api/work/${instanceId}/links`),
+  addLink: (instanceId: string, workId: string) => call<{ room_id: string; links: WorkLink[] }>("POST", `/api/work/${instanceId}/links`, { work_id: workId }),
+  removeLink: (id: string) => call<{ ok: true }>("DELETE", `/api/links/${id}`),
   room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
   hosted: (rootId: string) => call<{ services: HostedService[] }>("GET", `/api/hosting?room=${encodeURIComponent(rootId)}`),
   hostedAll: () => call<{ services: HostedService[] }>("GET", "/api/hosting"),
