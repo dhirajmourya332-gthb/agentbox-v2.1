@@ -47,6 +47,8 @@ export type Agent = {
   builtin?: string | null;
   /** Built-in roles: the owner's notes, added to the agent's instructions. */
   owner_notes?: string | null;
+  /** Agents (roles): the crew it's in (crews.ts); null for none. Instances follow their role. */
+  crew_id?: string | null;
 };
 
 /** Per creator: how many live instances of one role an agent may run at once (role.max_replicas overrides). */

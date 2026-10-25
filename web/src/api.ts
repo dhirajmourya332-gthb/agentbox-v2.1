@@ -32,7 +32,11 @@ export type Agent = {
   owner_notes?: string | null;
   /** Roles: ids of the integrations mapped to them. */
   integrations?: string[];
+  /** Roles: the crew it's in (null: none). Tasks follow their role's crew. */
+  crew_id?: string | null;
 };
+/** A crew (crews.ts): a separate team; its agents only work with each other. */
+export type Crew = { id: string; slug: string; name: string; summary: string; lead_role_id: string | null; created_at: string };
 export type StepState = "pending" | "running" | "human" | "done" | "failed" | "skipped";
 export type IntegrationState = "available" | "connecting" | "connected" | "error" | "disconnected" | "unavailable";
 export type SettingValue = string | number | boolean | string[];
@@ -350,7 +354,7 @@ export type HostedService = {
 };
 
 export const api = {
-  state: () => call<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[]; roots?: { agents: string; work: string } }>("GET", "/api/state"),
+  state: () => call<{ agents: Agent[]; crews?: Crew[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[]; roots?: { agents: string; work: string } }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
   newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean) =>
@@ -387,7 +391,12 @@ export const api = {
     call<{ questions: FollowUp[] }>("POST", "/api/interview/follow-ups", { answers }),
   draft: (answers: Record<string, unknown>, extra: FollowUp[]) =>
     call<Draft>("POST", "/api/interview/draft", { answers, extra }),
-  createAgent: (body: { name: string; title: string; summary: string; model: string; instructions: string; interview: unknown; skills: string[] }) =>
+  crews: () => call<{ crews: Crew[] }>("GET", "/api/crews"),
+  createCrew: (body: { name: string; summary?: string; members?: string[] }) => call<Crew>("POST", "/api/crews", body),
+  updateCrew: (id: string, patch: { name?: string; summary?: string; lead_role_id?: string | null }) => call<Crew>("PATCH", `/api/crews/${id}`, patch),
+  deleteCrew: (id: string) => call<{ ok: true }>("DELETE", `/api/crews/${id}`),
+  setAgentCrew: (roleId: string, crewId: string | null) => call<Agent>("PUT", `/api/agents/${roleId}/crew`, { crew_id: crewId }),
+  createAgent: (body: { name: string; title: string; summary: string; model: string; instructions: string; interview: unknown; skills: string[]; crew_id?: string | null }) =>
     call<Agent>("POST", "/api/agents", body),
   agent: (id: string) =>
     call<{ agent: Agent; instructions: string; memory: { file: string; content: string }[] }>("GET", `/api/agents/${id}`),

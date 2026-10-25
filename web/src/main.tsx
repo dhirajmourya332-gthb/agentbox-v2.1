@@ -18,6 +18,7 @@ import { RoutineEditor, RoutinesList } from "./views/Routines.tsx";
 import { RoutineRunPage } from "./views/RoutineRun.tsx";
 import { Activity } from "./views/Activity.tsx";
 import { NewTask } from "./views/NewTask.tsx";
+import { Crews } from "./views/Crews.tsx";
 import { Room } from "./views/Room.tsx";
 import { DocumentsPage } from "./views/DocumentsPage.tsx";
 import { LinkedFileReader } from "./views/Documents.tsx";
@@ -52,6 +53,7 @@ function App() {
     <Shell route={route}>
       {route.name === "home" && <Team />}
       {route.name === "new-agent" && <CreateAgent />}
+      {route.name === "crews" && <Crews />}
       {route.name === "changes" && <Changes key={route.id} instanceId={route.id} />}
       {route.name === "agent" && <AgentChat key={route.id} agentId={route.id} threadParam={route.thread} msgParam={route.msg} />}
       {route.name === "tasks" && <TaskBoard selected={route.task} />}

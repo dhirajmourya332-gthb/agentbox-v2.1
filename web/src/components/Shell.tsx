@@ -187,7 +187,7 @@ function TeamItem({ role, route }: { role: Agent; route: Route }) {
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const { agents, usage, drafts, board, groups, work, attention, activeRuns } = useStore();
+  const { agents, crews, usage, drafts, board, groups, work, attention, activeRuns } = useStore();
   const marks = useRoomMarks();
   const needsYou = attention.filter(needsOwner).length;
   const running = Object.values(board).filter((t) => t.status === "running" || t.status === "queued").length;
@@ -249,8 +249,22 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </Section>
 
         <Section id="team" label="Team"
-          action={<a className="icon-btn" href="#/agents/new" aria-label="New agent" title="New agent"><Icon name="plus" /></a>}>
-          {roles.map((r) => <TeamItem key={r.id} role={r} route={route} />)}
+          action={<span style={{ display: "inline-flex" }}>
+            <a className="icon-btn" href="#/crews" aria-label="Crews" title="Crews: separate teams"><Icon name="team" size={14} /></a>
+            <a className="icon-btn" href="#/agents/new" aria-label="New agent" title="New agent"><Icon name="plus" /></a>
+          </span>}>
+          {crews.length === 0 && roles.map((r) => <TeamItem key={r.id} role={r} route={route} />)}
+          {crews.length > 0 && [...crews.map((c) => ({ id: c.id, name: c.name })), { id: "", name: "No crew" }].map((c) => {
+            const members = roles.filter((r) => (crews.some((x) => x.id === r.crew_id) ? r.crew_id : "") === c.id);
+            if (!members.length && !c.id) return null;
+            return (
+              <div key={c.id || "none"} className="rail-crew">
+                <a className="rail-crew-name" href="#/crews" title={`${c.name}: its agents only work with each other`}>{c.name}</a>
+                {members.map((r) => <TeamItem key={r.id} role={r} route={route} />)}
+                {!members.length && <p className="empty">No agents yet.</p>}
+              </div>
+            );
+          })}
           {roles.length === 0 && <p className="empty">No agents yet.</p>}
         </Section>
 

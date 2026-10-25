@@ -1,11 +1,12 @@
 import { setPathRoots } from "./components/ui.tsx";
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
-import { api, type Agent, type DisplayHolder, type RetiredAgent, type WorkRoom, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage, type Progress, type Attention, type RoutineRun } from "./api.ts";
+import { api, type Agent, type Crew, type DisplayHolder, type RetiredAgent, type WorkRoom, type Group, type Routine, type Message, type Skill, type SkillDraft, type Step, type Task, type ThreadData, type Usage, type Progress, type Attention, type RoutineRun } from "./api.ts";
 
 type State = {
   connected: boolean;
   loaded: boolean;
   agents: Agent[];
+  crews: Crew[];
   usage: Usage | null;
   skills: Skill[];
   drafts: SkillDraft[];
@@ -35,7 +36,7 @@ type State = {
 };
 
 type Action =
-  | { type: "loaded"; agents: Agent[]; usage: Usage | null; skills: Skill[]; drafts: SkillDraft[]; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }
+  | { type: "loaded"; agents: Agent[]; crews: Crew[]; usage: Usage | null; skills: Skill[]; drafts: SkillDraft[]; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }
   | { type: "connected"; value: boolean }
   | { type: "thread"; id: string; data: ThreadData }
   | { type: "board"; tasks: Task[] }
@@ -58,7 +59,7 @@ const upsert = <T extends { id: string }>(list: T[], item: T, sort?: (a: T, b: T
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "loaded":
-      return { ...s, loaded: true, agents: a.agents, usage: a.usage, skills: a.skills, drafts: a.drafts, groups: a.groups, paused: a.paused, display: a.display, retired: a.retired };
+      return { ...s, loaded: true, agents: a.agents, crews: a.crews, usage: a.usage, skills: a.skills, drafts: a.drafts, groups: a.groups, paused: a.paused, display: a.display, retired: a.retired };
     case "connected":
       return { ...s, connected: a.value };
     case "thread":
@@ -118,6 +119,8 @@ function reducer(s: State, a: Action): State {
           return { ...s, display: e.display };
         case "routine.updated":
           return { ...s, routines: upsert(s.routines, e.routine) };
+        case "crews.updated":
+          return { ...s, crews: e.crews };
         case "routine.deleted":
           return { ...s, routines: s.routines.filter((r) => r.id !== e.id) };
         case "group.updated":
@@ -222,7 +225,7 @@ const Ctx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
-    connected: false, loaded: false, agents: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0, devicesVersion: 0, progress: {}, attention: [], activeRuns: [],
+    connected: false, loaded: false, agents: [], crews: [], usage: null, skills: [], drafts: [], groups: [], routines: [], paused: false, display: null, retired: [], work: { live: [], done: [] }, activityVersion: 0, threads: {}, live: {}, board: {}, threadsVersion: 0, devicesVersion: 0, progress: {}, attention: [], activeRuns: [],
   });
   const listeners = useRef(new Set<(e: any) => void>());
   const onEvent = useCallback((fn: (e: any) => void) => {
@@ -241,7 +244,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const [s, k, t, r] = await Promise.all([api.state(), api.skills(), api.tasks(), api.routines()]);
     if (s.roots) setPathRoots([s.roots.agents, s.roots.work]);
     dispatch({ type: "routines", routines: r });
-    dispatch({ type: "loaded", agents: s.agents, usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups, paused: s.paused, display: s.display, retired: s.retired });
+    dispatch({ type: "loaded", agents: s.agents, crews: s.crews ?? [], usage: s.usage, skills: k.skills, drafts: k.drafts, groups: s.groups, paused: s.paused, display: s.display, retired: s.retired });
     dispatch({ type: "board", tasks: t });
     Promise.all([api.progress(), api.attention()])
       .then(([p, a]) => dispatch({ type: "live", progress: p, attention: a.items }))

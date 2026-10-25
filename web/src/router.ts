@@ -17,6 +17,7 @@ export type Route =
   | { name: "routine-run"; routineId: string; runId: string }
   | { name: "new-routine"; agent?: string }
   | { name: "new-agent" }
+  | { name: "crews" }
   | { name: "screen" }
   | { name: "terminal" }
   | { name: "system" }
@@ -49,6 +50,7 @@ export function parse(hash: string): Route {
   if (parts[0] === "skills" && parts[1]) return { name: "skill", skill: parts[1] };
   if (parts[0] === "skills") return { name: "skills" };
   if (parts[0] === "activity") return { name: "activity" };
+  if (parts[0] === "crews") return { name: "crews" };
   if (parts[0] === "integrations") return { name: "integrations" };
   if (parts[0] === "repos") return { name: "repos", repo: parts[1] };
   // The helper's workspace (#/setup from before it was the helper still works).

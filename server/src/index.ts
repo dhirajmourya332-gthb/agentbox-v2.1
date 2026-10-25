@@ -47,6 +47,7 @@ import { registerPdfRoutes } from "./pdf.ts";
 import { registerWakeupRoutes, startWakeups } from "./wakeups.ts";
 import { registerMemoryRoutes, startMemory } from "./memory.ts";
 import { registerNoteRoutes } from "./notes.ts";
+import { listCrews, registerCrewRoutes, setRoleCrew } from "./crews.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
@@ -112,7 +113,7 @@ const mustAgent = (id: string) => {
 app.get("/api/health", health);
 app.get("/api/config/public", async () => publicConfig());
 app.get("/api/state", async () => ({
-  agents: listAgents().map(agentView), usage: currentUsage(), groups: listGroups(), paused: isPaused(), display: DISPLAY ? screen() : null,
+  agents: listAgents().map(agentView), crews: listCrews(), usage: currentUsage(), groups: listGroups(), paused: isPaused(), display: DISPLAY ? screen() : null,
   retired: listRetired().map((a) => ({ id: a.id, name: a.name, color: a.color, base_agent_id: a.base_agent_id })),
   // Where agents' homes and the shared work area are (the UI links file paths under them).
   roots: { agents: AGENTS_ROOT, work: WORK_ROOT },
@@ -165,8 +166,9 @@ app.post("/api/agents", async (req) => {
   for (const k of ["name", "title", "model", "instructions"]) {
     if (typeof b?.[k] !== "string" || !b[k].trim()) throw new HttpError(400, `Missing ${k}`);
   }
-  const agent = createAgent(b);
+  let agent = createAgent(b);
   if (Array.isArray(b.skills) && b.skills.length) setAgentSkills(agent.id, b.skills);
+  if (typeof b.crew_id === "string" && b.crew_id) agent = setRoleCrew(agent.id, b.crew_id);
   return agentView(agent);
 });
 app.get("/api/agents/:id", async (req) => {
@@ -525,6 +527,7 @@ registerPdfRoutes(app);
 registerWakeupRoutes(app);
 registerMemoryRoutes(app);
 registerNoteRoutes(app);
+registerCrewRoutes(app);
 
 // --- hosted services (hosting.ts): what agents serve; the owner sees and stops them -------------
 app.get("/api/hosting", async (req) => {

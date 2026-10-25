@@ -40,6 +40,10 @@ export function CreateAgent() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [skills, setSkills] = useState<string[]>([]);
+  const { crews } = useStore();
+  // The crew it joins (crews.ts): the one you last started a task in, else none until you pick.
+  const [crewId, setCrewId] = useState<string>(() => { try { return localStorage.getItem("agentbox.newtask.crew") ?? ""; } catch { return ""; } });
+  const crew = crews.find((c) => c.id === crewId);
 
   useEffect(() => {
     api.interview().then((r) => {
@@ -96,6 +100,7 @@ export function CreateAgent() {
         instructions: draft.instructions,
         interview: { role, answers, followUps },
         skills,
+        crew_id: crew?.id ?? null,
       });
       go({ name: "agent", id: agent.id });
     } catch (e: any) {
@@ -178,6 +183,18 @@ export function CreateAgent() {
           />
         )}
 
+        {stage.name === "review" && draft && crews.length > 0 && (
+          <div className="field">
+            <span style={{ fontWeight: 500 }} id="ca-crew">Crew</span>
+            <div className="choices" role="radiogroup" aria-labelledby="ca-crew">
+              {[...crews.map((c) => ({ id: c.id, name: c.name })), { id: "", name: "No crew" }].map((c) => (
+                <button key={c.id || "none"} className="pill" role="radio" aria-checked={(crew?.id ?? "") === c.id} aria-pressed={(crew?.id ?? "") === c.id}
+                  onClick={() => setCrewId(c.id)}>{c.name}</button>
+              ))}
+            </div>
+            <span className="hint">It works only with this crew's agents. You can move it later on the <a href="#/crews">Crews</a> page.</span>
+          </div>
+        )}
         {stage.name === "review" && draft && (
           <Review
             name={text("name")}

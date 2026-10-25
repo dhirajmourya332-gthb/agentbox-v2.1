@@ -14,6 +14,7 @@ import { requestSetup } from "./setupRequests.ts";
 import { confirmNote, deleteNote, draftDir, ensureDrafts, finishPromotion, moveNote, repoMemoryDir, writeNote } from "./memory.ts";
 import { isSetupAgent } from "./setup.ts";
 import { isOrchestrator } from "./roleGuards.ts";
+import { crewIdOf, crewName, crewmates, sameCrew } from "./crews.ts";
 import { roadmapsOf } from "./roadmaps.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
 import { LIMITS as PLAN_LIMITS, decidePlan, getPlan, plansFor, submitPlan, type Decision } from "./plans.ts";
@@ -81,13 +82,17 @@ function authorOf(role: Agent, h: Handoff): Agent | undefined {
 /** Checks shared by delegations and messages. Returns an error for the agent, or the target. */
 function check(h: Handoff): string | Agent {
   let target = findAgent(h.to);
-  const names = listAgents().filter((a) => !a.base_agent_id && !a.builtin && a.id !== h.from.base_agent_id).map((a) => a.name).join(", ") || "none";
+  const names = crewmates(h.from).map((a) => a.name).join(", ") || "none";
   // The setup agent takes work from the owner only; agents reach it through setup requests.
   const role = target ? (target.base_agent_id ? getAgent(target.base_agent_id) : target) : undefined;
   if (target && role?.builtin && !isSetupAgent(h.from)) {
     return "The setup agent isn't a teammate you hand work to. If you need an account, login, tool or access, call mcp__team__request_setup: the owner gets a card for it and you're called back when it's done.";
   }
   if (!target) return `No teammate called "${h.to}". Agents: ${names}. (Delegate to an agent to start a fresh task, or to a live instance such as coder#2 for a follow-up.)`;
+  // Crews are separate teams: work never crosses from one to another.
+  if (!role?.builtin && !isSetupAgent(h.from) && !sameCrew(h.from, target)) {
+    return `${target.name} is in ${crewName(crewIdOf(target))}, not your crew (${crewName(crewIdOf(h.from))}), so you can't hand it work or message it. Your crew: ${names}. If this needs another crew's skills, say so in your reply to the owner.`;
+  }
   // A message to an agent goes to its live instance in your work, if there's exactly one.
   if (h.kind === "message" && !target.base_agent_id) {
     const live = listAgents().filter((a) => a.base_agent_id === target!.id && a.created_by === h.from.id);
@@ -246,9 +251,9 @@ export function teamTools(agent: Agent, taskId: string) {
         { pool: z.string().optional().describe("An agent's name, e.g. coder") },
         async ({ pool }) => {
           const base = pool ? findAgent(pool) : undefined;
-          if (pool && !base) return refuse(`No agent called "${pool}".`);
+          if (pool && (!base || !sameCrew(agent, base))) return refuse(`No agent called "${pool}" in your crew.`);
           const roleId = base ? base.base_agent_id ?? base.id : undefined;
-          const roles = listAgents().filter((a) => !a.base_agent_id && !a.builtin && (!roleId || a.id === roleId));
+          const roles = listAgents().filter((a) => !a.base_agent_id && !a.builtin && sameCrew(agent, a) && (!roleId || a.id === roleId));
           const rows = roles.map((r) => {
             const live = listAgents().filter((a) => a.base_agent_id === r.id && a.id !== agent.id);
             const lines = live.map((i) => {
@@ -287,6 +292,8 @@ export function teamTools(agent: Agent, taskId: string) {
              ORDER BY created_at DESC LIMIT 40`,
             like, like, taskId,
           ).filter((t: any) => !/^\d+$/.test(q) || new RegExp(`(^|[^\\d])#?${q}([^\\d]|$)`).test(`${t.title} ${t.prompt}`))
+            // Only your crew's work: other crews are separate teams.
+            .filter((t: any) => { const who = getAgent(t.agent_id); return !who || sameCrew(agent, who); })
             .slice(0, 10);
           if (!rows.length) return text(`No tasks mention "${query}".`);
           return text(rows.map((t: any) => {
@@ -758,14 +765,15 @@ It runs until you or your lead stop it (host_stop) or the work is marked done. G
 }
 
 export function rosterFor(agent: Agent) {
-  const myRole = agent.base_agent_id ?? agent.id;
-  // Built-in roles (the setup agent) take work from the owner only, so they aren't offered here.
-  const roles = listAgents().filter((a) => !a.base_agent_id && a.id !== myRole && !a.builtin);
+  // Your crew's agents only (crews.ts); built-in roles (the setup agent) take work from the owner only.
+  const roles = crewmates(agent);
   const tools = (id: string) => {
     const list = mappedIntegrations(id).filter(isConnected).map((i) => cachedIntegrations()?.find((x) => x.id === i)?.title ?? i);
     return list.length ? ` Tools: ${list.join(", ")}.` : "";
   };
-  return roles.length
+  const crew = crewIdOf(agent);
+  const header = crew ? `You're in the **${crewName(crew)}** crew. You work only with these agents; other crews' agents are out of reach.\n` : "";
+  return header + (roles.length
     ? roles.map((a) => `- **${a.name}** (${a.title}): ${a.summary}${tools(a.id)}${a.can_scale ? " (hand it work to bring it in as this work's lead)" : ""}`).join("\n")
-    : "- (no other agents yet)";
+    : "- (no other agents in your crew)");
 }

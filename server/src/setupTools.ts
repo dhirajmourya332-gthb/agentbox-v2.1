@@ -403,6 +403,7 @@ export function setupTools(agent: Agent, taskId: string) {
           repos: z.array(z.string()).optional().describe("repos it may work in (only matters for repos limited to some agents)"),
           max_replicas: z.number().int().optional().describe("parallel tasks per starter, 0–6 (0 = default 5)"),
           can_scale: z.boolean().optional().describe("true for a lead that starts other agents' tasks; only the owner starts a lead's work"),
+          crew: z.string().optional().describe("the crew it joins (team overview lists them); it then works only with that crew's agents"),
           reason: z.string().optional(),
         },
         async (args) => {

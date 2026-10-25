@@ -519,7 +519,7 @@ test("setup requests: only the owner's click starts setup; the prompt quotes the
   }).request;
   // An agent can't start a setup task (only the owner starts setup roles), and there's no tool for it.
   assert.throws(() => A.spawnInstance(setup.id, { label: "x", createdBy: a.id }), /Only the owner/);
-  assert.ok(!TM.teamTools(a, fakeTask(a.id)).some((t: any) => /start/.test(t.name)));
+  assert.ok(!TM.teamTools(a, fakeTask(a.id)).some((t: any) => /setup/.test(t.name) && /start/.test(t.name)));
   const sent: { id: string; text: string }[] = [];
   const started = SR.startRequest(r.id, { spawn: (roleId, label) => A.spawnInstance(roleId, { label, createdBy: "owner" }), send: (id, text) => sent.push({ id, text }) });
   assert.equal(started.created, true);

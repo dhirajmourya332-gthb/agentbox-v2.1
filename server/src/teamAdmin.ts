@@ -11,6 +11,7 @@ import { create, getApproval, lineDiff, mustSetup, registerKind, type Approval }
 import { deleteSkill, getSkill, listSkills, render, saveSkill, setAgentSkills, setSkillAgents, skillExists, skillsOf } from "./skills.ts";
 import { ID_RE, cachedIntegrations, mappedIntegrations, setRoleIntegrations } from "./integrations.ts";
 import { getRepo, listRepos, updateRepo } from "./repos.ts";
+import { crewIdOf, crewName, listCrews, setRoleCrew } from "./crews.ts";
 
 /**
  * Team changes proposed by the helper agent (the built-in setup role): new agents, changes to an agent
@@ -101,8 +102,16 @@ export type Item = { kind: "agent_create" | "agent_change" | "skill" | "skill_as
 
 export type NewAgentInput = {
   name: string; title: string; summary?: string; model?: string; instructions: string;
-  skills?: string[]; integrations?: string[]; repos?: string[]; max_replicas?: number; can_scale?: boolean; reason?: string;
+  skills?: string[]; integrations?: string[]; repos?: string[]; max_replicas?: number; can_scale?: boolean; crew?: string; reason?: string;
 };
+
+/** A crew by id, slug or name (crews.ts). */
+function mustCrew(ref: string) {
+  const k = String(ref).trim().toLowerCase();
+  const c = listCrews().find((c) => c.id === ref || c.slug === k || c.name.toLowerCase() === k);
+  if (!c) throw new Error(`No crew called "${ref}". Crews: ${listCrews().map((c) => c.name).join(", ") || "none yet (the owner makes them on the Crews page)"}.`);
+  return c;
+}
 
 function prepareNewAgent(input: NewAgentInput, ctx: Ctx): Item {
   const name = String(input.name ?? "").trim();
@@ -118,15 +127,17 @@ function prepareNewAgent(input: NewAgentInput, ctx: Ctx): Item {
   if (input.max_replicas !== undefined && !(Number.isInteger(input.max_replicas) && input.max_replicas >= 0 && input.max_replicas <= 6)) {
     throw new Error("max_replicas is 0–6");
   }
+  const crew = input.crew ? mustCrew(input.crew) : null;
   return {
     kind: "agent_create",
-    title: `New agent: ${name}`,
+    title: `New agent: ${name}${crew ? ` (${crew.name} crew)` : ""}`,
     payload: {
       name, slug, title, summary: String(input.summary ?? "").trim() || title, model, instructions,
       skills: [...new Set(list(input.skills).map((s) => mustSkill(s, ctx)))],
       integrations: [...new Set(list(input.integrations).map(mustIntegration))],
       repos: [...new Set(list(input.repos).map(mustRepo))],
       max_replicas: input.max_replicas ?? null, can_scale: input.can_scale ?? null,
+      crew_id: crew?.id ?? null, crew_name: crew?.name ?? null,
       reason: text(input.reason, "The reason", 2000),
     },
   };
@@ -387,6 +398,7 @@ function applyItems(items: Item[], steps: Step[]) {
     if (it.kind === "agent_create") {
       const a = createAgent({ name: p.name, title: p.title, summary: p.summary, model: p.model, instructions: p.instructions + "\n", interview: { source: "helper" } });
       steps.push({ op: "delete_agent", role_id: a.id });
+      if (p.crew_id && listCrews().some((c) => c.id === p.crew_id)) setRoleCrew(a.id, p.crew_id);
       if (p.max_replicas !== null || p.can_scale !== null) {
         updateAgent(a.id, { ...(p.max_replicas !== null ? { max_replicas: p.max_replicas } : {}), ...(p.can_scale !== null ? { can_scale: p.can_scale ? 1 : 0 } : {}) });
       }
@@ -530,12 +542,15 @@ export function teamOverview(): string {
     if (a.builtin) return `- **${a.name}** (${a.title}): you. Built in.`;
     const skills = skillsOf(a.id);
     const ints = mappedIntegrations(a.id);
-    return `- **${a.name}** (${a.title}) · model ${a.model} · ${a.can_scale ? "lead (can start other agents' tasks)" : `up to ${a.max_replicas || 5} parallel tasks per starter`} · max ${a.max_turns} steps/turn · ${liveTasks(a.id)} live task(s)
+    return `- **${a.name}** (${a.title}) · ${crewIdOf(a) ? `${crewName(crewIdOf(a))} crew` : "no crew"} · model ${a.model} · ${a.can_scale ? "lead (can start other agents' tasks)" : `up to ${a.max_replicas || 5} parallel tasks per starter`} · max ${a.max_turns} steps/turn · ${liveTasks(a.id)} live task(s)
     ${a.summary}
     skills: ${skills.join(", ") || "none"} · integrations: ${ints.join(", ") || "none"} · repos: ${reposOf(a).join(", ") || "none"}`;
   });
   const skills = listSkills();
+  const crews = listCrews();
   return [
+    `# Crews (${crews.length})`, ...(crews.length ? crews.map((c) => `- ${c.name}${c.summary ? `: ${c.summary}` : ""}`) : ["- none: every agent works with every other"]),
+    "Agents only work with their own crew's agents. A new agent joins a crew with propose_new_agent's crew.", "",
     `# Agents (${roles.length})`, ...lines, "",
     `# Skill library (${skills.length})`,
     ...skills.map((s) => `- ${s.name}: ${s.description} · used by ${s.agents.map((id) => getAgent(id)?.name ?? id).join(", ") || "nobody"}`),

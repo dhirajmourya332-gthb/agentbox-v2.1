@@ -163,6 +163,7 @@ for (const [col, type] of [
   ["kept", "INTEGER NOT NULL DEFAULT 0"],
   ["workspace", "TEXT"],           // task rooms: the shared folder (on the room's root instance)
   ["context_tokens", "INTEGER"],   // instances: size of the conversation after its last turn
+  ["crew_id", "TEXT"],             // agents (roles): the crew it's in (crews.ts); instances follow their role
 ] as const) {
   if (!columns("agents").includes(col)) db.exec(`ALTER TABLE agents ADD COLUMN ${col} ${type}`);
 }
