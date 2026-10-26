@@ -158,9 +158,9 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
             placeholder={role?.can_scale ? "e.g. Plan and build API-key access for the partner portal. Ask me before filing the epic." : "e.g. Fix Dependabot alert #1234 in acme/web-app."} />
           <VoiceStatus v={voice} />
           <AttachmentStrip a={att} />
-          <span className="hint">{att.uploading ? "Uploading image…" : role?.builtin === "setup"
+          <span className="hint">{att.uploading ? "Uploading…" : role?.builtin === "setup"
             ? "It opens in the Setup workspace: your terminal, the chat and a checklist on one screen. Never paste tokens or passwords here."
-            : "Paste (⌘V), drop or attach screenshots; the agent can open them."}</span>
+            : "Paste (⌘V), drop or attach files (images, PDFs, docs, spreadsheets… up to 20 MB each); the agent can open them."}</span>
         </div>
         {usable.length > 0 && (
           <div className="field">

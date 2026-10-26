@@ -11,7 +11,7 @@ import {
   setInstanceMeta, spawnInstance, spawnReplica, updateAgent, AGENTS_ROOT, WORK_ROOT } from "./agents.ts";
 import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDisplay } from "./control.ts";
 import { activity, graph } from "./activity.ts";
-import { checkImages, displayWithImages, saveUpload } from "./uploads.ts";
+import { checkAttachments, displayWithAttachments, saveUpload } from "./uploads.ts";
 import { allDocuments, allowed, contentType, documentsForWork, listDocuments } from "./documents.ts";
 import { finishTree, roomDocuments, roomView, startOwnerWork, workList } from "./work.ts";
 import { migrateToInstances } from "./migrate.ts";
@@ -208,7 +208,7 @@ app.post("/api/work", async (req) => {
   const b = req.body as any;
   const role = mustAgent(String(b?.role_id ?? ""));
   let images: string[];
-  try { images = checkImages(b?.images); } catch (e: any) { throw new HttpError(400, e.message); }
+  try { images = checkAttachments(b?.images); } catch (e: any) { throw new HttpError(400, e.message); }
   const links = Array.isArray(b?.links) ? b.links.map((x: unknown) => String(x)) : [];
   for (const w of links) if (!getAgent(w)?.base_agent_id) throw new HttpError(400, "A linked piece of work no longer exists");
   try {
@@ -351,7 +351,8 @@ app.post("/api/skill-drafts/:id/reject", async (req) => {
 
 // --- conversations ----------------------------------------------------------
 app.get("/api/threads/:id", async (req) => threadView((req.params as any).id));
-app.post("/api/uploads", { bodyLimit: 16 * 1024 * 1024 }, async (req) => {
+// 20 MB files as base64, plus the JSON around them.
+app.post("/api/uploads", { bodyLimit: 30 * 1024 * 1024 }, async (req) => {
   try { return saveUpload(req.body as any); } catch (e: any) { throw new HttpError(400, e.message); }
 });
 // Voice input: transcribe and clean up; the text goes back into the box for review, never sent.
@@ -375,11 +376,11 @@ app.post("/api/threads/:id/messages", async (req) => {
   const threadId = (req.params as any).id;
   const text = String((req.body as any)?.text ?? "");
   let images: string[];
-  try { images = checkImages((req.body as any)?.images); } catch (e: any) { throw new HttpError(400, e.message); }
+  try { images = checkAttachments((req.body as any)?.images); } catch (e: any) { throw new HttpError(400, e.message); }
   if (!text.trim() && !images.length) throw new HttpError(400, "Message is empty");
   const thread = get(`SELECT * FROM threads WHERE id = ?`, threadId);
   if (!thread) throw new HttpError(404, "No such thread");
-  if (thread.kind === "group") return postAsOwner(threadId, displayWithImages(text.trim(), images));
+  if (thread.kind === "group") return postAsOwner(threadId, displayWithAttachments(text.trim(), images));
   if (thread.kind !== "dm") throw new HttpError(400, "Handoff threads between agents are read-only");
   const owner = getAgent(thread.agent_id);
   if (!owner?.base_agent_id) throw new HttpError(400, "Start a task for this agent instead (New task)");

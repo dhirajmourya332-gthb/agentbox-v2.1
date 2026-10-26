@@ -254,7 +254,7 @@ function RoomComposer({ threadId, lead }: { threadId: string; lead: InstanceSumm
         <MicButton v={voice} />
         <button className="btn primary sm" style={{ minHeight: 34 }} disabled={(!text.trim() && !att.paths.length) || att.uploading} onClick={send} aria-label="Send"><Icon name="send" size={14} /></button>
       </div>
-      <p className="composer-hint">{error ? <span style={{ color: "var(--bad)" }}>{error}</span> : att.uploading ? "Uploading image…" : <>Goes to {lead.name} ({lead.label}), who coordinates the room · ⏎ send · Esc stops</>}</p>
+      <p className="composer-hint">{error ? <span style={{ color: "var(--bad)" }}>{error}</span> : att.uploading ? "Uploading…" : <>Goes to {lead.name} ({lead.label}), who coordinates the room · ⏎ send · Esc stops</>}</p>
     </div>
   );
 }

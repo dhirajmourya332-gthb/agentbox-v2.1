@@ -43,6 +43,7 @@ const PATHS: Record<string, string> = {
   moon: "M13.5 9.5A5.5 5.5 0 1 1 6.5 2.5a4.5 4.5 0 0 0 7 7Z",
   room: "M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5ZM8 5 11 8 8 11 5 8 8 5Z",
   note: "M4 1.5h8v13L8 11.5 4 14.5v-13Z",
+  clip: "M13 7.5 8.2 12.3a3.3 3.3 0 0 1-4.7-4.7l5.3-5.3a2.2 2.2 0 0 1 3.1 3.1L6.6 10.7a1.1 1.1 0 0 1-1.6-1.6l4.6-4.6",
   doc: "M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 11h4.5",
   image: "M2.5 2.5h11a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1ZM1.5 11l3.5-3.5 3 3 2-2 4.5 4.5M10.5 6.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
   phone: "M5 1.5h6a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1ZM7 12h2",
@@ -108,6 +109,22 @@ export function setPathRoots(roots: string[]) {
 }
 const TRAILING = /[.:,!?]+$/;
 
+/** Links to served files (e.g. a file attached to a message) open in the document reader too. */
+function markFileLinks(html: string) {
+  if (!html.includes('href="/api/file?path=')) return html;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  for (const a of tpl.content.querySelectorAll<HTMLAnchorElement>('a[href^="/api/file?path="]')) {
+    const p = new URLSearchParams(a.getAttribute("href")!.split("?")[1]).get("path");
+    if (!p) continue;
+    a.dataset.filePath = p;
+    a.className = "file-link";
+    a.target = "_blank";
+    a.rel = "noopener";
+  }
+  return tpl.innerHTML;
+}
+
 /** Turn file paths in rendered Markdown into links that open the document reader. */
 function linkPaths(html: string, home?: string) {
   if (!ROOTS.some((r) => html.includes(r + "/")) && !html.includes("~/")) return html;
@@ -158,7 +175,7 @@ export const sanitizeHtml = (html: string) => DOMPurify.sanitize(html, { FORBID_
 
 export function Markdown({ text, streaming = false, home }: { text: string; streaming?: boolean; home?: string }) {
   const html = useMemo(
-    () => linkPaths(DOMPurify.sanitize(marked.parse(text, { async: false }) as string), home),
+    () => markFileLinks(linkPaths(DOMPurify.sanitize(marked.parse(text, { async: false }) as string), home)),
     [text, home],
   );
   // Images (e.g. attached screenshots) open full size in a new tab.

@@ -5,7 +5,7 @@ import { all, get, newId, now, run } from "./db.ts";
 import { publish, type AgentStatus } from "./bus.ts";
 import { rulesGuard, rulesNote } from "./rules.ts";
 import { capStep } from "./work.ts";
-import { displayWithImages, imagesForAgent } from "./uploads.ts";
+import { attachmentsForAgent, displayWithAttachments } from "./uploads.ts";
 import { baseOf, DEFAULT_PER_CREATOR, ensureWorkspace, getAgent, homeOf, rootOf, WORK_ROOT, type Agent } from "./agents.ts";
 import { skillExists, skillsOf, syncLinks } from "./skills.ts";
 import { LIMITS, returnResult, rosterFor, teamServer } from "./team.ts";
@@ -118,10 +118,10 @@ export function enqueueTask(t: NewTask) {
 
 /** The owner talking to an agent. */
 export function sendMessage(agentId: string, threadId: string, text: string, images: string[] = []) {
-  const firstLine = text.split("\n")[0] || (images.length > 1 ? `${images.length} images` : "Image");
-  const content = displayWithImages(text, images);
+  const firstLine = text.split("\n")[0] || (images.length > 1 ? `${images.length} attachments` : "Attachment");
+  const content = displayWithAttachments(text, images);
   return enqueueTask({
-    agentId, threadId, source: "user", prompt: imagesForAgent(content),
+    agentId, threadId, source: "user", prompt: attachmentsForAgent(content),
     title: firstLine.length > 80 ? firstLine.slice(0, 77) + "…" : firstLine,
     input: { author: "user", content },
   });

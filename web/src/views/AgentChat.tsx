@@ -556,7 +556,7 @@ export function Composer({ agent, threadId, empty, starters = STARTERS, placehol
       </div>
       <p className="composer-hint">
         {error ? <span style={{ color: "var(--bad)" }}>{error}</span>
-          : att.uploading ? "Uploading image…"
+          : att.uploading ? "Uploading…"
           : agent.status === "working" ? `${agent.name} is working · Esc to stop · new messages queue up and run next`
           : "⏎ send · ⇧⏎ new line · paste or drop images"}
       </p>
