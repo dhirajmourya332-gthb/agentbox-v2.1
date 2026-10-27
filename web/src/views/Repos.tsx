@@ -153,9 +153,13 @@ function RepoCard({ repo: r, onChange, open }: { repo: Repo; onChange: () => voi
             </button>
           )}
           {r.status === "error" && <button className="btn sm primary" disabled={!!busy} onClick={() => act("retry", () => api.retryRepo(r.name))}>Retry clone</button>}
-          <button className="btn sm ghost" aria-expanded={settings} onClick={() => setSettings(!settings)}>Settings</button>
+          <button className="btn sm ghost" aria-expanded={settings} aria-controls={`repo-settings-${r.id}`} onClick={() => setSettings(!settings)}>
+            {settings ? "Close settings" : "Settings"}
+          </button>
         </div>
       </div>
+      {/* Right under the buttons: below the worktree list it opened out of sight on a busy repo. */}
+      {settings && <RepoSettings repo={r} onSaved={onChange} onArchive={() => archive(false)} busy={busy === "archive"} />}
       <div className="sub repo-url">{r.url}</div>
       {r.description && <div className="sub">{r.description}</div>}
       <dl className="repo-meta">
@@ -235,7 +239,6 @@ function RepoCard({ repo: r, onChange, open }: { repo: Repo; onChange: () => voi
           <div style={{ marginTop: 8 }}><button className="btn sm danger" disabled={!!busy} onClick={() => archive(true)}>Archive anyway</button></div>
         </div>
       )}
-      {settings && <RepoSettings repo={r} onSaved={onChange} onArchive={() => archive(false)} busy={busy === "archive"} />}
     </article>
   );
 }
@@ -270,6 +273,8 @@ function WorktreeRow({ w, onChange }: { w: RepoWorktree; onChange: () => void })
 
 function RepoSettings({ repo: r, onSaved, onArchive, busy }: { repo: Repo; onSaved: () => void; onArchive: () => void; busy: boolean }) {
   const { agents } = useStore();
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { box.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
   const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
   const [v, setV] = useState({
     description: r.description, test_command: r.test_command, default_branch: r.default_branch ?? "", protected_branches: r.protected_branches.join(", "),
@@ -288,7 +293,7 @@ function RepoSettings({ repo: r, onSaved, onArchive, busy }: { repo: Repo; onSav
   const toggleRole = (id: string) => setV({ ...v, allowed_roles: v.allowed_roles.includes(id) ? v.allowed_roles.filter((x) => x !== id) : [...v.allowed_roles, id] });
   const id = (k: string) => `rs-${r.id}-${k}`;
   return (
-    <div className="repo-settings">
+    <div className="repo-settings" id={`repo-settings-${r.id}`} ref={box}>
       <div className="field"><label htmlFor={id("d")}>Description</label><input id={id("d")} className="text" value={v.description} maxLength={300} onChange={(e) => setV({ ...v, description: e.target.value })} placeholder="One line; the map run fills it in" /></div>
       <div className="repo-settings-row">
         <div className="field"><label htmlFor={id("b")}>Default branch</label><input id={id("b")} className="text" value={v.default_branch} onChange={(e) => setV({ ...v, default_branch: e.target.value })} /></div>

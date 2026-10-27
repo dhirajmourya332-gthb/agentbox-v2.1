@@ -378,6 +378,7 @@ export const api = {
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
   newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean, links?: string[]) =>
     call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined, links: links?.length ? links : undefined }),
+  publicConfig: () => call<{ host: string; access: string; modules: Record<string, boolean> }>("GET", "/api/config/public"),
   shares: (roomId: string) => call<{ shares: WorkShare[]; ready: boolean; missing: string | null }>("GET", `/api/work/${roomId}/shares`),
   createShare: (roomId: string, b: { perm: "read" | "edit"; expiry: ShareExpiry; label?: string }) =>
     call<{ share: WorkShare; url: string }>("POST", `/api/work/${roomId}/shares`, b),
