@@ -62,7 +62,13 @@ private network.
   attempts to 30 a minute, and each piece of work to 10 live links.
 - **What's redacted or held back.**
   - All text a guest receives goes through the secret redactor (`redact.ts`): messages, streamed
-    replies, progress lines, notes and text files.
+    replies, progress lines, notes and files.
+  - A file is served as it is only if it's an image, a PDF, an office document, an archive or
+    media. Anything else must read as text (no NUL bytes, valid UTF-8), whatever its name: logs,
+    YAML, JSON, scripts and Terraform files are redacted and sent as plain text. A binary of any
+    other kind (a database, a keystore) can't be redacted, so it isn't served, and nor is text
+    over 4 MB.
+  - Files served as they are (PDFs, office documents, images) aren't redacted inside.
   - Streamed replies are redacted as a whole, not piece by piece.
   - Guests never get tool logs or prompts.
   - Files that look like credentials (`.env`, keys, `*credential*`, `*token*`…) are never listed or

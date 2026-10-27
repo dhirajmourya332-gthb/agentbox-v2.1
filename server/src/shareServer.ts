@@ -41,7 +41,19 @@ const CARD_AUTHORS = new Set(["plan", "review", "roadmap", "approval", "setup_re
 // Files that look like credentials are never listed or served to a guest.
 const SENSITIVE = /(^|\/)([^/]*\.env(\.[^/]*)?|\.envrc|\.npmrc|\.netrc|\.pgpass|\.git-credentials|id_(rsa|ecdsa|ed25519|dsa)[^/]*|[^/]*\.(pem|key|p12|pfx|kdbx|ovpn|jks|keystore)|[^/]*(credential|secret|token|password|passwd)[^/]*)$/i;
 const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i;
-const TEXTY = (ct: string) => ct.startsWith("text/") || /json|yaml|xml|javascript/.test(ct);
+// Formats served as they are (they aren't text, so there's nothing to redact in place).
+const BINARY = /\.(png|jpe?g|gif|webp|pdf|docx|xlsx|pptx|odt|ods|odp|rtf|zip|gz|tgz|7z|tar|step|stp|stl|3mf|glb|mp4|webm|mp3|wav)$/i;
+export const MAX_TEXT = 4 * 1024 * 1024;
+
+/**
+ * A file's text, if it is text: no NUL bytes and valid UTF-8, whatever its name or type says (logs,
+ * YAML, JSON, scripts and configs come as application/octet-stream). null: binary.
+ */
+export function textOf(file: string): string | null {
+  const buf = fs.readFileSync(file);
+  if (buf.subarray(0, 64 * 1024).includes(0)) return null;
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { return null; }
+}
 
 const red = (t: unknown) => (typeof t === "string" ? redactSecrets(t) : t);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -419,11 +431,19 @@ export async function buildShareServer(opts: ShareServerOptions = {}): Promise<F
     const ct = contentType(real);
     const name = path.basename(real).replace(/[^\w.\- ]/g, "_");
     reply.header("content-disposition", `${(req.query as any).download ? "attachment" : "inline"}; filename="${name}"`);
-    reply.header("content-type", ct);
     // Agent-written HTML/SVG runs nothing on this origin.
     if (/\.(html?|svg)$/i.test(real)) reply.header("content-security-policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");
-    if (TEXTY(ct) && st.size <= 4 * 1024 * 1024) return reply.send(redactSecrets(fs.readFileSync(real, "utf8")));
-    return reply.send(fs.createReadStream(real));
+    if (BINARY.test(real)) {
+      reply.header("content-type", ct);
+      return reply.send(fs.createReadStream(real));
+    }
+    // Anything else must read as text, so it can be redacted: unknown binaries (databases, keystores…) and
+    // text too big to redact aren't served.
+    if (st.size > MAX_TEXT) return deny(reply, 413, "This file is too large to share");
+    const text = textOf(real);
+    if (text === null) return deny(reply, 415, "This kind of file can't be shared");
+    reply.header("content-type", ct.startsWith("text/") || ct === "image/svg+xml" ? ct : "text/plain; charset=utf-8");
+    return reply.send(redactSecrets(text));
   });
 
   // --- edit links ---

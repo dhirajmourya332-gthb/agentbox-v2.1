@@ -186,6 +186,26 @@ test("files: only what the shared work holds, never credential-looking ones", as
   assert.equal((await f(envFile)).statusCode, 403, "a .env file isn't served even if attached");
   assert.equal((await f(otherFile)).statusCode, 403, "another work's file");
   assert.equal((await f("/etc/passwd")).statusCode, 403);
+  // Every text format is redacted, whatever its extension says; unknown binaries and huge text aren't served.
+  const secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+  const ws = path.dirname(plan);
+  const names = ["deploy.log", "config.yaml", "settings.json", "run.sh", "main.tf", "notes"];
+  for (const n of names) fs.writeFileSync(path.join(ws, n), `token: ${secret}\n`);
+  const db = path.join(ws, "cache.sqlite"); fs.writeFileSync(db, Buffer.from([0x53, 0x51, 0, 1, 2, 0, 3]));
+  const big = path.join(ws, "huge.log"); fs.writeFileSync(big, "x".repeat(SS.MAX_TEXT + 1));
+  const png = path.join(ws, "chart.png"); fs.writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0]));
+  // An agent names them in the conversation (they're inside the work's shared folder).
+  say(room.id, room.id, `Outputs: ${[...names.map((n) => path.join(ws, n)), db, big, png].join(" ")}`);
+  for (const n of names) {
+    const p = path.join(ws, n);
+    const r = await f(p);
+    assert.equal(r.statusCode, 200, n);
+    assert.ok(!r.body.includes(secret), `${n} is redacted`);
+    assert.match(String(r.headers["content-type"]), /^text\//, `${n} is served as text`);
+  }
+  assert.equal((await f(db)).statusCode, 415, "an unknown binary");
+  assert.equal((await f(big)).statusCode, 413, "text too big to redact");
+  assert.equal((await f(png)).statusCode, 200, "images as they are");
 });
 
 test("read links can't post; edit links talk to the lead as the guest, attaching only their own uploads", async () => {
