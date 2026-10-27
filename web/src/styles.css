@@ -1404,3 +1404,6 @@ select.text.crew-move { width: auto; flex: none; padding-top: 4px; padding-botto
 select.text.mapper-picker { width: auto; max-width: 100%; padding-top: 4px; padding-bottom: 4px; }
 .map-routines { display: flex; flex-wrap: wrap; gap: 6px; }
 .map-state.m-choosing { color: var(--warn); }
+/* Group workspaces (GroupWorkspaces.tsx). */
+.gw-list { margin: 6px 0 0; }
+.gw-question { color: var(--warn); }

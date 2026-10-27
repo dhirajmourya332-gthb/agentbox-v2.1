@@ -49,6 +49,7 @@ import { registerMemoryRoutes, startMemory } from "./memory.ts";
 import { registerNoteRoutes } from "./notes.ts";
 import { listCrews, registerCrewRoutes, setRoleCrew } from "./crews.ts";
 import { addLink, registerLinkRoutes } from "./linkedWork.ts";
+import { registerGroupWorkRoutes } from "./groupWork.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
@@ -535,6 +536,7 @@ registerMemoryRoutes(app);
 registerNoteRoutes(app);
 registerCrewRoutes(app);
 registerLinkRoutes(app);
+registerGroupWorkRoutes(app);
 
 // --- hosted services (hosting.ts): what agents serve; the owner sees and stops them -------------
 app.get("/api/hosting", async (req) => {

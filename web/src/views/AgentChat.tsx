@@ -163,7 +163,7 @@ export function TaskTitle({ agent }: { agent: Agent }) {
 
 /** "coder#2 · Coder · started by tech-lead#1 · in Partner API keys" */
 export function TaskOrigin({ agent }: { agent: Agent }) {
-  const { everyone } = useStore();
+  const { everyone, groups } = useStore();
   const by = agent.created_by;
   const creator = by && !["owner"].includes(by) && !by.includes(":") ? everyone.find((a) => a.id === by) : undefined;
   const root = agent.parent_instance_id ? rootOfLocal(agent, everyone) : undefined;
@@ -173,6 +173,7 @@ export function TaskOrigin({ agent }: { agent: Agent }) {
       {by === "owner" && " · started by you"}
       {by?.startsWith("routine:") && " · routine"}
       {by?.startsWith("group:") && " · group"}
+      {by?.startsWith("glead:") && <> · launched from <a href={`#/groups/${by.slice(6)}`}>#{groups.find((g) => g.id === by.slice(6))?.name ?? "a group"}</a></>}
       {creator && <> · started by <a href={`#/agents/${creator.id}`}>{creator.name}</a></>}
       {root && root.id !== agent.id && <> · in <a href={`#/work/${root.id}`}>{root.label ?? root.name}</a></>}
     </>

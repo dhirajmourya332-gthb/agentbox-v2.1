@@ -120,6 +120,11 @@ export type InstanceSummary = {
   created_by: string | null; created_at: string; retired_at: string | null; kept: boolean;
   status: AgentStatus | "done"; current: string | null; queued: number;
 };
+/** A workspace a group's lead launched (groupWork.ts). */
+export type GroupWorkspace = {
+  id: string; title: string; root_id: string; item_id: string; created_at: string; question: string | null; step: string | null;
+  lead: InstanceSummary | null; roadmaps: { title: string; total: number; done: number; blocked: number; doing: number; todo: number; skipped: number }[];
+};
 /** Linked work (linkedWork.ts): other work this one's agents may read. */
 export type LinkedWorkInfo = { id: string; label: string; name: string; crew: string | null; crew_name: string; status: "live" | "done" | "deleted" };
 export type WorkLink = { id: string; created_at: string; work: LinkedWorkInfo };
@@ -379,6 +384,7 @@ export const api = {
   updateNote: (id: string, body: string) => call<Note>("PATCH", `/api/notes/${id}`, { body }),
   deleteNote: (id: string) => call<{ ok: true }>("DELETE", `/api/notes/${id}`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
+  groupWorkspaces: (groupId: string) => call<{ lead_instance_id: string | null; workspaces: GroupWorkspace[] }>("GET", `/api/groups/${groupId}/workspaces`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
   allDocuments: () => call<(DocumentInfo & { role: string })[]>("GET", "/api/documents"),
   finishTask: (instanceId: string) => call<{ finished: number }>("POST", `/api/agents/${instanceId}/done`),
