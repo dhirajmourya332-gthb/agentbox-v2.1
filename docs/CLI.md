@@ -66,6 +66,7 @@ An ambiguous name lists the matches. Most commands take `--json` for scripts.
 | `agentbox links <task>` · `link <task> <other work>` · `link rm …` | Linked work (read-only access to other work) |
 | `agentbox services [<task>]` · `services stop <name>` | What agents host, with links |
 | `agentbox docs [<task\|#group>] [--q text]` · `open <path> [-o file]` | Documents; print one, or save any file |
+| `agentbox share <task> [--edit] [--for 6h\|1d\|7d] [--name who]` · `shares <task> [--all]` · `share rm <id>` · `share status` | A link to this work for a guest outside your tailnet (read, or chat with `--edit`), shown once; the live links; turn one off; the ngrok tunnel (`docs/SHARING.md`) |
 
 ### Plans, changes, roadmaps
 | Command | |

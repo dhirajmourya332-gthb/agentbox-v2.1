@@ -359,6 +359,19 @@ function Input({ message, task, active }: { message: Message; task?: Task; activ
       </div>
     );
   }
+  if (message.author.startsWith("guest:")) {
+    // A guest the owner shared this work with (shares.ts).
+    const name = message.author.slice(6);
+    return (
+      <div className="msg" data-msg-id={message.id} data-author={message.author}>
+        <span className="avatar you-avatar guest-avatar" style={{ width: 28, height: 28, fontSize: 12 }} aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+        <div style={{ minWidth: 0 }}>
+          <div className="msg-meta"><strong>{name}</strong><span className="tag">guest</span><time dateTime={message.created_at}>{relTime(message.created_at)}</time></div>
+          <Markdown text={message.content} />
+        </div>
+      </div>
+    );
+  }
   if (message.author === "system") return <p className="system-note">{message.content}</p>;
   if (message.author === "routine") {
     return (

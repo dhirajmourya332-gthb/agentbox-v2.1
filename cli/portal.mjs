@@ -650,6 +650,42 @@ cmd("link", "link <task> <other work> | link rm <task> <other work>   let a task
   out(`${t.name}'s work now reads "${other.label ?? other.name}".`);
 });
 
+// sharing one piece of work with a guest (outside the tailnet, through ngrok)
+cmd("share", "share <task> [--edit] [--for 6h|1d|7d] [--name who] | share rm <link id> | share status   a link to this work for a guest", async (api, argv) => {
+  if (argv[0] === "status") {
+    const d = await api.get("/api/sharing");
+    out(d.ready ? `${green("✔")} ready · tunnel ${d.tunnel.status}${d.tunnel.url ? ` ${d.tunnel.url}` : ""} · ${d.live} live link${d.live === 1 ? "" : "s"}` : `${yellow("✖")} ${d.missing}. Set it up: agentbox connect ngrok`);
+    if (d.tunnel.error) out(red(`  ${d.tunnel.error}`));
+    return;
+  }
+  if (argv[0] === "rm") {
+    if (!argv[1]) fail("usage: agentbox share rm <link id>   (agentbox shares <task> lists them)");
+    const v = await api.del(`/api/shares/${argv[1]}`);
+    out(`Turned off the link for ${v.label}.`);
+    return;
+  }
+  const a = args(argv, { bool: ["edit", "read"] });
+  const w = await world(api);
+  const t = rootOf(w, findTask(w, a._.join(" ")));
+  const r = await api.post(`/api/work/${t.id}/shares`, { perm: a.flags.edit ? "edit" : "read", expiry: a.flags.for ?? "1d", label: a.flags.name });
+  out(`${green("✔")} ${r.share.perm === "edit" ? "Can chat with the agents" : "Read-only"} link for ${r.share.label}, until ${new Date(r.share.expires_at).toLocaleString()}:`);
+  out(`  ${bold(r.url)}`);
+  out(dim("  Shown once; anyone with it can open this work until it expires. agentbox share rm " + r.share.id.slice(0, 8) + "… turns it off."));
+});
+cmd("shares", "shares <task> [--all] [--json]             links to this work and who they're for", async (api, argv) => {
+  const a = args(argv, { bool: ["all", "json"] });
+  const w = await world(api);
+  const t = rootOf(w, findTask(w, a._.join(" ")));
+  const d = await api.get(`/api/work/${t.id}/shares`);
+  const list = a.flags.all ? d.shares : d.shares.filter((s) => s.live);
+  if (a.flags.json) return json(list);
+  if (!d.ready) out(yellow(`Sharing isn't set up: ${d.missing}. agentbox connect ngrok`));
+  table(list.map((s) => [s.label, s.perm === "edit" ? "can chat" : "read-only",
+    s.live ? `expires ${new Date(s.expires_at).toLocaleString()}` : dim(s.revoked_at ? "turned off" : "expired"),
+    dim(s.last_seen_at ? `opened ${ago(s.last_seen_at)}` : "not opened yet"), dim(s.id)]));
+  if (!list.length) out(dim("  no live links"));
+});
+
 // plans, changes, roadmaps
 cmd("roadmap", "roadmap <task|#group> [--archived] [--json] | roadmap archive <id> [--undo]", async (api, argv) => {
   if (argv[0] === "archive") { await api.post(`/api/roadmaps/${argv[1]}/archive`, { archived: !argv.includes("--undo") }); out("Done."); return; }
@@ -1321,7 +1357,7 @@ title or id prefix (coder#3, "Fix login", 3a67cf). Most commands take --json.
   ${bold("connect")}     login · profiles · use · logout · whoami
   ${bold("overview")}    agentbox (dash) · needs · activity · graph · health · control · pause · resume
   ${bold("work")}        task new · work · show · log · send · chat · watch · stop · done · keep · rename
-              notes · note · links · link · services · docs · open
+              notes · note · links · link · services · docs · open · share · shares
   ${bold("review")}      roadmap · plans · plan · plan-gate · changes · review
   ${bold("routines")}    routines · routine · wakeups
   ${bold("team")}        crews · crew · agents · agent · tasks · groups · group · skills · skill

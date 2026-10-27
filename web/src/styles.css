@@ -1407,3 +1407,16 @@ select.text.mapper-picker { width: auto; max-width: 100%; padding-top: 4px; padd
 /* Group workspaces (GroupWorkspaces.tsx). */
 .gw-list { margin: 6px 0 0; }
 .gw-question { color: var(--warn); }
+/* Sharing a piece of work (components/Share.tsx). */
+.popover.share-panel { width: 360px; }
+.share-perms { display: grid; gap: 6px; }
+.share-perm { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-ctl); cursor: pointer; }
+.share-perm.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.share-perm input { margin-top: 3px; }
+.share-perm > span { display: flex; flex-direction: column; gap: 2px; }
+.share-url { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--raised); overflow-wrap: anywhere; font: 12px var(--mono); user-select: all; }
+.share-live-head { margin-top: 4px; }
+.share-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.share-list li { display: flex; align-items: center; gap: 8px; }
+.share-list-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.guest-avatar { background: color-mix(in srgb, var(--accent) 25%, var(--raised)); color: var(--text); }

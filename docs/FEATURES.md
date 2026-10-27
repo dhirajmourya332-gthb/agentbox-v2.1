@@ -85,6 +85,7 @@ documents with more depth are listed at the end.
 | **Room panel tabs** [UI] | **Tasks · Documents · Notes · Services**: who's working, what they wrote, your notebook, and what's hosted. |
 | **Attachments: any file** [UI][Agent] | Paste (⌘V), drop or attach (📎) images, PDFs, Markdown, Excel, Word, CSV, zip and more: up to 20 MB each, 10 per message. Images show as thumbnails and other files as chips and links that open in the reader. Agents get each path with how to open it: the Read tool for images, PDFs and text, Python for spreadsheets, Word and slides (`server/src/uploads.ts`). |
 | **Linked work** [UI][Agent] | Link other work (often another crew's) to a task, when creating it or with the **Link** button. Every task in it can then **read** the linked work's progress and roadmap, conversation, documents and hosted links (`read_linked_work`). Linking is read-only and one-way; crews stay closed. A strip under the header shows "Reads …" and "Read by …" (`server/src/linkedWork.ts`). |
+| **Share with a guest** [UI][Internal] | **Share** in a task room makes a link for someone outside your tailnet: **read** (follows the conversation, progress, roadmap, documents, notes and services live) or **chat** (can also message the agents, attach files and stop them), expiring after 6 hours, a day or a week. The guest gets a bare page with that one piece of work and nothing else. The link goes through an ngrok tunnel that runs only while a link is live, to a separate guest server. Only a hash of each token is stored; what the guest reads is redacted, credential-looking files are held back, and the agents are told the work is shared. Without ngrok, Share offers to have the helper set it up (`server/src/shares.ts`, `shareServer.ts`, `docs/SHARING.md`). |
 | **Notes** [UI] | A notebook per piece of work. Select text in a chat and choose **Save to notes** (with an optional note of your own), or write a note in the **Notes** tab. Notes are plain text, links are clickable, and you can copy, edit or delete them. They're shared by the whole work and only you can see them (`server/src/notes.ts`). |
 | **Stop, Esc, Pause all** [UI] | Esc or Stop ends the running turn. **Pause all** stops new turns everywhere and persists across restarts (`server/src/control.ts`). |
 | **Rename, keep, finish** [UI] | Click a task's title to rename it. Done finishes the work; Keep holds a finished room in the list. |
@@ -164,6 +165,7 @@ documents with more depth are listed at the end.
 | **Environment files** | Per-repo `.env` files kept in `/secrets/<repo>/` (0600), linked into worktrees and never printed. |
 | **Device bridge (bench)** [UI][Agent] | Share your computer's USB serial devices (Arduino, ESP32…) with agents. A script on your computer dials **out** to the portal, so nothing listens on your computer. Boards appear in the VM as real-looking serial ports (`/dev/bench/<id>`, CUSE) or via RFC 2217, and `agentbox-avr-upload` flashes Uno and Nano boards from the VM (`server/src/bench.ts`, `docs/BENCH.md`). |
 | **Onshape** [Agent] | Agents put the CAD models they make into your Onshape: one private document per part, a tab per version, for you to open, measure and comment on (`docs/ONSHAPE.md`). |
+| **Share work (ngrok)** | The tunnel behind guest links (§4): the helper installs ngrok and you save its authtoken (and domain) in the VM's secrets. No agent may run `ngrok` (`setup/modules/ngrok/`). |
 | **Coming soon** | Slack and Microsoft Teams. |
 
 ## 11. The helper (setup agent)
@@ -265,6 +267,7 @@ portal, so anything you can click you can also type (`cli/portal.mjs`, reference
 | **Team** [UI] | Crews (create, lead, move agents), agents (show, settings, skills, integrations, delete), the **hiring interview** in the terminal (`agent new --interview`), editing a job description in `$EDITOR`, groups and their workspaces, and the skill library with drafts. |
 | **Setup** [UI] | `helper "…"` chats with the helper; `helper terminal` **attaches to your setup terminal** on the VM (where logins happen; Ctrl-] detaches). Setup requests, approval cards, integrations and who may use them, repos and their mappers, memory trees, phones, the shared screen, and `api` for any route, raw. |
 | **Notes, links, documents** [UI] | `notes`, `note`, `links`, `link`, `docs` (with search), `open <path>` prints a file or saves it with `-o`, `services`. |
+| **Sharing** [UI] | `share <task> [--edit] [--for 6h\|1d\|7d] [--name who]` prints a guest link once; `shares <task>` lists them, `share rm <id>` turns one off, `share status` shows the tunnel. |
 | **Kept in step with the portal** [Internal] | A test lists every API route the server registers and fails if one has no command. The few left out on purpose (voice, the PDF render, the device bridge's own endpoints, the setup checklist's buttons) are listed with a reason (`cli/test/portal.test.mjs`). |
 | **Not in the terminal** | Voice input, and the shared screen itself (`agentbox screen` opens it in your browser). |
 
@@ -282,6 +285,7 @@ portal, so anything you can click you can also type (`cli/portal.mjs`, reference
 | `docs/HELPER-AGENT.md`, `docs/GUIDE.md` | The helper and the guided setup |
 | `docs/MODULES.md`, `docs/SETUP-PLAN.md` | Modules and the setup plan |
 | `docs/CLI.md` | The agentbox command line |
+| `docs/SHARING.md` | Sharing work with a guest: what they see and how it's secured |
 | `docs/MOBILE-PROTOCOL.md`, `docs/MOBILE-SETUP.md` | The phone app's protocol and setup |
 | `docs/CONTRACTS-v2.md` | API contracts (progress, needs you, voice, push, app, routine runs) |
 | `docs/TRUSTED-AUTONOMY.md` | Autonomy research and the guardrail model |

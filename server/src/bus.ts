@@ -48,7 +48,9 @@ export type BusEvent =
   | { type: "notes.updated"; roomId: string } // notes.ts: a note in a piece of work's notebook was added, changed or deleted
   | { type: "crews.updated"; crews: any[] } // crews.ts: a crew was created, renamed, given a lead or deleted, or an agent moved
   | { type: "links.updated"; roomId: string } // linkedWork.ts: the owner linked or unlinked other work to a piece of work
-  | { type: "group.workspaces"; groupId: string }; // groupWork.ts: a group's workspaces changed (launched, asked, finished)
+  | { type: "group.workspaces"; groupId: string } // groupWork.ts: a group's workspaces changed (launched, asked, finished)
+  | { type: "shares.updated"; roomId: string } // shares.ts: a link to a piece of work was made or revoked
+  | { type: "sharing.updated" }; // shares.ts: the ngrok tunnel started, stopped or failed
 
 export type AgentStatus = "idle" | "working" | "limited" | "error";
 
@@ -59,7 +61,7 @@ emitter.setMaxListeners(100);
 // Run updates are derived state (the run rows and routine.updated already record runs).
 const EPHEMERAL = new Set(["turn.delta", "devices.changed", "progress.updated", "progress.cleared", "routine-run.updated",
   "integration.output", "integration.updated", "setup.plan", "setup.check", "repo.updated", "repo.progress", "hosting.updated",
-  "notes.updated", "crews.updated", "links.updated", "group.workspaces"]);
+  "notes.updated", "crews.updated", "links.updated", "group.workspaces", "sharing.updated"]);
 
 export function publish(event: BusEvent) {
   if (!EPHEMERAL.has(event.type)) {

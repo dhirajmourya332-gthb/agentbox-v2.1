@@ -360,6 +360,12 @@ export type Note = {
   id: string; room_id: string; quote: string | null; body: string; message_id: string | null; author: string | null;
   created_at: string; updated_at: string;
 };
+/** A link sharing one piece of work with a guest (shares.ts). The link itself is shown once, when made. */
+export type WorkShare = {
+  id: string; room_id: string; perm: "read" | "edit"; label: string; created_at: string; expires_at: string;
+  revoked_at: string | null; last_seen_at: string | null; live: boolean;
+};
+export type ShareExpiry = "6h" | "1d" | "7d";
 export type HostedService = {
   id: string; name: string; kind: "static" | "command"; dir: string; command: string | null; port: number | null;
   status: "running" | "stopped" | "exited"; url: string; local_url: string; started_by: string; started_by_id: string;
@@ -372,6 +378,10 @@ export const api = {
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
   newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean, links?: string[]) =>
     call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined, links: links?.length ? links : undefined }),
+  shares: (roomId: string) => call<{ shares: WorkShare[]; ready: boolean; missing: string | null }>("GET", `/api/work/${roomId}/shares`),
+  createShare: (roomId: string, b: { perm: "read" | "edit"; expiry: ShareExpiry; label?: string }) =>
+    call<{ share: WorkShare; url: string }>("POST", `/api/work/${roomId}/shares`, b),
+  revokeShare: (id: string) => call<WorkShare>("DELETE", `/api/shares/${id}`),
   links: (instanceId: string) => call<{ room_id: string; links: WorkLink[]; linked_from: WorkLink[] }>("GET", `/api/work/${instanceId}/links`),
   addLink: (instanceId: string, workId: string) => call<{ room_id: string; links: WorkLink[] }>("POST", `/api/work/${instanceId}/links`, { work_id: workId }),
   removeLink: (id: string) => call<{ ok: true }>("DELETE", `/api/links/${id}`),
