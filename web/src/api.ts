@@ -258,13 +258,18 @@ export type RepoWorktree = {
   status: "pending" | "active" | "kept" | "removed" | "discarded" | "error"; note: string | null; created_at: string; closed_at: string | null;
   instance: { id: string; name: string; label: string | null; retired: boolean } | null;
 };
+/** A weekly map refresh: one per agent that maps repos. */
+export type MapRoutineInfo = { id: string; enabled: boolean; agent_id: string; agent: string };
 export type Repo = {
   id: string; name: string; url: string; provider: "github" | "gitlab" | "bitbucket" | "other"; default_branch: string | null;
   description: string; test_command: string; protected_branches: string[]; allowed_roles: string[];
   agents_may_merge: boolean; agents_may_deploy: boolean; propose_map_pr: boolean; lead_may_merge: boolean;
   status: "cloning" | "ready" | "error" | "archived"; last_fetch_at: string | null; error: string | null;
-  map_status: "none" | "running" | "ready" | "error"; map_updated_at: string | null; map_task_id: string | null; map_error: string | null;
+  /** choosing: the helper is picking who maps it (map_task_id is the helper's task). */
+  map_status: "none" | "choosing" | "running" | "ready" | "error"; map_updated_at: string | null; map_task_id: string | null; map_error: string | null;
   archive_path: string | null; archived_at: string | null; created_at: string;
+  /** Who maps it (an agent); null: the helper picks a crew lead when it's mapped. mapper_note: who chose and why. */
+  mapper_role_id: string | null; mapper_note: string | null;
   path: string | null; map_dir: string; map_files: { file: string; path: string; exists: boolean; size: number; modified: string | null }[];
   /** Repo memory (agent-owned notes): count, stale ones, task drafts waiting for their PR to merge. */
   memory?: { dir: string; index: string | null; notes: number; stale: number; scanned_at: string | null; drafts: { id: string; agent_name: string | null; instance_id: string; status: "open" | "promoting"; notes: number; note: string | null; pr_number: number | null }[] } | null;
@@ -502,12 +507,12 @@ export const api = {
   approve: (id: string, edits?: Record<string, Record<string, string>>) => call<Approval>("POST", `/api/approvals/${id}/approve`, { edits: edits ?? {} }),
   undoApproval: (id: string) => call<Approval>("POST", `/api/approvals/${id}/undo`),
   // Repos (docs/V2-ARCHITECTURE.md, Changes (repos)).
-  repos: () => call<{ repos: Repo[]; map_routine: { id: string; enabled: boolean } | null }>("GET", "/api/repos"),
+  repos: () => call<{ repos: Repo[]; map_routines: MapRoutineInfo[]; map_routines_missing: string[] }>("GET", "/api/repos"),
   repo: (name: string) => call<Repo>("GET", `/api/repos/${encodeURIComponent(name)}`),
   availableRepos: (refresh = false) => call<{ accounts: { provider: string; ok: boolean; error: string | null; count: number }[]; repos: AccountRepo[] }>("GET", `/api/repos/available${refresh ? "?refresh=1" : ""}`),
   checkRepo: (url: string) => call<{ ok: boolean; default_branch: string | null; error: string | null; provider: string; name: string; taken: boolean }>("POST", "/api/repos/check", { url }),
-  addRepo: (b: { url: string; name?: string; default_branch?: string; allowed_roles?: string[]; description?: string }) => call<Repo>("POST", "/api/repos", b),
-  updateRepo: (name: string, patch: Partial<Pick<Repo, "description" | "test_command" | "default_branch" | "protected_branches" | "allowed_roles" | "agents_may_merge" | "agents_may_deploy" | "propose_map_pr" | "lead_may_merge">>) =>
+  addRepo: (b: { url: string; name?: string; default_branch?: string; allowed_roles?: string[]; description?: string; mapper_role_id?: string | null }) => call<Repo>("POST", "/api/repos", b),
+  updateRepo: (name: string, patch: Partial<Pick<Repo, "description" | "test_command" | "default_branch" | "protected_branches" | "allowed_roles" | "agents_may_merge" | "agents_may_deploy" | "propose_map_pr" | "lead_may_merge" | "mapper_role_id">>) =>
     call<Repo>("PATCH", `/api/repos/${encodeURIComponent(name)}`, patch),
   fetchRepo: (name: string) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/fetch`, {}),
   retryRepo: (name: string) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/retry`, {}),
@@ -515,7 +520,7 @@ export const api = {
   archiveRepo: (name: string, confirmUnpushed = false) => call<Repo>("POST", `/api/repos/${encodeURIComponent(name)}/archive`, { confirm_unpushed: confirmUnpushed }),
   purgeRepo: (name: string) => call<{ purged: string }>("POST", `/api/repos/${encodeURIComponent(name)}/purge`, {}),
   discardWorktree: (id: string) => call<RepoWorktree>("POST", `/api/repos/worktrees/${id}/discard`, {}),
-  mapRoutine: () => call<{ id: string; created: boolean }>("POST", "/api/repos/map-routine", {}),
+  mapRoutine: () => call<{ created: string[] }>("POST", "/api/repos/map-routine", {}),
   taskRepos: (instanceId: string) => call<{ repos: RepoBinding[] }>("GET", `/api/agents/${instanceId}/repos`),
   // Setup requests: agents ask, the owner starts or declines.
   setupRequest: (id: string) => call<SetupRequest>("GET", `/api/setup-requests/${id}`),
