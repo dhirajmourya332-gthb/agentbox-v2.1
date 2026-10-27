@@ -48,6 +48,7 @@ documents with more depth are listed at the end.
 | **`agentbox` CLI** [UI] | Commands run on the VM: `status`, `restart`, `update` (pull, rebuild, restart; refuses while agents work unless forced), `module list/install/enable/disable/verify/check`, `integration list/connect/verify/disconnect/settings/status`, `repo list/add/status/fetch/remap/remove`, `config get/set`, `secret set` (hidden input, also in browser terminals), `guide`, and `api` (call the portal API with the local token). |
 | **Guided installer** [UI] | `agentbox guide` serves a one-time setup page. It shows a live roadmap of the install, a terminal and the setup agent, and survives restarts. Base-only first run: anything optional is set up later from Integrations. |
 | **Config file** [Internal] | `config.yaml` holds paths, ports, enabled modules, the access mode and hosting ports, and is loaded at start (`server/src/config.ts`). `GET /api/config/public` exposes the non-secret parts to the portal. |
+| **The agentbox command line** [UI] | Everything the portal does, from a terminal, on your computer (profiles for each agentbox; tailscale identity or the Lima tunnel) or on the VM. Start and follow work, **live chat** with streaming replies (`agentbox chat`), routines, groups, crews, agents (including the hiring interview), skills, approvals, plans, diff reviews, setup (including attaching to your setup terminal), repos and devices. A test keeps it in step with every API route (`cli/portal.mjs`, `docs/CLI.md`). |
 | **Start and stop** [UI] | Local Lima: `limactl start/stop` plus `agentbox-v21-web`. Cloud: a systemd unit (`agentbox-web`). Deploys wait until no agent is working. |
 
 ## 2. Agents and the team
@@ -256,6 +257,7 @@ documents with more depth are listed at the end.
 | `docs/ACCESS.md` | Access modes and threat model |
 | `docs/HELPER-AGENT.md`, `docs/GUIDE.md` | The helper and the guided setup |
 | `docs/MODULES.md`, `docs/SETUP-PLAN.md` | Modules and the setup plan |
+| `docs/CLI.md` | The agentbox command line |
 | `docs/MOBILE-PROTOCOL.md`, `docs/MOBILE-SETUP.md` | The phone app's protocol and setup |
 | `docs/CONTRACTS-v2.md` | API contracts (progress, needs you, voice, push, app, routine runs) |
 | `docs/TRUSTED-AUTONOMY.md` | Autonomy research and the guardrail model |
