@@ -75,7 +75,18 @@ fs.mkdirSync(path.join(path.dirname(plan), "PLAN-img"), { recursive: true });
 const fig = path.join(path.dirname(plan), "PLAN-img", "01-overview.png"); fs.writeFileSync(fig, "png");
 const stray = path.join(path.dirname(plan), "PLAN-img", "not-shown.png"); fs.writeFileSync(stray, "png");
 fs.appendFileSync(plan, "\n![Overview](PLAN-img/01-overview.png)\n");
-say(room.id, room.id, `I wrote the plan to ${plan}.`);
+// The work's own folders: its shared room folder, and a worktree of one of its tasks.
+run(`UPDATE agents SET workspace = ? WHERE id = ?`, path.dirname(plan), room.id);
+const wt = path.join(dirs.work, "worktrees", "app", "h1"); fs.mkdirSync(wt, { recursive: true });
+const wtFile = path.join(wt, "REPORT.md"); fs.writeFileSync(wtFile, "report");
+run(`INSERT INTO repos (id, name, url, provider, status, created_at) VALUES ('r1', 'app', 'https://x/app.git', 'github', 'ready', ?)`, now());
+run(`INSERT INTO repo_worktrees (id, repo_id, instance_id, path, status, created_at) VALUES ('w1', 'r1', ?, ?, 'active', ?)`, helper.id, wt, now());
+// Outside the work: an agent's memory, another work's worktree, and an image above the plan's folder.
+const memo = path.join(dirs.agents, "tech-lead", "memory", "notes.md"); fs.mkdirSync(path.dirname(memo), { recursive: true }); fs.writeFileSync(memo, "private");
+const otherWt = path.join(dirs.work, "worktrees", "infra", "h9", "main.tf"); fs.mkdirSync(path.dirname(otherWt), { recursive: true }); fs.writeFileSync(otherWt, "infra");
+const escape = path.join(dirs.work, "rooms", "escape.png"); fs.writeFileSync(escape, "png");
+fs.appendFileSync(plan, "\n![x](../escape.png)\n");
+say(room.id, room.id, `I wrote the plan to ${plan}. Report: ${wtFile}. My notes: ${memo}`);
 say(other.id, other.id, `Mine is at ${otherPlan}`);
 
 const tokenOf = (url: string) => url.split("#")[1];
@@ -168,7 +179,10 @@ test("files: only what the shared work holds, never credential-looking ones", as
   assert.ok(!named.body.includes("ghp_abcdefghijklmnopqrstuvwxyz0123456789"), "text files are redacted");
   assert.equal((await f(otherPlan)).statusCode, 403, "a file named only in other work");
   assert.equal((await f(fig)).statusCode, 200, "an image the shared document shows");
-  assert.equal((await f(stray)).statusCode, 403, "but not its folder's other files");
+  assert.equal((await f(stray)).statusCode, 200, "the work's shared folder is all its documents");
+  assert.equal((await f(escape)).statusCode, 403, "nor an image above the document's folder (../)");
+  assert.equal((await f(wtFile)).statusCode, 200, "a file in one of the work's worktrees, named by an agent");
+  assert.equal((await f(memo)).statusCode, 403, "an agent naming a file outside the work's folders");
   assert.equal((await f(envFile)).statusCode, 403, "a .env file isn't served even if attached");
   assert.equal((await f(otherFile)).statusCode, 403, "another work's file");
   assert.equal((await f("/etc/passwd")).statusCode, 403);
@@ -191,6 +205,12 @@ test("read links can't post; edit links talk to the lead as the guest, attaching
   assert.equal(m.author, "guest:Sam");
   const view = (await g("GET", "/api/room", { token: readToken })).json();
   assert.equal(view.messages.find((x: any) => x.task_id === t.id).author.name, "Sam");
+  // A guest naming another work's files (a path, or a file link) doesn't make them readable.
+  const bait = await g("POST", "/api/messages", { token: editToken, body: { text: `Look at ${otherWt} and [this](/api/file?path=${encodeURIComponent(otherPlan)}) and ${memo}` } });
+  assert.equal(bait.statusCode, 200);
+  for (const p of [otherWt, otherPlan, memo]) {
+    assert.equal((await g("GET", `/api/file?path=${encodeURIComponent(p)}`, { token: editToken })).statusCode, 403, p);
+  }
   // Stop: tasks in this work only.
   const otherTask = newId();
   run(`INSERT INTO tasks (id, agent_id, thread_id, source, title, prompt, status, created_at) VALUES (?, ?, ?, 'user', 't', 'p', 'queued', ?)`, otherTask, other.id, A.dmThreadOf(other.id), now());

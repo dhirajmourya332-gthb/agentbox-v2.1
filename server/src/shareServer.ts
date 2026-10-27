@@ -131,41 +131,71 @@ function guestDocuments(roomId: string) {
 
 const ATTACHED = /\/api\/file\?path=([^)\s"'<>]+)/g;
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-// A file path an agent wrote in a message, under the agents' homes or the work area (as the page links them).
+// A file path written in a message, under the agents' homes or the work area (as the page links them).
 const MENTIONED = new RegExp(`(?:${[AGENTS_ROOT, WORK_ROOT].map(esc).join("|")})\\/[^\\s\`'"“”‘’<>()\\[\\]{},;|*]+`, "g");
+
+const real = (p: string) => { try { return fs.realpathSync(p); } catch { return null; } };
+const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
+
+/** This work's own folders: its shared room folder and its tasks' git worktrees. */
+function roomScopes(roomId: string, members: Set<string>) {
+  const ids = [...members];
+  const dirs = [getAgent(roomId)?.workspace ?? null];
+  if (ids.length) {
+    dirs.push(...all<{ path: string | null }>(`SELECT path FROM repo_worktrees WHERE instance_id IN (${ids.map(() => "?").join(",")})`, ...ids).map((w) => w.path));
+  }
+  return dirs.map((d) => (d ? real(d) : null)).filter((d): d is string => !!d);
+}
+
 /**
- * Files a guest may open: the room's documents, files attached or named in its own conversation, and
- * the guest's uploads. (Each is still checked: under the agents' homes or the work area, and not
- * credential-looking.)
+ * Files a guest may open:
+ * - the work's documents (what its tasks wrote, and its shared folder);
+ * - what this link uploaded;
+ * - files attached or named in a message by the owner or an agent (never by a guest: a guest naming a
+ *   path mustn't make it readable), and only inside this work's own folders, or the owner's own
+ *   attachments in /work/uploads;
+ * - images a document above shows by relative path, from inside that document's folder.
+ * Each is still checked by /api/file: under the agents' homes or the work area, not credential-looking.
  */
 function guestFiles(s: Share, uploads: Set<string>) {
-  const out = new Set<string>(guestDocuments(s.room_id).map((d) => d.path));
   const ctx = roomCtx(s.room_id);
+  const scopes = roomScopes(s.room_id, ctx.members);
+  const out = new Set<string>();
+  const add = (p: string | null) => { if (p) out.add(p); };
+  for (const d of guestDocuments(s.room_id)) add(real(d.path));
+  for (const u of uploads) add(real(u));
   const tIds = [...ctx.threads];
   if (tIds.length) {
-    const rows = all<{ content: string }>(`SELECT content FROM messages WHERE thread_id IN (${tIds.map(() => "?").join(",")})`, ...tIds);
+    const rows = all<{ author: string; content: string }>(
+      `SELECT author, content FROM messages WHERE thread_id IN (${tIds.map(() => "?").join(",")}) AND author NOT LIKE 'guest:%'`, ...tIds);
+    const uploadsRoot = real(path.join(WORK_ROOT, "uploads"));
     for (const r of rows) {
-      for (const m of r.content.matchAll(ATTACHED)) { try { out.add(decodeURIComponent(m[1])); } catch { /* bad escape */ } }
-      for (const m of r.content.matchAll(MENTIONED)) out.add(m[0].replace(/[.:,!?]+$/, ""));
+      const named: string[] = [];
+      for (const m of r.content.matchAll(ATTACHED)) { try { named.push(decodeURIComponent(m[1])); } catch { /* bad escape */ } }
+      for (const m of r.content.matchAll(MENTIONED)) named.push(m[0].replace(/[.:,!?]+$/, ""));
+      for (const n of named) {
+        const p = real(n);
+        if (!p) continue;
+        if (scopes.some((d) => inside(p, d)) || (r.author === "user" && uploadsRoot && inside(p, uploadsRoot))) out.add(p);
+      }
     }
   }
-  for (const u of uploads) out.add(u);
   // Images a Markdown document shows by relative path (e.g. report-img/fig.png next to report.md).
   for (const p of [...out]) {
     if (!/\.(md|markdown)$/i.test(p)) continue;
     let text = "";
     try { if (fs.statSync(p).size <= 2 * 1024 * 1024) text = fs.readFileSync(p, "utf8"); } catch { continue; }
+    const folder = path.dirname(p);
     for (const m of text.matchAll(/!\[[^\]]*\]\(<?([^)\s>]+)>?[^)]*\)|<img[^>]+src="([^"]+)"/g)) {
       const rel = m[1] ?? m[2];
       if (!rel || /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(rel) || !IMAGE.test(rel.split(/[?#]/)[0])) continue;
       let r = rel.split(/[?#]/)[0];
       try { r = decodeURIComponent(r); } catch { /* as written */ }
-      out.add(path.resolve(path.dirname(p), r));
+      const img = real(path.resolve(folder, r));
+      if (img && inside(img, folder)) out.add(img); // no ../ out of the document's folder
     }
   }
-  const real = new Set<string>();
-  for (const p of out) { try { real.add(fs.realpathSync(p)); } catch { /* gone */ } }
-  return real;
+  return out;
 }
 
 /** The event a guest's live view gets for a bus event, or null when it isn't about their room. */

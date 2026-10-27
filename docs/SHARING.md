@@ -67,8 +67,13 @@ private network.
   - Guests never get tool logs or prompts.
   - Files that look like credentials (`.env`, keys, `*credential*`, `*token*`…) are never listed or
     served.
-  - A guest can open a file only if one of these is true: it's one of the work's documents, it was
-    attached or named in the work's own conversation, or the guest uploaded it.
+  - A guest can open a file only if one of these is true:
+    - it's one of the work's documents (what its tasks wrote, and everything in its shared folder);
+    - the guest uploaded it;
+    - you or an agent attached or named it in the work's conversation **and** it's inside this work's
+      own folders (its shared folder or its tasks' worktrees), or it's an upload you attached;
+    - it's an image a permitted Markdown document shows, from inside that document's folder.
+  - A path a guest writes in a message never makes a file readable, however it's written.
   - A chat link can attach only files it uploaded itself.
 - **Agents know.** While a link is live, every agent in the work is told who it's shared with, and never
   to put secrets in replies, documents or notes. A guest's message reaches the lead marked as theirs, not
