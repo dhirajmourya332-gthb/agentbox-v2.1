@@ -3,7 +3,7 @@
 agentbox is a self-hosted team of Claude agents that share one Linux computer: a cloud VM, or a Lima VM on
 a Mac. The agents have a browser, a terminal and your dev tools. You run them from a web portal and an
 Android app. They plan, code, review, test, deploy, design CAD parts and drive hardware, under rules you
-set.
+set. You can also do everything from a terminal with the `agentbox` command line.
 
 This document lists every feature, both what you see and what works underneath. Each entry says what it is,
 how it behaves, and where it lives in the code (`server/src/…`, `web/src/…`, `setup/modules/…`). Design
@@ -35,7 +35,8 @@ documents with more depth are listed at the end.
 16. [Phone app, push and voice](#16-phone-app-push-and-voice)
 17. [Access and security](#17-access-and-security)
 18. [Internal mechanisms](#18-internal-mechanisms)
-19. [Further reading](#19-further-reading)
+19. [The command line](#19-the-command-line)
+20. [Further reading](#20-further-reading)
 
 ---
 
@@ -45,10 +46,9 @@ documents with more depth are listed at the end.
 |---|---|
 | **One shared VM** [Internal] | All agents work on one Linux computer (Ubuntu 24.04). It's a cloud VM (e.g. GCP `agentbox-mumbai`) or a Lima VM on a Mac (`agentbox-v2-test`). The work area is `/work`, agents' homes are `/agents`, secrets are `/secrets`, and all paths are configurable. |
 | **Modular setup** [Internal] | Everything beyond the core is a **module** (`setup/modules/<name>/`): `install.sh`, `configure.sh`, `verify.sh` and `disable.sh`, plus a `module.yaml`. Base modules are core, claude, access, display, terminal, mobile, push and voice. Integration modules are github, gitlab, bitbucket, aws, gcp, azure, kubernetes, db-tunnel, env-files, bench and onshape; slack and teams are coming soon. |
-| **`agentbox` CLI** [UI] | Commands run on the VM: `status`, `restart`, `update` (pull, rebuild, restart; refuses while agents work unless forced), `module list/install/enable/disable/verify/check`, `integration list/connect/verify/disconnect/settings/status`, `repo list/add/status/fetch/remap/remove`, `config get/set`, `secret set` (hidden input, also in browser terminals), `guide`, and `api` (call the portal API with the local token). |
+| **System commands** [UI] | The `agentbox` command on the VM also runs the system: `status`, `restart`, `update` (pull, rebuild, restart; refuses while agents work unless forced), `module list/install/enable/disable/verify/check`, `integration list/connect/verify/disconnect/settings/status`, `repo list/add/status/fetch/remap/remove`, `config get/set`, `secret set` (hidden input, also in browser terminals), `guide`, and `api` (call the portal API with the local token). For everything else it does, see §19. |
 | **Guided installer** [UI] | `agentbox guide` serves a one-time setup page. It shows a live roadmap of the install, a terminal and the setup agent, and survives restarts. Base-only first run: anything optional is set up later from Integrations. |
 | **Config file** [Internal] | `config.yaml` holds paths, ports, enabled modules, the access mode and hosting ports, and is loaded at start (`server/src/config.ts`). `GET /api/config/public` exposes the non-secret parts to the portal. |
-| **The agentbox command line** [UI] | Everything the portal does, from a terminal, on your computer (profiles for each agentbox; tailscale identity or the Lima tunnel) or on the VM. Start and follow work, **live chat** with streaming replies (`agentbox chat`), routines, groups, crews, agents (including the hiring interview), skills, approvals, plans, diff reviews, setup (including attaching to your setup terminal), repos and devices. A test keeps it in step with every API route (`cli/portal.mjs`, `docs/CLI.md`). |
 | **Start and stop** [UI] | Local Lima: `limactl start/stop` plus `agentbox-v21-web`. Cloud: a systemd unit (`agentbox-web`). Deploys wait until no agent is working. |
 
 ## 2. Agents and the team
@@ -89,6 +89,8 @@ documents with more depth are listed at the end.
 | **Stop, Esc, Pause all** [UI] | Esc or Stop ends the running turn. **Pause all** stops new turns everywhere and persists across restarts (`server/src/control.ts`). |
 | **Rename, keep, finish** [UI] | Click a task's title to rename it. Done finishes the work; Keep holds a finished room in the list. |
 | **Message links** [UI] | Roadmap steps and notifications link to the exact message, which is scrolled to and highlighted. |
+| **Jump to latest** [UI] | Scrolled up in a conversation, a button takes you back to the newest message. It reads **New messages** when replies arrive meanwhile. |
+| **Sidebar** [UI] | Overview, Activity, Tasks, Routines and Documents at the top, then Work, Team (by crew) and Groups. The less frequent pages sit in collapsed sections below: **Configure** (Setup, Integrations, Repos, Skills) and **Computer** (Screen, Terminal, System, Devices); a section opens itself when you're on one of its pages. |
 | **Light, Dark or System theme** [UI] | A theme switch in the top bar. |
 
 ## 5. Delegation and autonomy
@@ -242,9 +244,31 @@ documents with more depth are listed at the end.
 | **Event bus** | Every change (tasks, messages, steps, agents, crews, notes, links, workspaces, hosting…) is published once. The portal and the phone get it live over a WebSocket (`/api/events`), and lasting events become the activity log (`server/src/bus.ts`). |
 | **Database** | SQLite (`node:sqlite`, WAL) with additive migrations at start; a backup is taken before risky migrations (`server/src/db.ts`, `migrate.ts`). |
 | **Health and limits** | Cached health checks; capped room and step payloads so large rooms load fast; a tasks-by-thread index. |
-| **Local token** | `x-agentbox-local-token` lets on-VM tools (the CLI, `agentbox api`) call the portal without a browser session. Owner-only routes refuse it. |
+| **Local token** | `x-agentbox-local-token` lets on-VM tools (the CLI, `agentbox api`) call the portal without a browser session. It counts as an agent, not as you: agents share the VM and could read it, so owner-only routes refuse it. |
 
-## 19. Further reading
+## 19. The command line
+
+`agentbox` is a terminal client for the portal, like the `claude` CLI is for Claude. It calls the same API as the
+portal, so anything you can click you can also type (`cli/portal.mjs`, reference in `docs/CLI.md`).
+
+| Feature | What it does |
+|---|---|
+| **Runs on your computer** [UI] | `cli/install-client.sh` links `agentbox` into your PATH (Node 22+). Run it on your Mac against the cloud VM, the local Lima VM, or both. |
+| **Profiles** [UI] | One per agentbox: `agentbox login gcp --url https://<node>.ts.net --default`, `agentbox login local --url http://localhost:8720 --lima <vm>`. Switch with `--profile`, `AGENTBOX_PROFILE` or `agentbox use`. Kept in `~/.config/agentbox/profiles.json` (0600). |
+| **Who you are** [Internal] | From your computer you are **the owner**, just like in the browser: your tailnet identity (tailscale mode) or the tunnel's localhost (ssh-tunnel mode). A Lima profile **opens the tunnel itself** when it's closed. On the VM the CLI uses the local token, so owner actions (approvals, reviews, plans, starting setup, purging) are refused there by design. |
+| **Dashboard** [UI] | `agentbox` with no arguments: needs you, in progress with live status, running routines and hosted links. Also `needs`, `activity`, `graph`, `health`, `pause`, `resume`. |
+| **Start and follow work** [UI] | `agentbox task new --crew software "…"` goes to the crew's lead by default; `--to`, `--repo`, `--link`, `--plan-first` and `-f <file>` (any type) match the New task form, and `-` reads the text from stdin. `work`, `show`, `log`, `send`, `stop`, `done`, `keep`, `rename`. |
+| **Live chat** [UI] | `agentbox chat <task\|#group>`: replies stream in as the agent writes, with progress lines, and what you type is sent. Slash commands inside: `/stop /done /attach /note /notes /link /show /roadmap /changes /quit`. `agentbox chat --to <crew\|agent> "…"` starts work and chats straight away; `watch` follows read-only. |
+| **Names, not ids** [UI] | Tasks, agents, crews, groups and routines are named the way you'd say them: `coder#3`, part of a title, an id prefix, `#code-quality`. An ambiguous name lists the matches. Most commands take `--json` for scripts. |
+| **Review from the terminal** [UI] | `plans` and `plan <id> approve\|changes\|reject`, the per-task `plan-gate`, `changes` (a coloured diff with commits), and `review … --comment path:line=text` for line comments. `roadmap` prints a roadmap as text. |
+| **Routines and wake-ups** [UI] | `routine new --cron "0 9 * * 1-5" --prompt @file`, edit, run now, enable or disable, compact or start fresh, run history, `routine preview` for the next run times; `wakeups`. |
+| **Team** [UI] | Crews (create, lead, move agents), agents (show, settings, skills, integrations, delete), the **hiring interview** in the terminal (`agent new --interview`), editing a job description in `$EDITOR`, groups and their workspaces, and the skill library with drafts. |
+| **Setup** [UI] | `helper "…"` chats with the helper; `helper terminal` **attaches to your setup terminal** on the VM (where logins happen; Ctrl-] detaches). Setup requests, approval cards, integrations and who may use them, repos and their mappers, memory trees, phones, the shared screen, and `api` for any route, raw. |
+| **Notes, links, documents** [UI] | `notes`, `note`, `links`, `link`, `docs` (with search), `open <path>` prints a file or saves it with `-o`, `services`. |
+| **Kept in step with the portal** [Internal] | A test lists every API route the server registers and fails if one has no command. The few left out on purpose (voice, the PDF render, the device bridge's own endpoints, the setup checklist's buttons) are listed with a reason (`cli/test/portal.test.mjs`). |
+| **Not in the terminal** | Voice input, and the shared screen itself (`agentbox screen` opens it in your browser). |
+
+## 20. Further reading
 
 | Document | About |
 |---|---|
