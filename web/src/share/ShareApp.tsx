@@ -275,7 +275,7 @@ function Shared({ room, live, bump }: { room: Room; live: Record<string, { agent
             </div>
             <div className="share-reader-body">
               {reader.text === null ? <Spinner />
-                : /\.(md|markdown)$/i.test(reader.name) ? <Markdown text={reader.text} />
+                : /\.(md|markdown)$/i.test(reader.name) ? <Markdown text={reader.text} base={reader.path.slice(0, reader.path.lastIndexOf("/"))} />
                 : <pre>{reader.text}</pre>}
             </div>
           </div>

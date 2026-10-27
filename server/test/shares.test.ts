@@ -71,6 +71,10 @@ say(other.id, "user", `[📎 other](/api/file?path=${encodeURIComponent(otherFil
 // Files agents name in a message: this work's open; the other work's don't.
 const plan = path.join(dirs.work, "rooms", "pay", "PLAN.md"); fs.mkdirSync(path.dirname(plan), { recursive: true }); fs.writeFileSync(plan, "# Plan\nkey ghp_abcdefghijklmnopqrstuvwxyz0123456789\n");
 const otherPlan = path.join(dirs.work, "rooms", "other", "PLAN.md"); fs.mkdirSync(path.dirname(otherPlan), { recursive: true }); fs.writeFileSync(otherPlan, "other");
+fs.mkdirSync(path.join(path.dirname(plan), "PLAN-img"), { recursive: true });
+const fig = path.join(path.dirname(plan), "PLAN-img", "01-overview.png"); fs.writeFileSync(fig, "png");
+const stray = path.join(path.dirname(plan), "PLAN-img", "not-shown.png"); fs.writeFileSync(stray, "png");
+fs.appendFileSync(plan, "\n![Overview](PLAN-img/01-overview.png)\n");
 say(room.id, room.id, `I wrote the plan to ${plan}.`);
 say(other.id, other.id, `Mine is at ${otherPlan}`);
 
@@ -163,6 +167,8 @@ test("files: only what the shared work holds, never credential-looking ones", as
   assert.equal(named.statusCode, 200, "a file named in this work's conversation");
   assert.ok(!named.body.includes("ghp_abcdefghijklmnopqrstuvwxyz0123456789"), "text files are redacted");
   assert.equal((await f(otherPlan)).statusCode, 403, "a file named only in other work");
+  assert.equal((await f(fig)).statusCode, 200, "an image the shared document shows");
+  assert.equal((await f(stray)).statusCode, 403, "but not its folder's other files");
   assert.equal((await f(envFile)).statusCode, 403, "a .env file isn't served even if attached");
   assert.equal((await f(otherFile)).statusCode, 403, "another work's file");
   assert.equal((await f("/etc/passwd")).statusCode, 403);

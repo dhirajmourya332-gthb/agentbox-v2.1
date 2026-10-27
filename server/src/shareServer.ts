@@ -40,6 +40,7 @@ const RATE = { messagesPerMin: 20, uploadsPer10Min: 30, badSessionsPerMin: 30 };
 const CARD_AUTHORS = new Set(["plan", "review", "roadmap", "approval", "setup_request", "integration"]);
 // Files that look like credentials are never listed or served to a guest.
 const SENSITIVE = /(^|\/)([^/]*\.env(\.[^/]*)?|\.envrc|\.npmrc|\.netrc|\.pgpass|\.git-credentials|id_(rsa|ecdsa|ed25519|dsa)[^/]*|[^/]*\.(pem|key|p12|pfx|kdbx|ovpn|jks|keystore)|[^/]*(credential|secret|token|password|passwd)[^/]*)$/i;
+const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i;
 const TEXTY = (ct: string) => ct.startsWith("text/") || /json|yaml|xml|javascript/.test(ct);
 
 const red = (t: unknown) => (typeof t === "string" ? redactSecrets(t) : t);
@@ -149,6 +150,19 @@ function guestFiles(s: Share, uploads: Set<string>) {
     }
   }
   for (const u of uploads) out.add(u);
+  // Images a Markdown document shows by relative path (e.g. report-img/fig.png next to report.md).
+  for (const p of [...out]) {
+    if (!/\.(md|markdown)$/i.test(p)) continue;
+    let text = "";
+    try { if (fs.statSync(p).size <= 2 * 1024 * 1024) text = fs.readFileSync(p, "utf8"); } catch { continue; }
+    for (const m of text.matchAll(/!\[[^\]]*\]\(<?([^)\s>]+)>?[^)]*\)|<img[^>]+src="([^"]+)"/g)) {
+      const rel = m[1] ?? m[2];
+      if (!rel || /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(rel) || !IMAGE.test(rel.split(/[?#]/)[0])) continue;
+      let r = rel.split(/[?#]/)[0];
+      try { r = decodeURIComponent(r); } catch { /* as written */ }
+      out.add(path.resolve(path.dirname(p), r));
+    }
+  }
   const real = new Set<string>();
   for (const p of out) { try { real.add(fs.realpathSync(p)); } catch { /* gone */ } }
   return real;

@@ -228,7 +228,10 @@ a.card:hover { border-color: var(--line-strong); }
 .prose pre { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 10px 12px; overflow-x: auto; }
 .prose pre code { background: none; padding: 0; }
 .prose table { border-collapse: collapse; display: block; overflow-x: auto; }
-.prose th, .prose td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.prose th, .prose td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; overflow-wrap: break-word; }
+/* Words in table cells break only where they must (break-word doesn't shrink a column to fit a
+   letter, as "anywhere" does); a wide table scrolls sideways. */
+.prose img { max-width: 100%; height: auto; }
 .prose blockquote { margin: 0; padding-left: 12px; border-left: 2px solid var(--line-strong); color: var(--muted); }
 .cursor::after { content: "▍"; color: var(--accent); animation: blink 1s steps(1) infinite; margin-left: 1px; }
 @keyframes blink { 50% { opacity: 0; } }
