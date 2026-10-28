@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, Icon, Markdown, Spinner, relTime, setPathRoots } from "../components/ui.tsx";
+import { ThemeSwitch } from "../components/ThemeSwitch.tsx";
 
 /**
  * Shared work, as a guest sees it: one task room's conversation (live), its agents' progress, the
@@ -135,13 +136,14 @@ export function ShareApp() {
 
   if (gone) return <Notice title="This link isn't open any more" text="It has expired or was turned off. Ask whoever shared it for a new one." />;
   if (error && !room) return <Notice title="Couldn't open the shared work" text={error} />;
-  if (!room) return <div className="share-loading"><Spinner /></div>;
+  if (!room) return <div className="share-loading"><div className="share-corner"><ThemeSwitch /></div><Spinner /></div>;
   return <Shared room={room} live={live} bump={bump} />;
 }
 
 function Notice({ title, text }: { title: string; text: string }) {
   return (
     <main className="share-notice">
+      <div className="share-corner"><ThemeSwitch /></div>
       <h1>{title}</h1>
       <p className="hint">{text}</p>
     </main>
@@ -198,6 +200,7 @@ function Shared({ room, live, bump }: { room: Room; live: Record<string, { agent
                 <Icon name="stop" size={14} />Stop
               </button>
             )}
+            <ThemeSwitch />
             <nav className="segmented" aria-label="Details">
               {(["roadmap", "documents", "notes", "services"] as const).map((k) => (
                 <button key={k} aria-pressed={panel === k} onClick={() => setPanel(panel === k ? null : k)}>{k[0].toUpperCase() + k.slice(1)}</button>

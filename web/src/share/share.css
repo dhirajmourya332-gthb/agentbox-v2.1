@@ -50,3 +50,4 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   .share-panel { position: fixed; inset: auto 0 0 0; max-height: 60vh; border-left: 0; border-top: 1px solid var(--line-strong); z-index: 40; box-shadow: 0 -12px 32px rgb(0 0 0 / .3); }
   .share-head { padding: 10px 16px; }
 }
+.share-corner { position: fixed; top: 12px; right: 16px; }
