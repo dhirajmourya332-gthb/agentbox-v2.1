@@ -51,3 +51,4 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   .share-head { padding: 10px 16px; }
 }
 .share-corner { position: fixed; top: 12px; right: 16px; }
+.share-offline { color: var(--warn); }

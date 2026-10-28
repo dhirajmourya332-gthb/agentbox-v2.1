@@ -11,6 +11,7 @@ import { parse, parseDocument, stringify } from "yaml";
 import {
   integrationState, normalizeIntegration, parseAssignments, remainingGates, render, renderContext, stepViews, validateSettings,
 } from "./integrations.mjs";
+import { readSecretTty } from "./secret-input.mjs";
 
 // The portal and the guide run with UMask=0077, and their agents' sudo inherits it: as root, system
 // files (the config, apt keyrings, units) must get normal modes, or the agent user and apt can't read them.
@@ -1093,12 +1094,12 @@ ${PORTAL_USAGE}`);
       const me = os.userInfo().username;
       if (!isRoot() && me !== user) asRoot(argv); // stdin is inherited through sudo
       const tty = process.stdin.isTTY;
-      if (tty) process.stderr.write(`Paste or type the value for ${name}, then press Enter and Ctrl-D (input is hidden):\n`);
       let value;
-      const echo = (on) => tty && spawnSync("stty", [on ? "echo" : "-echo"], { stdio: ["inherit", "ignore", "ignore"] });
-      echo(false); // a secret never shows on screen (nor in the helper's view of the terminal)
-      try { value = readStdin(); } finally { echo(true); if (tty) process.stderr.write("\n"); }
-      if (!value.length) fail("nothing on stdin; nothing saved");
+      if (tty) {
+        value = await readSecretTty(name);
+        if (value === null) fail("cancelled; nothing saved");
+      } else value = readStdin();
+      if (!value.length) fail("nothing entered; nothing saved");
       const root = conf.paths?.secrets ?? "/secrets";
       const file = path.join(root, name);
       if (!file.startsWith(root + path.sep)) fail("bad secret name");

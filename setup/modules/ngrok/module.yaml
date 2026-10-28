@@ -30,7 +30,7 @@ steps:
          e.g. something.ngrok-free.app). With it, links keep the same address across restarts.
       3. Save them on the VM in this terminal (never in the chat):
            `agentbox secret set ngrok.env`
-         then type these lines, Enter after each, then Ctrl-D:
+         then paste or type these lines (each shows masked), then Enter on an empty line:
            NGROK_AUTHTOKEN=<your authtoken>
            NGROK_DOMAIN=<your domain, or leave this line out>
       The tunnel runs only while a shared link is live, and only reaches the guest page for that work.

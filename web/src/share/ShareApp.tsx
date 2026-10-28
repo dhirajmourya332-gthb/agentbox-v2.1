@@ -29,6 +29,8 @@ type Note = { id: string; quote: string | null; body: string; created_at: string
 type Service = { id: string; name: string; status: string; started_by: string; created_at: string };
 
 class Gone extends Error {}
+const ENDED = "ended";
+const INCOMPLETE = "incomplete";
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method, credentials: "same-origin",
@@ -66,28 +68,42 @@ export function ShareApp() {
   const [bump, setBump] = useState({ roadmaps: 0, notes: 0, services: 0 });
   const refetch = useRef<number | null>(null);
 
+  const tokenInUrl = () => { const t = location.hash.replace(/^#/, ""); return /^[A-Za-z0-9_-]{43}$/.test(t) ? t : null; };
+  const [offline, setOffline] = useState(false);
+
+  /**
+   * The room, or why not. Only the server says a link has ended (a 401 to a fresh session); a page
+   * that lost its connection (the server restarting, the tunnel reconnecting) keeps trying instead.
+   */
   const load = useCallback(async () => {
     try {
       const r = await call<Room>("GET", "/api/room");
       setPathRoots(r.roots);
       setRoom(r);
+      setOffline(false);
+      setError(null);
     } catch (e: any) {
-      if (e instanceof Gone) setGone(e.message); else setError(e.message);
+      if (!(e instanceof Gone)) { setOffline(true); setError(e.message); return; }
+      const token = tokenInUrl();
+      if (!token) { setGone(INCOMPLETE); return; }
+      // The cookie may be gone (another browser, cleared data): the link itself opens it again.
+      try { await call("POST", "/api/session", { token }); } catch (e2: any) { setGone(e2 instanceof Gone ? ENDED : e2.message); return; }
+      try { const r = await call<Room>("GET", "/api/room"); setPathRoots(r.roots); setRoom(r); setOffline(false); } catch { setGone(ENDED); }
     }
   }, []);
 
-  // The link's token is in the #fragment (never sent to a server); trade it for a cookie, then drop it from the address bar.
+  // The link's token is in the #fragment, which browsers never send to a server (ngrok included): it's
+  // traded for a cookie, and stays in the address bar so the link can be reloaded, bookmarked and passed on.
   useEffect(() => {
-    const token = location.hash.replace(/^#/, "");
+    const token = tokenInUrl();
     (async () => {
-      if (/^[A-Za-z0-9_-]{43}$/.test(token)) {
-        try { await call("POST", "/api/session", { token }); } catch (e: any) { setGone(e.message); return; }
-        history.replaceState(null, "", "/");
+      if (token) {
+        try { await call("POST", "/api/session", { token }); } catch (e: any) { setGone(e instanceof Gone ? ENDED : e.message); return; }
       }
       await load();
     })();
     // Another link opened in this tab: start over with it.
-    const onHash = () => { if (/^#[A-Za-z0-9_-]{43}$/.test(location.hash)) location.reload(); };
+    const onHash = () => { if (tokenInUrl()) location.reload(); };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [load]);
@@ -122,11 +138,13 @@ export function ShareApp() {
         } else if (e.type === "roadmaps" || e.type === "notes" || e.type === "services") {
           setBump((b) => ({ ...b, [e.type]: b[e.type as keyof typeof b] + 1 }));
         } else if (e.type === "room") soon();
-        else if (e.type === "expired") setGone("This link has expired or was turned off.");
+        else if (e.type === "expired") void load(); // the server confirms it
       };
-      ws.onclose = (ev) => {
+      ws.onopen = () => setOffline(false);
+      // Whatever closed it (a restart, the tunnel, the link ending), reload: the room call decides.
+      ws.onclose = () => {
         if (closed) return;
-        if (ev.code === 4001 || ev.code === 1008) { setGone("This link has expired or was turned off."); return; }
+        setOffline(true);
         retry = window.setTimeout(() => { void load(); connect(); }, 3000);
       };
     };
@@ -134,10 +152,11 @@ export function ShareApp() {
     return () => { closed = true; if (retry) clearTimeout(retry); ws?.close(); };
   }, [room?.root.id, gone, load]);
 
-  if (gone) return <Notice title="This link isn't open any more" text="It has expired or was turned off. Ask whoever shared it for a new one." />;
+  if (gone === INCOMPLETE) return <Notice title="This link is incomplete" text="Open the whole link you were sent: it ends with # and a long code." />;
+  if (gone) return <Notice title="This link isn't open any more" text={gone === ENDED ? "It has expired or was turned off. Ask whoever shared it for a new one." : gone} />;
   if (error && !room) return <Notice title="Couldn't open the shared work" text={error} />;
   if (!room) return <div className="share-loading"><div className="share-corner"><ThemeSwitch /></div><Spinner /></div>;
-  return <Shared room={room} live={live} bump={bump} />;
+  return <Shared room={room} live={live} bump={bump} offline={offline} />;
 }
 
 function Notice({ title, text }: { title: string; text: string }) {
@@ -150,7 +169,7 @@ function Notice({ title, text }: { title: string; text: string }) {
   );
 }
 
-function Shared({ room, live, bump }: { room: Room; live: Record<string, { agent_id: string; text: string }>; bump: { roadmaps: number; notes: number; services: number } }) {
+function Shared({ room, live, bump, offline }: { room: Room; live: Record<string, { agent_id: string; text: string }>; bump: { roadmaps: number; notes: number; services: number }; offline: boolean }) {
   const [panel, setPanel] = useState<"roadmap" | "documents" | "notes" | "services" | null>(() => (window.innerWidth > 1000 ? "roadmap" : null));
   const [reader, setReader] = useState<{ path: string; name: string; text: string | null } | null>(null);
   const edit = room.share.perm === "edit" && !room.root.done;
@@ -192,6 +211,7 @@ function Shared({ room, live, bump }: { room: Room; live: Record<string, { agent
             <strong>{room.root.label ?? room.root.name}</strong>
             <span className="hint">
               Shared with {room.share.label} · {edit ? "you can chat with the agents" : room.root.done ? "finished" : "read-only"} · {until(room.share.expires_at)}
+              {offline && <span className="share-offline"> · reconnecting…</span>}
             </span>
           </div>
           <div className="share-actions">
