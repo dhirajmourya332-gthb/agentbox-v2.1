@@ -216,7 +216,8 @@ documents with more depth are listed at the end.
 | **Overview** [UI] | Needs you, In progress, hosted services, routines running and recently finished work. |
 | **Tasks board** [UI] | Every task, running and queued, across all agents. |
 | **Activity** [UI] | A live feed and graph of who did what, built from what's recorded (`server/src/activity.ts`). |
-| **System page** [UI] | Health of modules, integrations and tools (`server/src/health.ts`). |
+| **System page** [UI] | Health of modules, integrations and tools (`server/src/health.ts`), and the VM's disk, memory and swap with how much is left. |
+| **Low disk and memory warnings** [UI] | A bar under the top bar warns before the VM runs out (`server/src/resources.ts`). Disk: from 85% used or under 5 GB free, **critical** from 95% or under 1 GB (also when inodes run out). Memory: from 90% used or under 512 MB free, critical from 96% or under 200 MB, and only after two readings 30 s apart, so a short spike stays quiet. Heavy swapping warns too. Each warning can be dismissed; it shows again if it gets worse or clears and comes back. The VM chip stays amber or red while any is live. |
 
 ## 16. Phone app, push and voice
 

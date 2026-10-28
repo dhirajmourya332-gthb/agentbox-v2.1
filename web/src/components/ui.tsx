@@ -15,6 +15,7 @@ const PATHS: Record<string, string> = {
   panel: "M2.5 2.5h11a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1ZM10 2.5v11",
   chevron: "M6 4l4 4-4 4",
   close: "M4 4l8 8M12 4l-8 8",
+  alert: "M8 2.5l6 11H2l6-11zM8 6.5v3.2M8 11.6v.1",
   check: "M3 8.5 6.5 12 13 4.5",
   x: "M4.5 4.5l7 7M11.5 4.5l-7 7",
   shell: "M3 5l3 3-3 3M8 11h5",

@@ -48,6 +48,8 @@ listed at the end.
    starvation (3 GB) stalled everything.
    **Proposal:** a periodic check that warns the lead and cleans old worktrees and caches by itself;
    tell the owner only when cleanup isn't enough.
+   **Partly built (2026-10-28):** the portal warns the owner (a dismissable bar, the VM chip and the
+   System page). Warning the lead and cleaning up by itself are still to do.
 10. **One shared GitHub account.** Its GraphQL rate limit ran out mid-task.
     **Proposal:** a GitHub App, or a second token for bulk and board work.
 

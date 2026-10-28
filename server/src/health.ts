@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { enabled } from "./config.ts";
+import { resources } from "./resources.ts";
 
 const run = promisify(execFile);
 
@@ -62,7 +63,7 @@ async function check() {
   ]);
   // gh and aws come with optional integrations: absent is fine until those are connected.
   const toolIntegrations = { gh: { id: "github", connected: enabled("github") }, aws: { id: "aws", connected: enabled("aws") } };
-  return { services: Object.fromEntries(services), browser, tools: toolsNow, tool_integrations: toolIntegrations };
+  return { services: Object.fromEntries(services), browser, tools: toolsNow, tool_integrations: toolIntegrations, resources: resources() };
 }
 
 export function health() {

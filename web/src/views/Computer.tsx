@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api.ts";
 import { SCREEN_URL, ScreenHolder, TakeControl, TERMINAL_URL, useScreenUrl } from "../components/Controls.tsx";
 import { useStore } from "../store.tsx";
+import type { VmAlert, VmDisk, VmMemory } from "../components/VmHealth.tsx";
 
 export function Screen() {
   const { display } = useStore();
@@ -44,12 +45,45 @@ const LABELS: Record<string, string> = {
   "agentbox-chromium": "Shared browser",
 };
 
-function Row({ ok, word, name, val, neutral }: { ok: boolean; word: string; name: string; val?: ReactNode; neutral?: boolean }) {
+function Row({ ok, word, name, val, neutral, warn }: { ok: boolean; word: string; name: ReactNode; val?: ReactNode; neutral?: boolean; warn?: boolean }) {
   return (
     <div className="row">
-      <span className="status" style={{ minWidth: 84 }}><span className={`dot ${neutral ? "" : ok ? "ok" : "bad"}`} />{word}</span>
+      <span className="status" style={{ minWidth: 84 }}><span className={`dot ${neutral ? "" : ok ? "ok" : warn ? "warn" : "bad"}`} />{word}</span>
       <span className="name">{name}</span>
       <span className="val">{val}</span>
+    </div>
+  );
+}
+
+const size = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(b >= 10 * 1024 ** 3 ? 0 : 1)} GB` : `${Math.round(b / 1024 ** 2)} MB`);
+
+function Meter({ pct, level }: { pct: number; level?: VmAlert["level"] }) {
+  return <span className={`meter${level === "critical" ? " bad" : level ? " warn" : ""}`} aria-hidden="true"><span style={{ width: `${Math.min(100, pct)}%` }} /></span>;
+}
+
+/** Disk and memory headroom, with the warning level the portal's bar shows for each. */
+function Resources({ r }: { r: { disks: VmDisk[]; memory: VmMemory | null; alerts: VmAlert[] } }) {
+  const level = (id: string) => r.alerts.find((a) => a.id === id)?.level;
+  const word = (l?: VmAlert["level"]) => (l === "critical" ? "Critical" : l ? "Low" : "OK");
+  const m = r.memory;
+  const swapUsed = m && m.swap_total ? m.swap_total - m.swap_free : 0;
+  return (
+    <div className="rows">
+      {r.disks.map((d) => {
+        const l = level(`disk:${d.mount}`) ?? level(`inodes:${d.mount}`);
+        return (
+          <Row key={d.mount} ok={!l} warn={l === "warn"} word={word(l)} name={<span title={`Holds ${d.paths.join(", ")}`}>Disk {d.mount}</span>}
+            val={<span className="res-val"><Meter pct={d.used_pct} level={l} />{size(d.free)} free of {size(d.total)}{d.inodes_used_pct !== null && d.inodes_used_pct >= 80 ? ` · inodes ${Math.round(d.inodes_used_pct)}%` : ""}</span>} />
+        );
+      })}
+      {m && (
+        <Row ok={!level("memory")} warn={level("memory") === "warn"} word={word(level("memory"))} name="Memory"
+          val={<span className="res-val"><Meter pct={m.used_pct} level={level("memory")} />{size(m.available)} free of {size(m.total)}</span>} />
+      )}
+      {m && m.swap_total > 0 && (
+        <Row ok={!level("swap")} warn={level("swap") === "warn"} word={word(level("swap"))} name="Swap"
+          val={<span className="res-val"><Meter pct={(swapUsed / m.swap_total) * 100} level={level("swap")} />{size(swapUsed)} used of {size(m.swap_total)}</span>} />
+      )}
     </div>
   );
 }
@@ -79,6 +113,12 @@ export function System() {
         {error && <div className="error-box">Health check failed: {error}</div>}
         {h && (
           <>
+            {h.resources && (
+              <>
+                <h2>Resources</h2>
+                <Resources r={h.resources} />
+              </>
+            )}
             <h2>Services</h2>
             <div className="rows">
               {Object.entries(h.services).map(([k, v]) => (

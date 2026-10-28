@@ -1,12 +1,13 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AskHelper, openAskHelper } from "./AskHelper.tsx";
-import { api, type Agent, type Usage, type WorkRoom } from "../api.ts";
+import { type Agent, type Usage, type WorkRoom } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { href, type Route } from "../router.ts";
 import { Avatar, Icon, StatusGlyph } from "./ui.tsx";
 import { PauseControl, PausedBar, ScreenPip, ThemeSwitch } from "./Controls.tsx";
 import { MarkDot, needsOwner, useRoomMarks, type Mark } from "./Live.tsx";
 import { RailRuns } from "./Runs.tsx";
+import { VmAlertBar, VmChip } from "./VmHealth.tsx";
 
 function UsageChip({ usage }: { usage: Usage | null }) {
   if (!usage) return null;
@@ -31,36 +32,6 @@ function UsageChip({ usage }: { usage: Usage | null }) {
         <>Claude {pct(five)}<span className="long">&nbsp;· week {pct(week)}</span></>
       )}
     </span>
-  );
-}
-
-function VmChip() {
-  const { connected } = useStore();
-  const [issues, setIssues] = useState<number | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const poll = () =>
-      api.health()
-        .then((h) => {
-          const down = Object.values(h.services).filter((s) => s !== "active").length + (h.browser.ok ? 0 : 1);
-          if (alive) setIssues(down);
-        })
-        .catch(() => alive && setIssues(-1));
-    poll();
-    const t = setInterval(poll, 15000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, []);
-  const bad = !connected || issues === -1;
-  const warn = !bad && (issues ?? 0) > 0;
-  const label = bad ? "VM unreachable" : issues === null ? "VM…" : warn ? `VM ${issues} issue${issues > 1 ? "s" : ""}` : "VM ok";
-  return (
-    <a className={`chip ${bad ? "bad" : warn ? "warn" : ""}`} href="#/system" style={{ textDecoration: "none" }}>
-      <span className={`dot ${bad ? "bad" : warn ? "warn" : "ok"}`} />
-      {label}
-    </a>
   );
 }
 
@@ -212,7 +183,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         <ThemeSwitch />
         <PauseControl />
       </header>
-      <div className="bar-slot"><PausedBar /></div>
+      <div className="bar-slot"><PausedBar /><VmAlertBar /></div>
 
       <nav className="rail" aria-label="Main">
         <a className="btn primary new-task-btn" href="#/new"><Icon name="plus" />New task</a>
