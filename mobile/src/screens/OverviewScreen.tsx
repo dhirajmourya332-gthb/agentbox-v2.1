@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Props } from "../nav";
+import { usePairing, useSession } from "../lib/session";
 import { useStore } from "../lib/store";
+import { serverName } from "../lib/vault";
 import type { Attention, Progress, Task, Usage, WorkRoom } from "../lib/types";
 import { Avatar, Button, Dot, ErrorBox, Screen, T } from "../ui/kit";
 import { RunCard, runProgress } from "../ui/Runs";
@@ -27,6 +29,8 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
   const insets = useSafeAreaInsets();
   const now = useNow(15_000);
   const s = useStore();
+  const pairing = usePairing();
+  const { servers } = useSession();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -91,7 +95,14 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
     <Screen>
       <View style={[st.bar, { borderColor: p.border }]}>
         <Dot color={s.connected ? p.ok : p.warn} size={8} />
-        <T muted size={13} style={{ flex: 1 }} numberOfLines={1}>{s.connected ? "Live" : "Connecting…"}</T>
+        <T muted size={13} numberOfLines={1}>{s.connected ? "Live" : "Connecting…"}</T>
+        <Pressable onPress={() => navigation.navigate("Servers")} accessibilityRole="button" hitSlop={8}
+          accessibilityLabel={`agentbox: ${serverName(pairing)}. ${servers.length > 1 ? "Switch" : "Add another"}`}
+          style={[st.server, { borderColor: p.border, backgroundColor: p.surface }]}>
+          <T size={12} weight="600" numberOfLines={1} style={{ maxWidth: 140 }}>{serverName(pairing)}</T>
+          <T size={12} muted>{servers.length > 1 ? "⇄" : "+"}</T>
+        </Pressable>
+        <View style={{ flex: 1 }} />
         <UsageChip usage={s.usage} />
       </View>
       {s.paused && (
@@ -189,9 +200,9 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
         </Section>
 
         <View style={st.links}>
-          <Button small label="All tasks" onPress={() => navigation.navigate("Work")} style={{ flex: 1 }} />
-          <Button small label="Groups" onPress={() => navigation.navigate("Groups")} style={{ flex: 1 }} />
-          <Button small label="Routines" onPress={() => navigation.navigate("Routines")} style={{ flex: 1 }} />
+          {LINKS.map(([label, to]) => (
+            <Button key={to} small label={label} onPress={() => navigation.navigate(to)} style={st.link} />
+          ))}
         </View>
         <Button small variant="ghost" label="Settings" onPress={() => navigation.navigate("Settings")} />
       </ScrollView>
@@ -201,6 +212,14 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
     </Screen>
   );
 }
+
+/** Everything else, as on the portal's sidebar. */
+const LINKS: [string, "Work" | "Groups" | "Routines" | "Team" | "SharedScreen" | "Documents" | "Activity" | "System" | "Hosted" | "Connections"][] = [
+  ["All tasks", "Work"], ["Groups", "Groups"], ["Routines", "Routines"],
+  ["Team", "Team"], ["Screen", "SharedScreen"], ["Documents", "Documents"],
+  ["Activity", "Activity"], ["System", "System"], ["Hosted", "Hosted"],
+  ["Integrations & repos", "Connections"],
+];
 
 const KIND: Record<string, string> = { reply: "Replied", failed: "Failed", stalled: "Possibly stuck", question: "Question" };
 
@@ -259,7 +278,9 @@ const st = StyleSheet.create({
   meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   seen: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   count: { borderRadius: 9, paddingHorizontal: 7, minWidth: 20, alignItems: "center" },
-  links: { flexDirection: "row", gap: 8, marginTop: 16 },
+  links: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16 },
+  link: { flexGrow: 1, flexBasis: "30%" },
+  server: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 },
   usage: { flexDirection: "row", alignItems: "center", gap: 5 },
   fab: { position: "absolute", right: 16 },
 });

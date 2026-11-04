@@ -8,14 +8,18 @@ import { fingerprint, publicKeyOf, sameFingerprint } from "../crypto/sign";
 import { claimPairing } from "../lib/api";
 import { parsePairingQr, type PairingPayload } from "../lib/qr";
 import { useSession } from "../lib/session";
-import { availableKeyMode, NoScreenLockError, savePairing, saveKey, wipeAll, type Pairing } from "../lib/vault";
+import { availableKeyMode, deleteKey, newKeySlot, NoScreenLockError, saveKey, serverName, type Pairing } from "../lib/vault";
 import { Button, Card, ErrorBox, Screen, T } from "../ui/kit";
 import { usePalette } from "../ui/theme";
 
-/** Scan the portal's QR, make a key, claim the pairing. Approval happens on the Pending screen. */
+/**
+ * Scan the portal's QR, make a key, claim the pairing. Approval happens on the Pending screen.
+ * Also adds one more agentbox when the phone is already paired with others (each gets its own key).
+ */
 export function PairScreen() {
   const p = usePalette();
-  const { startPending } = useSession();
+  const { phase, servers, startPending, cancelAdd, forgetOther } = useSession();
+  const adding = phase.name === "adding";
   const [name, setName] = useState("My phone");
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,15 +54,15 @@ export function PairScreen() {
     setError(null);
     const deviceName = name.replace(/[^\x20-\x7E]/g, "").trim().slice(0, 40) || "Phone";
     let privateKey: Uint8Array | null = null;
+    const slot = newKeySlot();
     try {
       const mode = await availableKeyMode();
       if (!mode) throw new NoScreenLockError();
       privateKey = getRandomBytes(32);
       const publicKey = publicKeyOf(privateKey);
       const fp = fingerprint(publicKey);
-      await wipeAll();
       // Save the key first (this may ask for a fingerprint); if that's cancelled, the code is unused.
-      await saveKey(privateKey, mode);
+      await saveKey(slot, privateKey, mode);
       const claim = await claimPairing(qr.gateway, {
         code: qr.code,
         public_key: base64url(publicKey),
@@ -68,14 +72,17 @@ export function PairScreen() {
       if (!sameFingerprint(claim.fingerprint, fp)) {
         throw new Error("agentbox reported a different key fingerprint than this phone made. Pairing stopped; deny the request in the portal.");
       }
+      // The same agentbox paired again replaces the old pairing here (revoke the old one in the portal).
+      const old = servers.find((x) => x.gateway === qr.gateway);
       const pairing: Pairing = {
         v: 1, gateway: qr.gateway, deviceId: claim.deviceId, deviceName, fingerprint: fp, keyMode: mode, status: "pending", claimedAt: Date.now(),
+        key: slot, label: old?.label ?? (qr.name !== "agentbox" ? qr.name : undefined),
       };
-      await savePairing(pairing);
-      startPending(pairing, privateKey);
+      await startPending(pairing, privateKey);
       privateKey = null; // handed to the keyring, which zeroes our copy
+      if (old) await forgetOther(old.deviceId).catch(() => {});
     } catch (e) {
-      await wipeAll();
+      if (privateKey) await deleteKey(slot); // not handed over: this pairing's key goes
       setError(e instanceof Error ? e.message : "Pairing failed.");
     } finally {
       privateKey?.fill(0);
@@ -94,6 +101,9 @@ export function PairScreen() {
             <T selectable size={20} weight="700" style={{ fontFamily: "monospace", textAlign: "center" }}>{payload.host}</T>
           </Card>
           <T>Make sure this matches the host shown in the portal.</T>
+          {servers.some((x) => x.gateway === payload.gateway) && (
+            <T muted size={13}>This phone is already paired with this agentbox ({serverName(servers.find((x) => x.gateway === payload.gateway)!)}). Pairing again replaces it here; revoke the old entry on the portal's Devices page.</T>
+          )}
           {!trusted && (
             <ErrorBox text={`${payload.host} isn't a *.ts.net Tailscale address. Only continue if you set this address yourself on the portal's Devices page.`} />
           )}
@@ -121,10 +131,10 @@ export function PairScreen() {
     <Screen>
       <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={st.body} keyboardShouldPersistTaps="handled">
-          <T size={28} weight="700">Pair with agentbox</T>
+          <T size={28} weight="700">{adding ? "Add an agentbox" : "Pair with agentbox"}</T>
           <T muted>
             On your Mac, open the agentbox portal → Devices → Pair a phone. Then scan the code here. This phone needs Tailscale on,
-            in the same tailnet.
+            in the same tailnet.{adding ? " Each agentbox gets its own key on this phone; switch between them from the home screen." : ""}
           </T>
           <Card style={{ gap: 8 }}>
             <T weight="600">Name this phone</T>
@@ -135,6 +145,7 @@ export function PairScreen() {
           </Card>
           {error && <ErrorBox text={error} />}
           <Button variant="primary" label={busy ? "Pairing…" : "Scan pairing code"} busy={busy} onPress={startScan} />
+          {adding && phase.from && <Button variant="ghost" label={`Back to ${serverName(phase.from)}`} onPress={cancelAdd} disabled={busy} />}
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

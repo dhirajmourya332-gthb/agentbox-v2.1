@@ -11,6 +11,16 @@ export type Stack = {
   Routines: undefined;
   Run: { id: string; title?: string };
   Settings: undefined;
+  // Web parity (v2.1).
+  SharedScreen: undefined;
+  Team: undefined;
+  Agent: { id: string; title?: string };
+  Documents: undefined;
+  Activity: undefined;
+  System: undefined;
+  Hosted: undefined;
+  Connections: undefined;
+  Servers: undefined;
 };
 
 export type Props<K extends keyof Stack> = NativeStackScreenProps<Stack, K>;

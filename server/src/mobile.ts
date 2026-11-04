@@ -63,12 +63,14 @@ const PHONE_EVENTS = new Set([
   "progress.updated", "progress.cleared", "attention.updated",
   // Routine runs (contract G): the same records GET routine-runs returns.
   "routine-run.updated",
+  // Web parity: a task's notes changed (ids only), a hosted service started or stopped.
+  "notes.updated", "hosting.updated",
 ]);
 
 // --- the allowlist ------------------------------------------------------------------------
 
 const ID = "[A-Za-z0-9_-]{1,128}";
-const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
+const ALLOW: { method: "GET" | "POST" | "PATCH" | "DELETE"; re: RegExp }[] = [
   // Groups (contract E): the list and a group's documents. A group's thread and posting to it are
   // threads/:id and threads/:id/messages. Creating, editing, deleting and continuing groups stay off.
   // Live progress and "needs you" (contract A, B). Routine runs, active and archive (contract G).
@@ -79,11 +81,22 @@ const ALLOW: { method: "GET" | "POST"; re: RegExp }[] = [
     // Plans (v2.1): the card, so a plan can be decided from the phone. Diff review stays on the web.
     `plans/${ID}`, `agents/${ID}/plans`,
     // Roadmaps (v2.1): progress at a glance.
-    `roadmaps/${ID}`, `agents/${ID}/roadmaps`]
+    `roadmaps/${ID}`, `agents/${ID}/roadmaps`,
+    // Web parity (v2.1): the shared screen as snapshots, System (services, resources, tools),
+    // Activity, every document, an agent's conversations and documents, a task's notes, hosted
+    // services, and status-only views of integrations, repos and skills.
+    "screen/snapshot", "health", "activity", `agents/${ID}/threads`, `agents/${ID}/documents`, `work/${ID}/notes`,
+    "hosting", "integrations/summary", "repos", "skills"]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
   ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe", "voice/clean",
-    `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`, `setup-requests/${ID}/start`, `setup-requests/${ID}/reject`, `plans/${ID}/decide`]
+    `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`, `setup-requests/${ID}/start`, `setup-requests/${ID}/reject`, `plans/${ID}/decide`,
+    // The screen: take and give back control, and tap / scroll / type while holding it.
+    "display/take", "display/release", "screen/input",
+    `work/${ID}/notes`, `hosting/${ID}/stop`]
     .map((p) => ({ method: "POST" as const, re: new RegExp(`^${p}$`) })),
+  // A task's notes: edit and delete.
+  { method: "PATCH", re: new RegExp(`^notes/${ID}$`) },
+  { method: "DELETE", re: new RegExp(`^notes/${ID}$`) },
 ];
 
 /** Whether `<method> /api/<rest>` may be reached from a phone. `rest` has no query string. */
@@ -454,7 +467,7 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     const headers: Record<string, string> = { [GATEWAY_HEADER]: GATEWAY_TOKEN };
     if (body.length) headers["content-type"] = "application/json";
-    const method = req.method as "GET" | "POST";
+    const method = req.method as "GET" | "POST" | "PATCH" | "DELETE";
     const target = `/api/${rest}${query}`;
 
     if (method === "GET") {
@@ -474,8 +487,9 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     if (res.statusCode >= 300 && res.statusCode < 400) return empty(reply); // the gateway never redirects
     // Marking "needs you" items seen changes nothing an agent does, and the app does it on every
     // room it opens: not audited.
-    if (res.statusCode >= 200 && res.statusCode < 300 && !rest.startsWith("attention/")) {
-      let ref: string | null = rest.startsWith("voice/") ? null : rest.split("/")[1] ?? null;
+    // Neither is each tap or keystroke on the shared screen (taking control is).
+    if (res.statusCode >= 200 && res.statusCode < 300 && !rest.startsWith("attention/") && rest !== "screen/input") {
+      let ref: string | null = /^(voice|display)\//.test(rest) ? null : rest.split("/")[1] ?? null;
       if (rest === "work") {
         try { ref = String(JSON.parse(res.payload).id ?? "") || null; } catch { ref = null; }
       }
@@ -486,7 +500,7 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
   };
   gw.post("/m/v1/uploads", { bodyLimit: UPLOAD_LIMIT }, forward);
   gw.post("/m/v1/voice/transcribe", { bodyLimit: VOICE_LIMIT }, forward);
-  gw.route({ method: ["GET", "POST"], url: "/m/v1/*", handler: forward });
+  gw.route({ method: ["GET", "POST", "PATCH", "DELETE"], url: "/m/v1/*", handler: forward });
 
   await gw.listen({ host: "127.0.0.1", port });
   log.info(`mobile gateway listening on 127.0.0.1:${port}`);

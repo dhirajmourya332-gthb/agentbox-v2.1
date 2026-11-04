@@ -2,16 +2,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from "react-native";
 import * as keyring from "./keyring";
 import { api, configure, forgetDevice, isHalted, NotRecognizedError, onHalt } from "./api";
-import { clearPending, unregisterPush } from "./push";
+import { clearPending, clearPushPrefs, unregisterPush } from "./push";
 import { clearVoicePrefs } from "./speech";
-import { loadPairing, savePairing, unlockKey, wipeAll, type Pairing } from "./vault";
+import { loadServers, removeServer, saveServer, setActive, unlockKey, wipeAll, type Pairing } from "./vault";
 
 /**
- * The app's security state machine:
+ * The app's security state machine, for the active agentbox (the phone can be paired with several,
+ * one key each; only the active one's key is ever in memory):
  *
  *   boot → unpaired → (pair) → pending → ready
  *   boot → locked → (unlock) → pending | ready
- *   any signed 404 → unrecognized → (pair again) → unpaired
+ *   ready → (add an agentbox) → adding → (pair) → pending → ready      [cancel: back where it was]
+ *   ready → (switch) → locked (the other agentbox) → (unlock) → ready   [key wiped from memory]
+ *   any signed 404 → unrecognized → (pair again | switch | try again)
  *   ready/pending → (2 min in background, or Lock) → locked   [key wiped from memory]
  */
 
@@ -21,15 +24,30 @@ export type Phase =
   | { name: "locked"; pairing: Pairing }
   | { name: "pending"; pairing: Pairing }
   | { name: "ready"; pairing: Pairing }
+  | { name: "adding"; from: Pairing | null }
   | { name: "unrecognized"; pairing: Pairing | null };
 
 type Session = {
   phase: Phase;
+  /** Every paired agentbox, in the order they were added. */
+  servers: Pairing[];
   unlock: () => Promise<void>;
   lock: () => void;
-  forget: () => Promise<void>;
+  /**
+   * Forget the active agentbox (asking it to remove this phone first, when unlocked). Then the
+   * next agentbox is shown locked, or with `pairNext`, the pairing screen.
+   */
+  forget: (pairNext?: boolean) => Promise<void>;
+  /** Forget an agentbox that isn't active: local only (its key isn't loaded, so it can't be told). */
+  forgetOther: (deviceId: string) => Promise<void>;
+  /** Make another agentbox active: locks, then asks to unlock it. */
+  switchTo: (deviceId: string) => Promise<void>;
+  rename: (deviceId: string, label: string) => Promise<void>;
+  /** Show the pairing screen for one more agentbox. */
+  addServer: () => void;
+  cancelAdd: () => void;
   /** After a successful claim: key already saved; hold it in memory and wait for approval. */
-  startPending: (pairing: Pairing, privateKey: Uint8Array) => void;
+  startPending: (pairing: Pairing, privateKey: Uint8Array) => Promise<void>;
   markActive: (pairing: Pairing) => Promise<void>;
   /** From the "not paired any more" screen: unlock and ask the server again. */
   retry: () => void;
@@ -39,14 +57,18 @@ export const LOCK_AFTER_MS = 2 * 60 * 1000;
 
 const Ctx = createContext<Session | null>(null);
 
+const pairingOf = (p: Phase): Pairing | null =>
+  p.name === "adding" ? p.from : "pairing" in p ? p.pairing : null;
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>({ name: "boot" });
+  const [servers, setServers] = useState<Pairing[]>([]);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
   useEffect(() => {
-    loadPairing()
-      .then((p) => setPhase(p ? { name: "locked", pairing: p } : { name: "unpaired" }))
+    loadServers()
+      .then((s) => { setServers(s.list); setPhase(s.active ? { name: "locked", pairing: s.active } : { name: "unpaired" }); })
       .catch(() => setPhase({ name: "unpaired" }));
   }, []);
 
@@ -55,13 +77,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     configure(null);
     const p = phaseRef.current;
     if (p.name === "ready" || p.name === "pending") setPhase({ name: "locked", pairing: p.pairing });
+    else if (p.name === "adding" && p.from) setPhase({ name: "locked", pairing: p.from });
   }, []);
 
   // Any signed 404: stop everything, drop the key from memory, show the re-pair screen.
   useEffect(() => onHalt(() => {
     keyring.wipe();
-    const p = phaseRef.current;
-    setPhase({ name: "unrecognized", pairing: "pairing" in p ? p.pairing : null });
+    setPhase({ name: "unrecognized", pairing: pairingOf(phaseRef.current) });
   }), []);
 
   // Lock after 2 minutes in the background. Decided on return, from both clocks: wall time
@@ -93,14 +115,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const p = phaseRef.current;
     if (p.name !== "locked") return;
     const pairing = p.pairing;
-    const key = await unlockKey(pairing.keyMode); // throws on cancel / failure
+    const key = await unlockKey(pairing); // throws on cancel / failure
     keyring.load(key, pairing.deviceId);
     configure(pairing.gateway);
     try {
       const who = await api.whoami();
       if (who.status === "active") {
-        if (pairing.status !== "active") await savePairing({ ...pairing, status: "active" });
-        setPhase({ name: "ready", pairing: { ...pairing, status: "active" } });
+        const next = { ...pairing, status: "active" as const };
+        if (pairing.status !== "active") setServers((await saveServer(next)).list);
+        setPhase({ name: "ready", pairing: next });
       } else {
         setPhase({ name: "pending", pairing });
       }
@@ -111,27 +134,83 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const forget = useCallback(async () => {
+  const forget = useCallback(async (pairNext = false) => {
+    const target = pairingOf(phaseRef.current);
     // Best effort: remove the push token, then ask the gateway to delete this device (only
     // possible while unlocked; the server also drops the token when the device goes).
-    await unregisterPush();
+    if (keyring.isLoaded()) {
+      await unregisterPush();
+      await forgetDevice();
+    }
     clearPending();
-    await forgetDevice();
     keyring.wipe();
     configure(null);
-    await Promise.allSettled([wipeAll(), clearVoicePrefs()]);
-    setPhase({ name: "unpaired" });
+    const s = target ? await removeServer(target.deviceId) : { list: [], active: null };
+    setServers(s.list);
+    if (!s.list.length) {
+      await Promise.allSettled([wipeAll(), clearVoicePrefs(), clearPushPrefs()]);
+      setPhase({ name: "unpaired" });
+    } else if (pairNext) {
+      setPhase({ name: "adding", from: s.active });
+    } else {
+      setPhase(s.active ? { name: "locked", pairing: s.active } : { name: "unpaired" });
+    }
   }, []);
 
-  const startPending = useCallback((pairing: Pairing, privateKey: Uint8Array) => {
+  const forgetOther = useCallback(async (deviceId: string) => {
+    // The unlocked one goes through forget (it can tell its agentbox); judged by the key in memory,
+    // not the phase, which may not have caught up yet (e.g. right after pairing a replacement).
+    if (keyring.currentDevice() === deviceId) return forget();
+    setServers((await removeServer(deviceId)).list);
+  }, [forget]);
+
+  const switchTo = useCallback(async (deviceId: string) => {
+    const s = await setActive(deviceId);
+    if (s.active?.deviceId !== deviceId) return;
+    clearPending();
+    keyring.wipe();
+    configure(null);
+    setServers(s.list);
+    setPhase({ name: "locked", pairing: s.active });
+  }, []);
+
+  const rename = useCallback(async (deviceId: string, label: string) => {
+    const p = servers.find((x) => x.deviceId === deviceId);
+    if (!p) return;
+    const clean = label.replace(/[^\x20-\x7E]/g, "").trim().slice(0, 40);
+    const next = { ...p, label: clean || undefined };
+    setServers((await saveServer(next)).list);
+    const cur = phaseRef.current;
+    if ((cur.name === "ready" || cur.name === "pending" || cur.name === "locked") && cur.pairing.deviceId === deviceId) {
+      setPhase({ ...cur, pairing: next });
+    }
+  }, [servers]);
+
+  const addServer = useCallback(() => {
+    setPhase({ name: "adding", from: pairingOf(phaseRef.current) });
+  }, []);
+
+  const cancelAdd = useCallback(() => {
+    const p = phaseRef.current;
+    if (p.name !== "adding") return;
+    if (!p.from) setPhase({ name: "unpaired" });
+    // Still unlocked for the one we came from (adding doesn't touch its key): go straight back.
+    else if (keyring.currentDevice() === p.from.deviceId) {
+      configure(p.from.gateway);
+      setPhase(p.from.status === "active" ? { name: "ready", pairing: p.from } : { name: "pending", pairing: p.from });
+    } else setPhase({ name: "locked", pairing: p.from });
+  }, []);
+
+  const startPending = useCallback(async (pairing: Pairing, privateKey: Uint8Array) => {
     keyring.load(privateKey, pairing.deviceId);
     configure(pairing.gateway);
+    setServers((await saveServer(pairing, true)).list);
     setPhase({ name: "pending", pairing });
   }, []);
 
   const markActive = useCallback(async (pairing: Pairing) => {
     const next = { ...pairing, status: "active" as const };
-    await savePairing(next);
+    setServers((await saveServer(next, true)).list);
     setPhase({ name: "ready", pairing: next });
   }, []);
 
@@ -140,8 +219,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (p.name === "unrecognized" && p.pairing) setPhase({ name: "locked", pairing: p.pairing });
   }, []);
 
-  const value = useMemo(() => ({ phase, unlock, lock, forget, startPending, markActive, retry }),
-    [phase, unlock, lock, forget, startPending, markActive, retry]);
+  const value = useMemo(() => ({ phase, servers, unlock, lock, forget, forgetOther, switchTo, rename, addServer, cancelAdd, startPending, markActive, retry }),
+    [phase, servers, unlock, lock, forget, forgetOther, switchTo, rename, addServer, cancelAdd, startPending, markActive, retry]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

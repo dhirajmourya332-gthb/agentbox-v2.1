@@ -27,6 +27,9 @@ export function wipe() {
 
 export const isLoaded = () => key !== null;
 
+/** The device id of the unlocked pairing (one per agentbox), or null while locked. */
+export const currentDevice = () => (key ? deviceId : null);
+
 /** Called on every wipe (lock, forget), e.g. to drop cached images. */
 export function onWipe(f: () => void) {
   wipeListeners.add(f);

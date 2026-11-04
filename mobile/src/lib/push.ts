@@ -4,6 +4,7 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { isSafeId } from "../crypto/sign";
 import { setPushToken } from "./api";
+import * as keyring from "./keyring";
 
 /**
  * Push notifications (contract D), client side.
@@ -14,11 +15,18 @@ import { setPushToken } from "./api";
  * - Permission is asked for once, with an explanation, after pairing or on the first unlock.
  * - The Expo push token is registered with a signed POST on each unlock when it changed, and
  *   removed with a signed DELETE on Forget. No background fetch, no background tasks.
+ * - With several agentboxes paired, each one gets the token (when it's unlocked), so each can
+ *   notify. A tapped notification opens the agentbox that's active; its ids say nothing about
+ *   which agentbox sent it, by design.
  */
 
 export const CHANNEL = "attention";
 const ASKED = "agentbox.push.asked";
-const SENT = "agentbox.push.token";
+/** The token last sent to one agentbox (per device id; one pairing per agentbox). */
+const sentKey = () => {
+  const id = keyring.currentDevice();
+  return id ? `agentbox.push.token.${id}` : null;
+};
 
 export type PushTarget = { kind: string | null; roomId: string | null; attentionId: string | null };
 
@@ -127,6 +135,8 @@ function projectId(): string | undefined {
 export async function syncPushToken(): Promise<void> {
   if (Platform.OS !== "android") return;
   try {
+    const SENT = sentKey();
+    if (!SENT) return;
     const sent = await SecureStore.getItemAsync(SENT).catch(() => null);
     if ((await permissionState()) !== "granted") {
       if (sent && (await setPushToken(null))) await SecureStore.deleteItemAsync(SENT).catch(() => {});
@@ -144,9 +154,15 @@ export async function syncPushToken(): Promise<void> {
   }
 }
 
-/** On Forget: remove the token on the server (best effort) and forget it locally. */
+/** On Forget (of the unlocked agentbox): remove the token there (best effort) and forget it locally. */
 export async function unregisterPush(): Promise<void> {
+  const SENT = sentKey();
   await setPushToken(null).catch(() => false);
-  await Promise.allSettled([SecureStore.deleteItemAsync(SENT), SecureStore.deleteItemAsync(ASKED)]);
+  if (SENT) await SecureStore.deleteItemAsync(SENT).catch(() => {});
   pending = null;
+}
+
+/** When the last agentbox is forgotten: ask about notifications again after the next pairing. */
+export async function clearPushPrefs(): Promise<void> {
+  await Promise.allSettled([SecureStore.deleteItemAsync(ASKED), SecureStore.deleteItemAsync("agentbox.push.token")]);
 }

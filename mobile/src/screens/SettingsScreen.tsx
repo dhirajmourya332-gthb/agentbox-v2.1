@@ -5,13 +5,14 @@ import { AppState, Linking, ScrollView, StyleSheet, Switch, View } from "react-n
 import { downloadModel, LANGS, langLabel, onDeviceStatus, recognitionAvailable, setVoicePrefs, useVoicePrefs, type OnDeviceStatus } from "../lib/speech";
 import { permissionState, requestPermission, syncPushToken } from "../lib/push";
 import { usePairing, useSession, LOCK_AFTER_MS } from "../lib/session";
+import { serverName } from "../lib/vault";
 import { Button, Card, Screen, Segmented, T } from "../ui/kit";
 import { usePalette } from "../ui/theme";
 
 export function SettingsScreen() {
   const p = usePalette();
   const pairing = usePairing();
-  const { lock, forget } = useSession();
+  const { lock, forget, servers } = useSession();
   const [notif, setNotif] = useState<"granted" | "ask" | "denied" | null>(null);
 
   const check = useCallback(() => { permissionState().then(setNotif, () => setNotif(null)); }, []);
@@ -33,8 +34,8 @@ export function SettingsScreen() {
 
   const confirmForget = () =>
     showDialog(
-      "Forget this device?",
-      "Asks agentbox to remove this phone, then deletes its key and pairing here. To pair again you'll need a new code from the portal. If agentbox can't be reached, revoke this phone on the portal's Devices page.",
+      servers.length > 1 ? `Forget ${serverName(pairing)}?` : "Forget this device?",
+      `Asks agentbox to remove this phone, then deletes its key and pairing here.${servers.length > 1 ? " Your other agentboxes stay paired." : ""} To pair again you'll need a new code from the portal. If agentbox can't be reached, revoke this phone on the portal's Devices page.`,
       [
         { text: "Cancel", style: "cancel" },
         { text: "Forget", style: "destructive", onPress: () => { forget(); } },
@@ -42,6 +43,7 @@ export function SettingsScreen() {
     );
 
   const rows: [string, string][] = [
+    ["agentbox", serverName(pairing)],
     ["Device name", pairing.deviceName],
     ["Fingerprint", pairing.fingerprint],
     ["Gateway", pairing.gateway],
@@ -74,7 +76,7 @@ export function SettingsScreen() {
         </Card>
         <VoiceCard />
         <Button label="Lock now" onPress={lock} />
-        <Button variant="danger" label="Forget this device" onPress={confirmForget} />
+        <Button variant="danger" label={servers.length > 1 ? `Forget ${serverName(pairing)}` : "Forget this device"} onPress={confirmForget} />
         <T muted size={13}>Screenshots and screen recording are blocked in this app.</T>
       </ScrollView>
     </Screen>

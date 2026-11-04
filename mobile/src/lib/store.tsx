@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
 import { api, connectEvents, HttpError, isRoutineRun } from "./api";
-import type { Agent, Attention, Group, Message, Progress, RetiredAgent, Routine, RoutineRun, Step, Task, ThreadData, Usage, WorkRoom } from "./types";
+import type { Agent, Attention, DisplayHolder, Group, Message, Progress, RetiredAgent, Routine, RoutineRun, Step, Task, ThreadData, Usage, WorkRoom } from "./types";
 
 /**
  * Live data while unlocked, kept in memory only (the provider unmounts on lock, dropping it).
@@ -15,6 +15,8 @@ type State = {
   groups: Group[];
   usage: Usage | null;
   paused: boolean;
+  /** Who holds the shared screen ("owner", an agent id), or null. */
+  display: DisplayHolder;
   work: { live: WorkRoom[]; done: WorkRoom[] };
   workLoaded: boolean;
   routines: Routine[];
@@ -36,7 +38,7 @@ type State = {
 
 export type Ev = { type: string; [k: string]: any };
 type Action =
-  | { type: "loaded"; agents: Agent[]; retired: RetiredAgent[]; groups: Group[]; usage: Usage | null; paused: boolean; routines: Routine[] }
+  | { type: "loaded"; agents: Agent[]; retired: RetiredAgent[]; groups: Group[]; usage: Usage | null; paused: boolean; display: DisplayHolder; routines: Routine[] }
   | { type: "work"; work: State["work"] }
   | { type: "progress"; list: Progress[] }
   | { type: "attention"; items: Attention[] }
@@ -74,7 +76,7 @@ const isAttention = (x: any): x is Attention =>
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "loaded":
-      return { ...s, loaded: true, agents: a.agents, retired: a.retired, groups: a.groups, usage: a.usage, paused: a.paused, routines: a.routines, error: null };
+      return { ...s, loaded: true, agents: a.agents, retired: a.retired, groups: a.groups, usage: a.usage, paused: a.paused, display: a.display, routines: a.routines, error: null };
     case "work":
       return { ...s, work: a.work, workLoaded: true };
     case "progress":
@@ -117,6 +119,8 @@ function reducer(s: State, a: Action): State {
           return { ...s, agents: s.agents.filter((x) => x.id !== e.agentId) };
         case "paused":
           return { ...s, paused: !!e.paused };
+        case "display.updated":
+          return { ...s, display: e.display && typeof e.display.holder === "string" ? e.display : null };
         case "usage":
           return { ...s, usage: e.usage ?? null };
         case "group.updated":
@@ -193,7 +197,7 @@ type Store = State & {
 const Ctx = createContext<Store | null>(null);
 
 const INITIAL: State = {
-  connected: false, loaded: false, agents: [], retired: [], groups: [], usage: null, paused: false,
+  connected: false, loaded: false, agents: [], retired: [], groups: [], usage: null, paused: false, display: null,
   work: { live: [], done: [] }, workLoaded: false, routines: [], threads: {}, live: {},
   progress: null, attention: null, recent: [], runs: null, runsSupported: null, error: null,
 };
@@ -232,7 +236,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const [s, r, w] = await Promise.all([api.state(), api.routines(), api.work(), refreshLive()]);
-      dispatch({ type: "loaded", agents: s.agents, retired: s.retired ?? [], groups: s.groups ?? [], usage: s.usage ?? null, paused: s.paused, routines: r });
+      dispatch({ type: "loaded", agents: s.agents, retired: s.retired ?? [], groups: s.groups ?? [], usage: s.usage ?? null, paused: s.paused, display: s.display ?? null, routines: r });
       dispatch({ type: "work", work: w });
     } catch (e) {
       dispatch({ type: "error", error: e instanceof Error ? e.message : "Couldn't load" });

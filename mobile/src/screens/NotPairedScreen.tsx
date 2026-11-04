@@ -1,15 +1,20 @@
 import { StyleSheet, View } from "react-native";
 import { useSession } from "../lib/session";
+import { serverName } from "../lib/vault";
 import { Button, Screen, T } from "../ui/kit";
 
 /** Any signed request got a 404: revoked, denied, expired, or the request was refused. */
 export function NotPairedScreen() {
-  const { phase, forget, retry } = useSession();
+  const { phase, servers, forget, retry, switchTo } = useSession();
+  const current = phase.name === "unrecognized" ? phase.pairing : null;
+  const others = servers.filter((x) => x.deviceId !== current?.deviceId);
   const pending = phase.name === "unrecognized" && phase.pairing?.status === "pending";
   return (
     <Screen style={st.wrap}>
       <View style={st.center}>
-        <T size={24} weight="700" style={{ textAlign: "center" }}>This phone isn't paired any more</T>
+        <T size={24} weight="700" style={{ textAlign: "center" }}>
+          {current && servers.length > 1 ? `Not paired with ${serverName(current)} any more` : "This phone isn't paired any more"}
+        </T>
         <T muted style={{ textAlign: "center" }}>
           {pending
             ? "The request wasn't approved in time, or it was denied."
@@ -20,8 +25,9 @@ export function NotPairedScreen() {
         </T>
       </View>
       <View style={{ gap: 10 }}>
-        <Button variant="primary" label="Pair again" onPress={() => { forget(); }} />
+        <Button variant="primary" label="Pair again" onPress={() => { forget(true); }} />
         {phase.name === "unrecognized" && phase.pairing && !pending && <Button label="Try again" onPress={retry} />}
+        {others.map((x) => <Button key={x.deviceId} variant="ghost" label={`Switch to ${serverName(x)}`} onPress={() => { switchTo(x.deviceId); }} />)}
       </View>
     </Screen>
   );

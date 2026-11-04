@@ -75,6 +75,13 @@ app works normally, but it can't get a push token, so it never registers for not
 3. The app shows a fingerprint like `K3QF-7ZMA-2XWB-…`. Check it matches the pending device in the
    portal, then click **Approve** there. The app continues on its own (within 5 minutes).
 
+### More than one agentbox
+
+If you run agentbox on more than one VM (all on the same tailnet), pair the phone with each: tap the
+agentbox name at the top of the home screen → **Add another agentbox**, then scan that portal's code.
+Each gets its own key. The same chip switches between them (you unlock the other one); **Rename**
+gives each a name you'll recognise.
+
 To unpair, use **Settings → Forget this device**: it asks agentbox to remove the phone, then
 wipes it locally. If agentbox couldn't be reached, also **Revoke** it in the portal.
 

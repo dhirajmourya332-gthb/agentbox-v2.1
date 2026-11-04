@@ -270,6 +270,14 @@ const AUDIT_TITLES: [RegExp, string][] = [
   [/^file$/, "opened a file"],
   [/^device\/push-token\/on$/, "turned on notifications"],
   [/^device\/push-token\/off$/, "turned off notifications"],
+  [/^display\/take$/, "took control of the screen"],
+  [/^display\/release$/, "gave back the screen"],
+  [/^work\/[^/]+\/notes$/, "added a note"],
+  [/^notes\/[^/]+$/, "edited a note"],
+  [/^hosting\/[^/]+\/stop$/, "stopped a hosted service"],
+  [/^plans\/[^/]+\/decide$/, "decided on a plan"],
+  [/^setup-requests\/[^/]+\/start$/, "started a setup request"],
+  [/^setup-requests\/[^/]+\/reject$/, "declined a setup request"],
 ];
 export const auditTitle = (path: string) => AUDIT_TITLES.find(([re]) => re.test(path))?.[1] ?? `called ${path}`;
 

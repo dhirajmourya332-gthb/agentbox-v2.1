@@ -3,7 +3,8 @@ import * as keyring from "./keyring";
 import { base64url, strictEncode } from "../crypto/encoding";
 import { isSafeId } from "../crypto/sign";
 import type {
-  Agent, Attention, DisplayHolder, DocumentInfo, Group, Progress, RetiredAgent, Routine, RoutineRun, RoutineRunView, RoomView, Task, ThreadData, CleanedText, Usage, WorkRoom,
+  ActivityItem, Agent, Attention, DisplayHolder, DocumentInfo, Group, Health, HostedService, IntegrationSummary, Note, Progress, Repo, RetiredAgent, Routine,
+  RoutineRun, RoutineRunView, RoomView, Skill, SkillDraft, Task, Thread, ThreadData, CleanedText, Usage, WorkRoom,
 } from "./types";
 
 /**
@@ -62,7 +63,7 @@ const WHOAMI = "/m/v1/whoami";
 type Res = Awaited<ReturnType<typeof expoFetch>>;
 
 /** One signed request, no interpretation of the status beyond refusing redirects. */
-type Method = "GET" | "POST" | "DELETE";
+type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
 async function rawSigned(method: Method, path: string, body?: unknown, timeout = TIMEOUT_MS): Promise<Res> {
   if (halted) throw new NotRecognizedError();
@@ -212,6 +213,28 @@ export const api = {
   // Voice v2. Only text goes to agentbox (the phone did the recognition); it never sends anything.
   cleanVoice: (body: { text: string; purpose: "task" | "message"; agent_id?: string; lang?: string }) =>
     json<CleanedText>("POST", "/m/v1/voice/clean", body, CLEAN_TIMEOUT_MS),
+  // Web parity (v2.1). Older agentboxes answer these with 404/410: screens say "not available".
+  takeScreen: () => json<unknown>("POST", "/m/v1/display/take"),
+  releaseScreen: () => json<unknown>("POST", "/m/v1/display/release"),
+  screenInput: (input:
+    | { kind: "tap"; x: number; y: number; button?: "left" | "right"; double?: boolean }
+    | { kind: "scroll"; x: number; y: number; dir: "up" | "down"; amount?: number }
+    | { kind: "text"; text: string }
+    | { kind: "key"; key: string }) => json<{ ok: true }>("POST", "/m/v1/screen/input", input),
+  health: () => json<Health>("GET", "/m/v1/health"),
+  activity: (limit = 150) => json<ActivityItem[]>("GET", `/m/v1/activity?limit=${Math.max(1, Math.min(500, Math.floor(limit)))}`),
+  allDocuments: () => json<(DocumentInfo & { role: string })[]>("GET", "/m/v1/documents"),
+  agentDocuments: (agentId: string) => json<DocumentInfo[]>("GET", `/m/v1/agents/${seg(agentId)}/documents`),
+  agentThreads: (agentId: string) => json<Thread[]>("GET", `/m/v1/agents/${seg(agentId)}/threads`),
+  notes: (instanceId: string) => json<{ room_id: string; notes: Note[] }>("GET", `/m/v1/work/${seg(instanceId)}/notes`),
+  addNote: (instanceId: string, body: string) => json<Note>("POST", `/m/v1/work/${seg(instanceId)}/notes`, { body }),
+  updateNote: (id: string, body: string) => json<Note>("PATCH", `/m/v1/notes/${seg(id)}`, { body }),
+  deleteNote: (id: string) => json<unknown>("DELETE", `/m/v1/notes/${seg(id)}`),
+  hosted: () => json<{ services: HostedService[] }>("GET", "/m/v1/hosting"),
+  stopHosted: (id: string) => json<HostedService>("POST", `/m/v1/hosting/${seg(id)}/stop`),
+  integrations: () => json<{ integrations: IntegrationSummary[]; error: string | null }>("GET", "/m/v1/integrations/summary"),
+  repos: () => json<{ repos: Repo[] }>("GET", "/m/v1/repos"),
+  skills: () => json<{ skills: Skill[]; drafts: SkillDraft[] }>("GET", "/m/v1/skills"),
 };
 
 export type { Task };
@@ -247,6 +270,27 @@ export async function loadImage(filePath: string): Promise<string> {
   cache.set(filePath, uri);
   if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
   return uri;
+}
+
+/**
+ * One frame of the shared screen (signed GET, JPEG) as a data: URI. Never cached: every call is a
+ * fresh frame, and it's dropped with the screen. `width` is the frame's width in pixels.
+ */
+export async function loadScreen(width: number): Promise<string> {
+  const w = Math.max(320, Math.min(1920, Math.round(width)));
+  const res = await signedFetch("GET", `/m/v1/screen/snapshot?w=${w}`);
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => ({}));
+    const msg = data && typeof data === "object" && typeof (data as { error?: unknown }).error === "string" ? (data as { error: string }).error : `Couldn't load the screen (${res.status})`;
+    throw new HttpError(res.status, msg.slice(0, 300));
+  }
+  const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "image/jpeg") throw new Error("Not an image");
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes.length > MAX_IMAGE_BYTES) throw new Error("Frame too large");
+  if (!keyring.isLoaded()) throw new keyring.LockedError();
+  const b64 = base64url(bytes).replace(/-/g, "+").replace(/_/g, "/");
+  return `data:image/jpeg;base64,${b64}${"=".repeat((4 - (b64.length % 4)) % 4)}`;
 }
 
 // --- text documents ---------------------------------------------------------------------------

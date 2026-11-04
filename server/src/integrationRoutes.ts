@@ -12,7 +12,8 @@ import { LOCAL_TOKEN_HEADER } from "./access.ts";
 
 /**
  * Portal routes for integrations, the setup agent and approvals (docs/V2-ARCHITECTURE.md §10.3–10.5).
- * All under /api, so behind the portal's auth (access.ts). None are on the phone gateway's allowlist.
+ * All under /api, so behind the portal's auth (access.ts). Only GET /api/integrations/summary is on the
+ * phone gateway's allowlist.
  */
 
 const httpError = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
@@ -31,6 +32,20 @@ export function registerIntegrationRoutes(app: FastifyInstance) {
     return {
       integrations: list.map((it) => ({ ...it, roles: maps.filter((m) => m.integration_id === it.id).map((m) => m.role_id) })),
       setup_role_id: setupRole()?.id ?? null,
+      error,
+    };
+  });
+
+  // Status only, for the phone: no setting values, step instructions or check output.
+  app.get("/api/integrations/summary", async () => {
+    let list = cachedIntegrations() ?? [];
+    let error: string | null = null;
+    try { list = await listIntegrations({ maxAgeMs: 60_000 }); } catch (e: any) { error = e.message; }
+    return {
+      integrations: list.filter((it) => it.available).map((it) => ({
+        id: it.id, title: it.title, category: it.category, state: it.state, enabled: it.enabled, account: it.account,
+        last: it.last ? { action: it.last.action, ok: it.last.ok, at: it.last.at } : null,
+      })),
       error,
     };
   });

@@ -493,3 +493,43 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
   latest started run); other records have no `run_id` field. `root_id` stays `null` for routine work.
 - Storage: `routine_runs` gained `finished_at`, `status`, `summary` (additive; rows from before are
   backfilled at startup), plus indexes `routine_runs_at(at)` and a partial index on open runs.
+
+**Web parity (v2.1)** (server: `server/src/screenCapture.ts`, allowlist in `server/src/mobile.ts`)
+- Allowlisted reads: `GET screen/snapshot?w=` (a JPEG of the Xvfb display, 320–1920 px wide; one
+  capture shared for 600 ms; 503 when the display isn't running), `GET health` (the System page:
+  resources, services, browser, tools), `GET activity?limit=`, `GET documents` (already listed),
+  `GET agents/:id/threads`, `GET agents/:id/documents`, `GET work/:id/notes`, `GET hosting`,
+  `GET integrations/summary`, `GET repos`, `GET skills`.
+- Allowlisted writes: `POST display/take`, `POST display/release`, `POST screen/input`,
+  `POST work/:id/notes`, `PATCH notes/:id`, `DELETE notes/:id`, `POST hosting/:id/stop`. The gateway
+  now forwards PATCH and DELETE (only these two routes use them).
+- `POST screen/input` takes one of `{kind:"tap", x, y, button?: "left"|"right", double?}`,
+  `{kind:"scroll", x, y, dir:"up"|"down", amount?: 1–15}`, `{kind:"text", text}` (printable only,
+  at most 1000 characters) or `{kind:"key", key}` from a fixed list (Return, BackSpace, Tab, Escape,
+  Delete, arrows, Page_Up/Down, Home, End, F5, ctrl+a/c/v/x/z/l/t/w/r/f). `x`/`y` are fractions
+  (0–1) of the screen. It's refused (409) unless the owner holds the screen (`display/take`), the
+  same rule as the portal's noVNC view. Each input isn't audited; taking and releasing control are.
+- `GET integrations/summary` is new and phone-shaped: id, title, category, state, enabled, account
+  and the last action's result. No setting values, step instructions or check output; the full
+  `GET integrations` stays off.
+- Events added to the phone stream: `notes.updated` `{roomId}` and `hosting.updated` `{service}`.
+- Audited as "took control of the screen", "gave back the screen", "added a note", "edited a
+  note", "stopped a hosted service".
+- Still 404 through the gateway: the terminal, `screen/credential`, `GET agents/:id` (instructions
+  and memory), agent / skill / routine / repo / integration writes, approvals, devices, settings.
+- Tests: `server/test/mobile-parity.test.ts`.
+
+**Several agentboxes on one phone (app 1.4.0)**
+- The app keeps a list of pairings (`agentbox.servers` in secure storage), one per agentbox. Each
+  pairing has its **own Ed25519 key in its own secure-store slot** (`agentbox.key.<random>`); the
+  pairing from before 1.4.0 is migrated as is and keeps `agentbox.key`. Nothing changes on the
+  server: each agentbox sees an ordinary paired device.
+- Only the active agentbox's key is ever in memory. Switching wipes it, locks, and asks to unlock
+  the other one (its own biometric / screen-lock prompt). Store, socket and navigation are rebuilt
+  per agentbox.
+- Forget removes only the active agentbox (signed `device/forget` first, as before); the next one
+  becomes active. Forgetting one that isn't unlocked is local only, so revoke it on its portal too.
+  Pairing an agentbox that's already in the list replaces the old entry here.
+- The push token is sent to each agentbox when it's unlocked (the last sent token is remembered per
+  device id). A tapped notification opens the active agentbox: its ids don't say which one sent it.
+- Every agentbox must be on the phone's tailnet, each with the mobile module (its own gateway URL).

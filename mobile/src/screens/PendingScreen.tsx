@@ -12,7 +12,7 @@ const POLL_MS = 3000;
 /** Show the fingerprint and wait for the owner to approve this phone in the portal. */
 export function PendingScreen({ pairing }: { pairing: Pairing }) {
   const p = usePalette();
-  const { markActive, forget } = useSession();
+  const { markActive, forget, servers } = useSession();
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
@@ -35,7 +35,9 @@ export function PendingScreen({ pairing }: { pairing: Pairing }) {
   }, [pairing, markActive]);
 
   const cancel = () =>
-    showDialog("Cancel pairing?", "This phone forgets its key. Deny the request in the portal too.", [
+    showDialog("Cancel pairing?", servers.length > 1
+      ? "This phone forgets the new key and goes back to your other agentbox. Deny the request in the portal too."
+      : "This phone forgets its key. Deny the request in the portal too.", [
       { text: "Keep waiting", style: "cancel" },
       { text: "Cancel pairing", style: "destructive", onPress: () => { forget(); } },
     ]);

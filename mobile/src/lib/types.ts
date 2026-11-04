@@ -52,7 +52,7 @@ export type Routine = {
   id: string; agent_id: string; name: string; cron: string; timezone: string; enabled: boolean;
   next_runs: string[]; describe: string; last_run: RoutineLastRun | null;
 };
-export type DisplayHolder = { holder: string; reason: string; since: string } | null;
+export type DisplayHolder = { holder: string; reason: string; since: string; task_id?: string | null } | null;
 export type ThreadData = { messages: Message[]; tasks: Task[]; steps: Step[] };
 export type Usage = {
   status: "allowed" | "allowed_warning" | "rejected"; resetsAt?: number; utilization?: number;
@@ -100,3 +100,47 @@ export type RoutineRunView = {
   run: RoutineRun; messages: Message[]; tasks: Task[]; steps: Step[];
   threads: { id: string; agent_id: string; kind: string }[]; members: InstanceSummary[];
 };
+
+// --- web parity (v2.1) -------------------------------------------------------------------------
+
+/** GET /agents/:id/threads: an agent's conversations (its own chat, hand-offs, routine threads). */
+export type Thread = { id: string; kind: "dm" | "handoff" | "group" | "routine"; agent_id: string; peer_agent_id: string | null; name: string | null; last_at: string | null };
+/** GET /activity: the portal's Activity feed. */
+export type ActivityItem = {
+  id: string; ts: string; kind: string; actor: string; agent_id: string | null; title: string; detail?: string; task_id?: string | null; link?: string;
+};
+/** A note in a task's notebook (owner only; agents never read them). */
+export type Note = {
+  id: string; room_id: string; quote: string | null; body: string; message_id: string | null; author: string | null;
+  created_at: string; updated_at: string;
+};
+/** A service an agent hosts. `url` works from any device on the tailnet. */
+export type HostedService = {
+  id: string; name: string; kind: "static" | "command"; dir: string; command: string | null; port: number | null;
+  status: "running" | "stopped" | "exited"; url: string; started_by: string; started_by_id: string;
+  room_id: string; created_at: string; stopped_at: string | null; stop_reason: string | null;
+};
+export type VmAlert = { id: string; level: "warn" | "critical"; title: string; detail: string };
+export type Health = {
+  services: Record<string, string>;
+  browser: { ok: boolean; version?: string; disabled?: true };
+  tools: Record<string, string | null>;
+  tool_integrations?: Record<string, { id: string; connected: boolean }>;
+  resources?: {
+    disks: { mount: string; paths: string[]; total: number; free: number; used_pct: number; inodes_used_pct: number | null }[];
+    memory: { total: number; available: number; used_pct: number; swap_total: number; swap_free: number } | null;
+    alerts: VmAlert[];
+  };
+};
+/** GET /integrations/summary: status only. */
+export type IntegrationSummary = {
+  id: string; title: string; category: string; state: string; enabled: boolean; account: string | null;
+  last: { action: string; ok: boolean | null; at: string | null } | null;
+};
+export type Repo = {
+  id: string; name: string; url: string; provider: string; default_branch: string | null; description: string;
+  status: "cloning" | "ready" | "error" | "archived"; last_fetch_at: string | null; error: string | null;
+  map_status: "none" | "choosing" | "running" | "ready" | "error";
+};
+export type Skill = { name: string; description: string; agents: string[]; updated_at: string };
+export type SkillDraft = { id: string; name: string; description: string; proposed_by: string; status: "pending" | "approved" | "rejected"; created_at: string };

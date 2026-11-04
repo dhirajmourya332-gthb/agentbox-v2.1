@@ -47,6 +47,7 @@ import { registerPdfRoutes } from "./pdf.ts";
 import { registerWakeupRoutes, startWakeups } from "./wakeups.ts";
 import { registerMemoryRoutes, startMemory } from "./memory.ts";
 import { registerNoteRoutes } from "./notes.ts";
+import { registerScreenRoutes } from "./screenCapture.ts";
 import { listCrews, registerCrewRoutes, setRoleCrew } from "./crews.ts";
 import { addLink, registerLinkRoutes } from "./linkedWork.ts";
 import { registerGroupWorkRoutes } from "./groupWork.ts";
@@ -143,6 +144,8 @@ if (DISPLAY) {
     releaseDisplay();
     return { ok: true };
   });
+  // Snapshot and input, for the phone (it can't run noVNC).
+  registerScreenRoutes(app);
 }
 
 // --- activity ---------------------------------------------------------------------

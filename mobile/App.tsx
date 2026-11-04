@@ -23,6 +23,15 @@ import { RunScreen } from "./src/screens/RunScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { UnlockScreen } from "./src/screens/UnlockScreen";
 import { WorkScreen } from "./src/screens/WorkScreen";
+import { ActivityScreen } from "./src/screens/ActivityScreen";
+import { AgentScreen } from "./src/screens/AgentScreen";
+import { ConnectionsScreen } from "./src/screens/ConnectionsScreen";
+import { DocumentsScreen } from "./src/screens/DocumentsScreen";
+import { HostedScreen } from "./src/screens/HostedScreen";
+import { ServersScreen } from "./src/screens/ServersScreen";
+import { SharedScreenScreen } from "./src/screens/SharedScreenScreen";
+import { SystemScreen } from "./src/screens/SystemScreen";
+import { TeamScreen } from "./src/screens/TeamScreen";
 import { PauseControl } from "./src/ui/PauseControl";
 import { DialogHost, showDialog } from "./src/ui/dialog";
 import { T } from "./src/ui/kit";
@@ -71,15 +80,18 @@ function Gate() {
     case "boot":
       return pre(<ActivityIndicator style={{ flex: 1 }} color={p.muted} />);
     case "unpaired":
+    case "adding":
       return pre(<PairScreen />);
     case "locked":
-      return pre(<UnlockScreen />);
+      // Keyed: switching agentboxes remounts it, which prompts for the new one straight away.
+      return pre(<UnlockScreen key={phase.pairing.deviceId} />);
     case "pending":
       return pre(<PendingScreen pairing={phase.pairing} />);
     case "unrecognized":
       return pre(<NotPairedScreen />);
     case "ready":
-      return <MainApp />;
+      // Keyed: each agentbox gets a fresh store, socket and navigation stack.
+      return <MainApp key={phase.pairing.deviceId} />;
   }
 }
 
@@ -104,6 +116,15 @@ function MainApp() {
           <Nav.Screen name="Routines" component={RoutinesScreen} options={{ title: "Routines", headerRight: () => <PauseControl /> }} />
           <Nav.Screen name="Run" component={RunScreen} options={{ title: "Routine run" }} />
           <Nav.Screen name="Settings" component={SettingsScreen} options={{ title: "Settings" }} />
+          <Nav.Screen name="SharedScreen" component={SharedScreenScreen} options={{ title: "Screen" }} />
+          <Nav.Screen name="Team" component={TeamScreen} options={{ title: "Team" }} />
+          <Nav.Screen name="Agent" component={AgentScreen} options={{ title: "Agent" }} />
+          <Nav.Screen name="Documents" component={DocumentsScreen} options={{ title: "Documents" }} />
+          <Nav.Screen name="Activity" component={ActivityScreen} options={{ title: "Activity" }} />
+          <Nav.Screen name="System" component={SystemScreen} options={{ title: "System" }} />
+          <Nav.Screen name="Hosted" component={HostedScreen} options={{ title: "Hosted services" }} />
+          <Nav.Screen name="Connections" component={ConnectionsScreen} options={{ title: "Integrations & repos" }} />
+          <Nav.Screen name="Servers" component={ServersScreen} options={{ title: "Your agentboxes" }} />
         </Nav.Navigator>
       </NavigationContainer>
       <PushBridge navReady={navReady} />

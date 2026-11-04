@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { showDialog } from "../ui/dialog";
 import { StyleSheet, View } from "react-native";
 import { useSession } from "../lib/session";
-import { KeyMissingError } from "../lib/vault";
+import { KeyMissingError, serverName } from "../lib/vault";
 import { Button, ErrorBox, Screen, T } from "../ui/kit";
 
 /** Shown on every launch and after 2 minutes in the background. */
 export function UnlockScreen() {
-  const { phase, unlock, forget } = useSession();
+  const { phase, servers, unlock, forget, switchTo } = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -36,7 +36,7 @@ export function UnlockScreen() {
 
   const pairing = phase.name === "locked" ? phase.pairing : null;
   const confirmForget = () =>
-    showDialog("Forget this device?", "This deletes this phone's key and pairing. The app is locked, so it can't tell agentbox: revoke it on the portal's Devices page too.", [
+    showDialog(`Forget ${pairing ? serverName(pairing) : "this agentbox"}?`, "This deletes this phone's key and pairing for it. The app is locked, so it can't tell agentbox: revoke it on the portal's Devices page too.", [
       { text: "Cancel", style: "cancel" },
       { text: "Forget", style: "destructive", onPress: () => { forget(); } },
     ]);
@@ -45,6 +45,7 @@ export function UnlockScreen() {
     <Screen style={st.wrap}>
       <View style={st.center}>
         <T size={28} weight="700">agentbox</T>
+        {pairing && servers.length > 1 && <T weight="600">{serverName(pairing)}</T>}
         <T muted style={{ textAlign: "center" }}>
           {pairing?.keyMode === "biometric" ? "Unlock with your fingerprint or face." : "Unlock with your screen lock."}
         </T>
@@ -56,7 +57,12 @@ export function UnlockScreen() {
         )}
         <Button variant="primary" label="Unlock" onPress={go} busy={busy} style={{ alignSelf: "stretch" }} />
       </View>
-      <Button variant="ghost" label="Forget this device" onPress={confirmForget} />
+      <View style={{ gap: 4 }}>
+        {servers.filter((x) => x.deviceId !== pairing?.deviceId).map((x) => (
+          <Button key={x.deviceId} variant="ghost" label={`Switch to ${serverName(x)}`} onPress={() => { switchTo(x.deviceId); }} />
+        ))}
+        <Button variant="ghost" label={servers.length > 1 ? `Forget ${pairing ? serverName(pairing) : "this agentbox"}` : "Forget this device"} onPress={confirmForget} />
+      </View>
     </Screen>
   );
 }
