@@ -9,7 +9,8 @@ import { onProgressState } from "./progress.ts";
  * - reply: an owner-started task (top-level instance, created_by "owner") posts a reply in its own
  *   conversation, or a group turn posts a reply that hands the turn to nobody (back to the owner).
  *   One unseen reply per room: a newer reply refreshes it (new title, task and time). Replies are
- *   "unread", not "needs you": the portal lists them apart, they don't count in the badge or push.
+ *   "unread", not "needs you": the portal lists them apart, they don't count in the badge, and
+ *   they push only once the work is done (push.ts workFinished).
  * - question: the agent asks the owner (ask_owner), a plan waits for them, or a setup request.
  * - failed: a turn of an owner-started task's lead fails, or one in a group. A helper's failure goes
  *   to its lead as a report instead.

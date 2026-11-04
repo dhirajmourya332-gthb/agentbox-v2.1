@@ -112,7 +112,9 @@ wipes it locally. If agentbox couldn't be reached, also **Revoke** it in the por
   its own. Going to the background, locking or leaving the screen aborts recognition and discards
   everything heard. The speech module's manifest entry is a `<queries>` element (package visibility
   for the Google app and any `android.speech.RecognitionService`), not a permission.
-- Notifications say only "Something needs you" and carry ids, never text. Tapping one opens the
+- Notifications come only when an agent needs your input or a decision, a task is blocked, or your
+  task is done. They say only that ("An agent needs your input", "A task is blocked", "A task is
+  done") and carry ids, never text. Tapping one opens the
   app, which still asks you to unlock before showing anything.
 - Every dialog is drawn in-app, so screenshot blocking covers it too. If screenshot blocking can't
   be turned on, the app shows nothing.

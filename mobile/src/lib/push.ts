@@ -9,7 +9,8 @@ import * as keyring from "./keyring";
 /**
  * Push notifications (contract D), client side.
  *
- * - Notifications are content-free ("Something needs you"); `data` carries only ids
+ * - Notifications are content-free ("An agent needs your input", "A task is blocked", "A task is
+ *   done"); `data` carries only ids
  *   `{ kind, room_id, attention_id }`. Tapping one opens the app, which still has to be unlocked;
  *   the ids are validated, held in memory, and only used to navigate (and fetch) after unlock.
  * - Permission is asked for once, with an explanation, after pairing or on the first unlock.
@@ -91,7 +92,7 @@ export function initPush(): () => void {
 async function ensureChannel() {
   await Notifications.setNotificationChannelAsync(CHANNEL, {
     name: "Needs you",
-    description: "When an agent replies, fails or looks stuck. No details are shown.",
+    description: "When an agent needs your input, a task is blocked, or your task is done. No details are shown.",
     importance: Notifications.AndroidImportance.HIGH,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
     showBadge: true,

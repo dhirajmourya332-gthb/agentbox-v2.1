@@ -150,7 +150,7 @@ function PushBridge({ navReady }: { navReady: boolean }) {
         if (!alive) return;
         showDialog(
           "Get notified when something needs you?",
-          "agentbox can notify this phone when an agent replies to you, fails or looks stuck. The notification only says \"Something needs you\", with no details, and opening it still asks you to unlock.",
+          "agentbox can notify this phone when an agent needs your input or a decision, when a task is blocked, and when your task is done. Notifications say only that (\"An agent needs your input\", \"A task is blocked\", \"A task is done\"), with no details, and opening one still asks you to unlock.",
           [
             { text: "Not now", style: "cancel", onPress: () => { markAsked(); } },
             { text: "Allow", onPress: () => { requestPermission().then((ok) => { if (ok) syncPushToken(); }, () => {}); } },

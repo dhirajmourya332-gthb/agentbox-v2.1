@@ -68,7 +68,7 @@ export function SettingsScreen() {
           <T muted size={13}>Notifications</T>
           <T>{notif === "granted" ? "On" : notif === null ? "…" : "Off"}</T>
           <T muted size={13}>
-            When an agent replies to you, fails or looks stuck. Notifications only say "Something needs you"; opening one still asks you to unlock.
+            Only when an agent needs your input or a decision, a task is blocked (failed or stuck), or your task is done. No details are shown; opening one still asks you to unlock.
           </T>
           {notif !== "granted" && notif !== null && (
             <Button small label={notif === "denied" ? "Open Android settings" : "Turn on notifications"} onPress={enableNotifications} style={{ alignSelf: "flex-start" }} />

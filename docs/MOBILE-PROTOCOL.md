@@ -533,3 +533,10 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
 - The push token is sent to each agentbox when it's unlocked (the last sent token is remembered per
   device id). A tapped notification opens the active agentbox: its ids don't say which one sent it.
 - Every agentbox must be on the phone's tailnet, each with the mobile module (its own gateway URL).
+
+**What pushes (app 1.4.0)**
+- Only three things: an agent needs your input or decision (`question`: ask_owner, a plan, a setup
+  request), a task is blocked (`failed`, `stalled`), or your work is done (`reply`, sent only when
+  nothing in that task room or group is still running or queued: `workFinished` in push.ts).
+- Bodies by kind, still content-free: "An agent needs your input", "A task is blocked", "A task is
+  done"; several within the 30 s window: "N things need you". Details mode is unchanged.

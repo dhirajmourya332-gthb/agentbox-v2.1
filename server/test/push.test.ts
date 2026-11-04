@@ -72,7 +72,7 @@ await test("first item: one request, content-free body, ids-only data, channel a
   assert(msgs.length === 2, `messages: ${msgs.length} (want devices A and B only)`);
   assert(new Set(msgs.map((m) => m.to)).size === 2 && msgs.every((m) => m.to === tokenOf(A) || m.to === tokenOf(B)), "wrong recipients");
   for (const m of msgs) {
-    assert(m.title === "agentbox" && m.body === "Something needs you", `title/body: ${m.title} / ${m.body}`);
+    assert(m.title === "agentbox" && m.body === "An agent needs your input", `title/body: ${m.title} / ${m.body}`);
     assert(JSON.stringify(Object.keys(m.data).sort()) === JSON.stringify(["attention_id", "kind", "room_id"]), `data keys ${Object.keys(m.data)}`);
     assert(m.data.kind === "question" && m.data.attention_id === "att-1" && m.data.room_id === "room-1", "data values");
     assert(m.channelId === "attention" && m.priority === "high", "channel/priority");
@@ -172,6 +172,34 @@ await test("the test notification: content-free, rate-limited, 409 without a tok
   assert(m.body === "Test notification" && m.data.kind === "test" && m.data.room_id === null, "test message shape");
   assert((await push.sendTestPush(t)).status === 429, "not rate-limited");
   assert((await push.sendTestPush(addDevice("active", null))).status === 409, "no token → 409");
+});
+
+await test("only input, blocked and done push; a reply waits until nothing in its task is running", async () => {
+  const at = now();
+  const agent = (id: string, parent: string | null) =>
+    run(`INSERT INTO agents (id, slug, name, title, color, created_at, parent_instance_id) VALUES (?, ?, ?, 'Agent', '#888', ?, ?)`, id, id, id, at, parent);
+  agent("lead-1", null); agent("helper-1", "lead-1");
+  run(`INSERT INTO threads (id, kind, agent_id, created_at) VALUES ('thr-1', 'dm', 'lead-1', ?)`, at);
+  run(`INSERT INTO tasks (id, agent_id, thread_id, source, prompt, status, created_at) VALUES ('t-h', 'helper-1', 'thr-1', 'agent', 'x', 'running', ?)`, at);
+  assert(!push.workFinished("lead-1"), "a running helper counts as unfinished");
+  run(`UPDATE tasks SET status = 'done' WHERE id = 't-h'`);
+  assert(push.workFinished("lead-1"), "nothing open: finished");
+  assert(!push.workFinished(null), "no room: never finished");
+  const msg = (kind: "question" | "failed" | "stalled" | "reply") => push.buildMessage("ExponentPushToken[x]", 1, { ...item(), kind }, false).body;
+  assert(msg("question") === "An agent needs your input" && msg("failed") === "A task is blocked" && msg("stalled") === "A task is blocked" && msg("reply") === "A task is done", "bodies");
+
+  const t = addDevice("active", tok("R"));
+  await sleep(COALESCE + 200);
+  run(`UPDATE tasks SET status = 'queued' WHERE id = 't-h'`);
+  const before = allMessages().length;
+  await push.sendAttentionPush({ ...item(), kind: "reply", room_id: "lead-1" });
+  await sleep(300);
+  assert(allMessages().length === before, "a reply pushed while work was still queued");
+  run(`UPDATE tasks SET status = 'done' WHERE id = 't-h'`);
+  await push.sendAttentionPush({ ...item(), kind: "reply", room_id: "lead-1" });
+  await sleep(300);
+  assert(allMessages().slice(before).some((m) => m.body === "A task is done" && m.to === tokenOf(t)), "a finished reply didn't push");
+  devices.revokeDevice(t);
 });
 
 await mock.close();

@@ -5,9 +5,14 @@ import { enabled } from "./config.ts";
 /**
  * Push notifications to paired phones through Expo's push service (docs/CONTRACTS-v2.md › D).
  *
- * - Content-free by default: title "agentbox", body "Something needs you" / "N things need you",
- *   and `data` holds only ids ({ kind, room_id, attention_id }). The portal's "Show details in
- *   notifications" (meta `push_details`) adds the attention title to the body.
+ * - Only three things push: an agent needs your input or decision (question: ask_owner, a plan,
+ *   a setup request), a task is blocked (failed, or stuck), or your work is done (a reply in an
+ *   owner-started task or a group once nothing in it is still running or queued). Replies while
+ *   helpers are still at work don't push.
+ * - Content-free by default: title "agentbox", body by kind ("An agent needs your input", "A task
+ *   is blocked", "A task is done") or "N things need you", and `data` holds only ids
+ *   ({ kind, room_id, attention_id }). The portal's "Show details in notifications" (meta
+ *   `push_details`) adds the attention title to the body.
  * - At most one push per device every 30 s; whatever arrives meanwhile is summed into one push.
  * - Expo tickets and, later, receipts: a token Expo reports as DeviceNotRegistered is dropped.
  * - Tokens and notification text are never logged.
@@ -128,8 +133,15 @@ const clean = (s: unknown, max: number) =>
 
 const idOrNull = (s: unknown) => (typeof s === "string" && /^[A-Za-z0-9_:.-]{1,128}$/.test(s) ? s : null);
 
+const KIND_BODY: Record<Attention["kind"], string> = {
+  question: "An agent needs your input",
+  failed: "A task is blocked",
+  stalled: "A task is blocked",
+  reply: "A task is done",
+};
+
 export function buildMessage(token: string, count: number, latest: Attention, details: boolean): ExpoMessage {
-  let body = count > 1 ? `${count} things need you` : "Something needs you";
+  let body = count > 1 ? `${count} things need you` : KIND_BODY[latest.kind] ?? "Something needs you";
   if (details) {
     const t = clean(latest.title, 160);
     if (t) body = count > 1 ? `${count} things need you. Latest: ${t}` : t;
@@ -242,10 +254,25 @@ async function flush(ids: string[]) {
  * A new attention item: push to every active device with a token, at most once per device per
  * 30 s. Resolves once anything sendable right away has been handed to Expo.
  */
+/**
+ * Whether nothing in a task room (the owner-started root and every task it started) or a group is
+ * still running or queued. A helper reporting back queues the lead, so this only holds once the
+ * lead's final reply is in.
+ */
+export function workFinished(roomId: string | null): boolean {
+  if (!roomId) return false;
+  const busy = get(
+    `WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT a.id FROM agents a JOIN tree t ON a.parent_instance_id = t.id)
+     SELECT 1 FROM tasks WHERE status IN ('running', 'queued') AND (thread_id = ? OR agent_id IN (SELECT id FROM tree)) LIMIT 1`,
+    roomId, roomId,
+  );
+  return !busy;
+}
+
 export async function sendAttentionPush(item: Attention) {
   if (!item || typeof item.id !== "string" || item.seen_at) return;
-  // Replies are "unread", not "needs you": no push for them.
-  if (item.kind === "reply") return;
+  // A reply pushes only when the work is done: nothing in its task or group still running or queued.
+  if (item.kind === "reply" && !workFinished(item.room_id)) return;
   const t = Date.now();
   for (const [id, at] of queued) if (t - at > DEDUPE_MS) queued.delete(id);
   const key = `${item.id}@${item.created_at}`; // a refreshed reply keeps its id but gets a new time
