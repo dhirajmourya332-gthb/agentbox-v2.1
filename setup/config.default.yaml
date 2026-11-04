@@ -47,5 +47,5 @@ modules:                  # base: core, claude and access are always on; display
 tailscale: { hostname: "" }                         # set by the access module
 cloudflare: { hostname: "", team_domain: "", aud: "" }  # set by the access module
 owner: { tailscale_login: "", email: "" }           # who may use the portal (set during setup)
-mobile: { serve_port: 8443, expo_owner: "", eas_project_id: "" }   # gateway: https://<node>.ts.net:<serve_port>
+mobile: { serve_port: 8443, app_source: "", app_url: "", expo_owner: "", eas_project_id: "" }   # gateway: https://<node>.ts.net:<serve_port>
 hosting: { serve_port: 10000 }                      # hosted services: https://<node>.ts.net:<serve_port>/<name>/

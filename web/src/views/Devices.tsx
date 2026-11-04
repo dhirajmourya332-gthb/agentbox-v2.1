@@ -29,7 +29,7 @@ const mmss = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-function Qr({ payload }: { payload: string }) {
+function Qr({ payload, label = "Pairing QR code" }: { payload: string; label?: string }) {
   const [svg, setSvg] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -40,8 +40,25 @@ function Qr({ payload }: { payload: string }) {
   }, [payload]);
   // Generated locally from our own payload; always dark on white so phones can scan it in dark mode.
   return (
-    <div role="img" aria-label="Pairing QR code" style={{ width: 232, height: 232, background: "#fff", borderRadius: "var(--r-card)", padding: 8 }}
+    <div role="img" aria-label={label} style={{ width: 232, height: 232, background: "#fff", borderRadius: "var(--r-card)", padding: 8 }}
       dangerouslySetInnerHTML={svg ? { __html: svg } : undefined} />
+  );
+}
+
+/** The app to install, when the owner saved its link (`mobile.app_url`): open it on the phone, or scan. */
+function GetTheApp({ url }: { url: string | null }) {
+  if (!url) return null;
+  return (
+    <>
+      <h2>Get the app</h2>
+      <div className="group-intro" style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+        <Qr payload={url} label="QR code to download the phone app" />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <p>Scan this with the phone's camera to download the Android app, then install it (allow "install unknown apps" for the browser when Android asks). If the app is already installed, the new one installs over it and keeps its pairings.</p>
+          <p><a href={url} target="_blank" rel="noopener noreferrer">Download link ↗</a></p>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -381,6 +398,7 @@ function DevicesOn() {
         <h1>Devices</h1>
         <p className="lede">Phones that can reach agentbox through the mobile app, over your tailnet only.</p>
         {error && <div className="error-box">{error}</div>}
+        <GetTheApp url={gateway?.app_url ?? null} />
         <PairPhone pending={devices?.pending ?? []} onChange={load} />
         <PendingList devices={devices?.pending ?? []} onChange={load} />
         <PairedList devices={devices?.active ?? []} onChange={load} />

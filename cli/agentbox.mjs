@@ -63,6 +63,8 @@ function validate(parts, value) {
   else if (top === "agent_sudo" || top === "docker") want(typeof value === "boolean", "true or false");
   else if (top === "paths") want(typeof value === "string" && path.isAbsolute(value), "an absolute path");
   else if (top === "ports" || (top === "mobile" && sub === "serve_port")) want(Number.isInteger(value) && value > 0 && value < 65536, "a TCP port");
+  else if (top === "mobile" && sub === "app_source") want(["download", "build", ""].includes(value), "download or build");
+  else if (top === "mobile" && sub === "app_url") want(value === "" || (typeof value === "string" && /^https:\/\/[^\s"'<>]{4,2000}$/.test(value)), "an https:// link to the APK");
   else if (top === "modules") {
     want(typeof value === "boolean", "true or false");
     want(!(REQUIRED.includes(sub) && value === false), "this module is always on");

@@ -198,6 +198,19 @@ function readFileModules(file: string): Record<string, boolean> | null {
   } catch { return null; }
 }
 
+/**
+ * The phone app's download link (`mobile.app_url`), read fresh from the file so `config set` shows
+ * on the Devices page without a restart. https only; anything else is null.
+ */
+export function phoneAppUrl(): string | null {
+  if (config.source === "defaults") return null;
+  try {
+    const raw = parse(fs.readFileSync(config.source, "utf8"));
+    const u = isObj(raw) && isObj(raw.mobile) ? raw.mobile.app_url : null;
+    return typeof u === "string" && /^https:\/\/[^\s"'<>]{4,2000}$/.test(u) ? u : null;
+  } catch { return null; }
+}
+
 /** Called with the ids whose `modules.<id>` changed after the file was re-read. */
 export function onModulesChange(fn: (changed: string[]) => void) {
   listeners.add(fn);

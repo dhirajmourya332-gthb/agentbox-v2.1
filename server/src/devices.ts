@@ -5,7 +5,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { all, db, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 import { b64urlBytes } from "./signing.ts";
-import { config } from "./config.ts";
+import { config, phoneAppUrl } from "./config.ts";
 
 const servePort = config.mobile.serve_port;
 
@@ -329,12 +329,14 @@ export type GatewayStatus = {
   manual_url: string | null;
   url: string | null;
   port: number;
+  /** The phone app's download link (`mobile.app_url`), if the owner saved one. */
+  app_url: string | null;
 };
 
 let cached: { at: number; value: GatewayStatus } | null = null;
 
 export async function gatewayStatus(port: number, fresh = false): Promise<GatewayStatus> {
-  if (!fresh && cached && Date.now() - cached.at < 5000) return { ...cached.value, manual_url: manualUrl(), url: cached.value.tailscale.url ?? manualUrl() };
+  if (!fresh && cached && Date.now() - cached.at < 5000) return { ...cached.value, manual_url: manualUrl(), url: cached.value.tailscale.url ?? manualUrl(), app_url: phoneAppUrl() };
   const ts: GatewayStatus["tailscale"] = {
     installed: false, backend_state: null, dns_name: null, url: null, serve_target: null, funnel: null, funnel_capable: null,
   };
@@ -377,7 +379,7 @@ export async function gatewayStatus(port: number, fresh = false): Promise<Gatewa
       if (/funnel on/i.test(stdout)) ts.funnel = true;
     } catch { /* older CLI or not running */ }
   }
-  const value: GatewayStatus = { tailscale: ts, guard: await guardStatus(), manual_url: manualUrl(), url: ts.url ?? manualUrl(), port };
+  const value: GatewayStatus = { tailscale: ts, guard: await guardStatus(), manual_url: manualUrl(), url: ts.url ?? manualUrl(), port, app_url: phoneAppUrl() };
   cached = { at: Date.now(), value };
   return value;
 }

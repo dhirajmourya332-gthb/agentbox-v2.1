@@ -255,6 +255,8 @@ export type GatewayStatus = {
   manual_url: string | null;
   url: string | null;
   port: number;
+  /** The phone app's download link (`mobile.app_url`), when the owner saved one. */
+  app_url?: string | null;
 };
 
 /** server/src/repos.ts › repoView. */

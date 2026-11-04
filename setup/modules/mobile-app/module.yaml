@@ -2,19 +2,48 @@ id: mobile-app
 kind: integration
 category: extras
 title: Phone app (Android)
-description: Build the agentbox Android app with Expo EAS (cloud build; no Android SDK on the VM)
+description: Get the agentbox Android app onto your phone, either by downloading an app you already built (a link, no Expo account) or by building it with Expo EAS (cloud build; no Android SDK on the VM)
 optional: true
 depends: [mobile]
 skills: []
 default_roles: []
 revoke: |
-  On the VM: `eas logout`. Revoke the session at https://expo.dev → Account settings → Sessions.
+  Download: nothing to revoke. Build: on the VM `eas logout`, and revoke the session at
+  https://expo.dev → Account settings → Sessions.
 steps:
+  - id: choose
+    title: Download an existing app, or build it
+    human: true
+    instructions: |
+      Two ways to get the app. Pick one in the terminal:
+
+      1. Download an app you already built (fastest; no Expo login, no build). You need its APK
+         link, e.g. the expo.dev/artifacts/… link from an earlier build (on this or another
+         agentbox), or any https link to the APK:
+           `sudo agentbox config set mobile.app_source download`
+           `sudo agentbox config set mobile.app_url <APK link>`
+
+      2. Build it yourself with Expo (a free expo.dev account; about 15 minutes on Expo's servers):
+           `sudo agentbox config set mobile.app_source build && sudo agentbox integration connect mobile-app`
+    copy: "sudo agentbox config set mobile.app_source download"
+    check: "test -n \"$(agentbox config get mobile.app_source)\""
+  - id: link
+    when: "mobile.app_source == download"
+    title: The APK link works
+    human: true
+    instructions: |
+      Save the link to the APK you already have (it's shown with a QR code on the portal's
+      Devices page, to open on the phone):
+        `sudo agentbox config set mobile.app_url <APK link>`
+    copy: "sudo agentbox config set mobile.app_url "
+    check: "u=\"$(agentbox config get mobile.app_url)\"; test -n \"$u\" && curl -fsSL --max-time 30 -r 0-3 -o /dev/null \"$u\""
   - id: install
+    when: "mobile.app_source == build"
     title: Install the EAS CLI
     run: install.sh
     check: "command -v eas && command -v agentbox-mobile-build"
   - id: login
+    when: "mobile.app_source == build"
     title: Log in to Expo
     human: true
     instructions: |
@@ -25,6 +54,7 @@ steps:
     copy: "eas login"
     check: "eas whoami"
   - id: project
+    when: "mobile.app_source == build"
     title: Create the Expo project (once)
     human: true
     instructions: |
@@ -36,6 +66,7 @@ steps:
     copy: "agentbox-mobile-build --init"
     check: "test -n \"$(agentbox config get mobile.eas_project_id)\""
   - id: build
+    when: "mobile.app_source == build"
     title: Build the APK
     run: build.sh
     instructions: |
@@ -45,4 +76,4 @@ steps:
   - id: verify
     title: Verify
     run: verify.sh
-    check: "eas whoami"
+    check: "test \"$(agentbox config get mobile.app_source)\" = download && test -n \"$(agentbox config get mobile.app_url)\" || eas whoami"

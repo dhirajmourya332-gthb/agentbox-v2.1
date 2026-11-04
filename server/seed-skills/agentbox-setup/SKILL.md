@@ -72,8 +72,9 @@ forward; on a Lima VM that's the Mac's localhost).
 The app lets the owner see work, start tasks, message agents, stop tasks and approve "needs you"
 items from their phone. It reaches agentbox **only over the owner's tailnet**; nothing is exposed to
 the internet. Four parts, in this order. Tell the owner up front what they'll need: an Android phone
-with a screen lock, a free **Tailscale** account (app on the phone), a free **Expo** account, and for
-notifications a free **Firebase** project. About 30–45 minutes, mostly waiting for the build.
+with a screen lock, a free **Tailscale** account (app on the phone), and for notifications a free
+**Firebase** project. A free **Expo** account is needed only if they build the app
+(5.3 option 2); with an app they already have it takes a few minutes.
 
 ### 5.0 Prerequisite: access = tailscale
 `agentbox config get access`. If it isn't `tailscale`, **stop and explain**: the phone app needs the
@@ -104,8 +105,25 @@ conversation and its checklist survive the restart. After it, `verify("mobile")`
 firewall loaded, Funnel off). **Never run `tailscale funnel`**; if a check reports Funnel on, the
 fix is `sudo tailscale funnel reset` (owner).
 
-### 5.3 The app: `connect("mobile-app")` (Expo EAS cloud build; no Android SDK on the VM)
-1. It installs the EAS CLI and stops at the login: the owner runs `eas login` in their terminal
+### 5.3 The app: `connect("mobile-app")`: download an existing one, or build it
+**Always offer both, and let the owner choose** (the module's `choose` step). Ask first whether they
+already have the app's APK (an earlier build: an `expo.dev/artifacts/…` link, from this agentbox, another
+one, or their own Mac). Don't assume they need a build, and never ask for an Expo login before they chose
+to build.
+
+**Option 1: download an app they already have** (no Expo account, no build, a minute):
+1. The owner runs `sudo agentbox config set mobile.app_source download` and
+   `sudo agentbox config set mobile.app_url <APK link>` (an https link to the APK). If they pasted the
+   link in chat, give them those two commands with it filled in.
+2. `verify("mobile-app")` checks the link answers. The portal's **Devices** page then shows it under
+   **Get the app** with a QR code: they scan it with the phone's camera, download and install (allow
+   "install unknown apps" for the browser). An app that's already installed is updated in place.
+3. Phone: **Tailscale** installed and signed in to the same tailnet; a screen lock (the app refuses
+   to pair without one). Then 5.4.
+
+**Option 2: build it** (Expo EAS cloud build; no Android SDK on the VM; about 15 minutes):
+1. The owner runs `sudo agentbox config set mobile.app_source build && sudo agentbox integration connect mobile-app`;
+   it installs the EAS CLI and stops at the login: the owner runs `eas login` in their terminal
    (an expo.dev account; free), then `sudo agentbox config set mobile.expo_owner <their Expo username>`.
 2. **Create the Expo project (once):** the owner runs `agentbox-mobile-build --init` (it prepares
    `<work>/agentbox-mobile` and runs `eas init`), answers yes to create the project, and saves the
@@ -113,9 +131,12 @@ fix is `sudo tailscale funnel reset` (owner).
 3. **Build:** `agentbox-mobile-build` (about 15 minutes on Expo's servers). The first build asks to
    generate an Android keystore: let EAS create and keep it (updates must use the same key).
    It prints a link: the owner opens it on the phone, downloads the APK, allows "install unknown
-   apps" for the browser, and installs.
-4. On the phone: install **Tailscale**, sign in to the same tailnet, and make sure the phone has a
-   screen lock (the app refuses to pair without one).
+   apps" for the browser, and installs. Offer to save it as `mobile.app_url` too, so it shows on
+   Devices (and can be reused on their other agentboxes with option 1).
+4. Phone: Tailscale and a screen lock, as above.
+
+One app works with all their agentboxes: on another agentbox, option 1 with the same link is enough,
+and in the app they add it from the agentbox chip on the home screen (**Add another agentbox**).
 
 ### 5.4 Pair the phone (owner, in the portal)
 **Computer → Devices → Pair a phone**: a QR code, valid once for 2 minutes. In the app: name the
