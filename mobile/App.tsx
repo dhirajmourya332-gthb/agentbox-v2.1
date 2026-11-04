@@ -33,6 +33,7 @@ import { SharedScreenScreen } from "./src/screens/SharedScreenScreen";
 import { SystemScreen } from "./src/screens/SystemScreen";
 import { TeamScreen } from "./src/screens/TeamScreen";
 import { PauseControl } from "./src/ui/PauseControl";
+import { Burger, DrawerProvider, TOP_LEVEL, type Section } from "./src/ui/Drawer";
 import { DialogHost, showDialog } from "./src/ui/dialog";
 import { T } from "./src/ui/kit";
 import { isDark, usePalette } from "./src/ui/theme";
@@ -102,12 +103,25 @@ function MainApp() {
     return { ...base, colors: { ...base.colors, background: p.bg, card: p.surface, text: p.text, border: p.border, primary: p.accent } };
   }, [p]);
   const [navReady, setNavReady] = useState(false);
+  const [current, setCurrent] = useState<string | null>("Overview");
+  // The menu opens a section with Home underneath, so Back always leads home.
+  const go = (name: Section | "Servers") => {
+    if (!navRef.isReady()) return;
+    if (name === "Overview") navRef.reset({ index: 0, routes: [{ name: "Overview" }] });
+    else navRef.reset({ index: 1, routes: [{ name: "Overview" }, { name }] });
+  };
   return (
     <StoreProvider>
-      <NavigationContainer theme={theme} ref={navRef} onReady={() => setNavReady(true)}>
-        <Nav.Navigator initialRouteName="Overview" screenOptions={{ headerTitleStyle: { fontSize: 17 }, headerShadowVisible: false }}>
+      <DrawerProvider go={go} current={current}>
+      <NavigationContainer theme={theme} ref={navRef} onReady={() => { setNavReady(true); setCurrent(navRef.getCurrentRoute()?.name ?? null); }}
+        onStateChange={() => setCurrent(navRef.getCurrentRoute()?.name ?? null)}>
+        <Nav.Navigator initialRouteName="Overview" screenOptions={({ route }) => ({
+          headerTitleStyle: { fontSize: 17 }, headerShadowVisible: false,
+          // Sections (the menu's entries) show the burger; everything opened from them shows Back.
+          ...(TOP_LEVEL.has(route.name) ? { headerLeft: () => <Burger />, headerBackVisible: false } : {}),
+        })}>
           <Nav.Screen name="Overview" component={OverviewScreen} options={{ title: "agentbox", headerRight: () => <PauseControl /> }} />
-          <Nav.Screen name="Work" component={WorkScreen} options={{ title: "Tasks", headerRight: () => <PauseControl /> }} />
+          <Nav.Screen name="Work" component={WorkScreen} options={{ title: "Work", headerRight: () => <PauseControl /> }} />
           <Nav.Screen name="Room" component={RoomScreen} options={{ title: "Task" }} />
           <Nav.Screen name="Groups" component={GroupsScreen} options={{ title: "Groups" }} />
           <Nav.Screen name="Group" component={GroupScreen} options={{ title: "Group" }} />
@@ -127,6 +141,7 @@ function MainApp() {
           <Nav.Screen name="Servers" component={ServersScreen} options={{ title: "Your agentboxes" }} />
         </Nav.Navigator>
       </NavigationContainer>
+      </DrawerProvider>
       <PushBridge navReady={navReady} />
     </StoreProvider>
   );

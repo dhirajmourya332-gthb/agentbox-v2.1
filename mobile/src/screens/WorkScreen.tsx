@@ -40,8 +40,6 @@ export function WorkScreen({ navigation }: Props<"Work">) {
       <View style={[st.bar, { borderColor: p.border }]}>
         <Dot color={connected ? p.ok : p.warn} size={8} />
         <T muted size={13} style={{ flex: 1 }}>{connected ? "Live" : "Connecting…"}{paused ? " · All agents paused" : ""}</T>
-        <Button small variant="ghost" label="Routines" onPress={() => navigation.navigate("Routines")} />
-        <Button small variant="ghost" label="Settings" onPress={() => navigation.navigate("Settings")} />
       </View>
       {error && !workLoaded && <View style={{ padding: 16 }}><ErrorBox text={error} /></View>}
       <SectionList
@@ -85,7 +83,7 @@ export function WorkScreen({ navigation }: Props<"Work">) {
 }
 
 const st = StyleSheet.create({
-  bar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth },
+  bar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
   row: { flexDirection: "row", gap: 12, padding: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   swatch: { width: 4, borderRadius: 2 },
   status: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },

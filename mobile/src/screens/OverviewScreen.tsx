@@ -5,14 +5,19 @@ import type { Props } from "../nav";
 import { usePairing, useSession } from "../lib/session";
 import { useStore } from "../lib/store";
 import { serverName } from "../lib/vault";
-import type { Attention, Progress, Task, Usage, WorkRoom } from "../lib/types";
-import { Avatar, Button, Dot, ErrorBox, Screen, T } from "../ui/kit";
+import type { Attention, Group, Progress, Usage, WorkRoom } from "../lib/types";
+import { Badge } from "../ui/Drawer";
+import { Button, Dot, ErrorBox, Screen, T } from "../ui/kit";
+import { PulseDot } from "../ui/Pulse";
 import { RunCard, runProgress } from "../ui/Runs";
-import { duration, elapsed, relTime, statusColor, useNow, usePalette } from "../ui/theme";
+import { elapsed, relTime, useNow, usePalette } from "../ui/theme";
+import { roomStatus } from "./WorkScreen";
 
 /**
- * Home: what needs you, what's in progress, what just finished, plus usage and pause state.
- * Live over the signed WebSocket (progress, attention and task events); pull to refresh.
+ * Home: a glance, not the detail. What needs you (collapsed until you open it), and every piece of
+ * work and group with a live dot: pulsing while an agent works on it, amber if it looks stuck, and a
+ * red marker where something waits for you. Tap through for the room. Everything else is in the
+ * menu (burger, top left). Live over the signed WebSocket; pull to refresh.
  */
 
 type Nav = Props<"Overview">["navigation"];
@@ -24,6 +29,15 @@ export function openRoom(nav: Nav | Props<"Work">["navigation"], groups: { id: s
   else nav.navigate("Room", { id, title });
 }
 
+/** "Needs you": questions, failures, stalls. Replies are "new", not "needs you" (as on the portal). */
+const needsYou = (a: Attention) => !a.seen_at && a.kind !== "reply";
+
+type Glance = {
+  id: string; title: string; sub: string; group: boolean;
+  state: "working" | "stalled" | "queued" | "error" | "idle";
+  needs: number; unread: boolean; since: string | null;
+};
+
 export function OverviewScreen({ navigation }: Props<"Overview">) {
   const p = usePalette();
   const insets = useSafeAreaInsets();
@@ -32,6 +46,7 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
   const pairing = usePairing();
   const { servers } = useSession();
   const [refreshing, setRefreshing] = useState(false);
+  const [open, setOpen] = useState(false);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -39,62 +54,62 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
     setRefreshing(false);
   };
 
-  /** Which task room (root id) an instance belongs to. */
-  const roomOf = useMemo(() => {
-    const m = new Map<string, WorkRoom>();
-    for (const r of [...s.work.live, ...s.work.done]) {
-      m.set(r.root.id, r);
-      r.members.forEach((x) => m.set(x.id, r));
-    }
-    return m;
-  }, [s.work]);
-  const labelOf = (agentId: string) => {
-    const r = roomOf.get(agentId);
-    const inst = r ? [r.root, ...r.members].find((x) => x.id === agentId) : undefined;
-    return inst?.label ?? undefined;
-  };
+  const unseen = useMemo(() => (s.attention ?? []).filter(needsYou), [s.attention]);
 
-  // In progress: contract A when the server has it, otherwise the working instances from /work.
-  type Live = { key: string; agentId: string; activity: string; startedAt: string | null; stalled: boolean; stalledFor: number | null; roomId: string | null; summary: string | null };
-  const inProgress: Live[] = useMemo(() => {
-    if (s.progress) {
-      return Object.values(s.progress)
-        .sort((a, b) => (a.state === "stalled" ? 0 : 1) - (b.state === "stalled" ? 0 : 1) || a.started_at.localeCompare(b.started_at))
-        .map((x: Progress) => ({
-          key: x.task_id, agentId: x.agent_id, activity: x.activity || x.step?.summary || "Working", startedAt: x.started_at,
-          stalled: x.state === "stalled", stalledFor: x.stalled_for_s, roomId: x.group_id ?? x.root_id ?? roomOf.get(x.agent_id)?.root.id ?? null,
-          summary: x.summary,
-        }));
-    }
-    return s.work.live.flatMap((r) => [r.root, ...r.members].filter((m) => m.status === "working").map((m) => ({
-      key: m.id, agentId: m.id, activity: m.current ?? "Working", startedAt: null, stalled: false, stalledFor: null, roomId: r.root.id, summary: null,
-    })));
-  }, [s.progress, s.work.live, roomOf]);
+  /** Every live task room and every group, with what's happening in it right now. */
+  const glances: Glance[] = useMemo(() => {
+    const prog = Object.values(s.progress ?? {});
+    const attentionIn = (id: string) => (s.attention ?? []).filter((a) => a.room_id === id && !a.seen_at);
+    const fromProgress = (list: Progress[]) => {
+      const stalled = list.find((x) => x.state === "stalled");
+      const top = stalled ?? list[0];
+      return { top, stalled: !!stalled };
+    };
+    const rooms = s.work.live.map((r: WorkRoom): Glance => {
+      const list = prog.filter((x) => x.root_id === r.root.id);
+      const { top, stalled } = fromProgress(list);
+      const st = roomStatus(r).key;
+      const working = list.length > 0 || st === "working";
+      const a = attentionIn(r.root.id);
+      return {
+        id: r.root.id, title: r.root.label ?? r.root.name, group: false,
+        state: stalled ? "stalled" : working ? "working" : st === "queued" ? "queued" : st === "error" ? "error" : "idle",
+        sub: top ? `${s.nameOf(top.agent_id) ?? r.root.name}: ${top.activity || top.step?.summary || "working"}`
+          : working ? `${r.root.name}: ${r.root.current ?? "working"}` : st === "queued" ? "Up next" : st === "error" ? "Something went wrong" : "Waiting for you",
+        needs: a.filter((x) => x.kind !== "reply").length, unread: a.some((x) => x.kind === "reply"),
+        since: top?.started_at ?? r.last_activity,
+      };
+    });
+    const groups = s.groups.map((g: Group): Glance => {
+      const list = prog.filter((x) => x.group_id === g.id || x.root_id === g.id);
+      const { top, stalled } = fromProgress(list);
+      const a = attentionIn(g.id);
+      return {
+        id: g.id, title: `#${g.name}`, group: true,
+        state: stalled ? "stalled" : list.length ? "working" : "idle",
+        sub: top ? `${s.nameOf(top.agent_id) ?? "agent"}: ${top.activity || "working"}` : g.paused ? "Paused: waiting for your message" : g.purpose || "Group",
+        needs: a.filter((x) => x.kind !== "reply").length, unread: a.some((x) => x.kind === "reply"),
+        since: top?.started_at ?? null,
+      };
+    });
+    // What needs you first, then what's working, then the rest.
+    const rank = (x: Glance) => (x.needs ? 0 : x.state === "stalled" ? 1 : x.state === "working" ? 2 : x.unread ? 3 : x.state === "queued" ? 4 : 5);
+    return [...rooms, ...groups].sort((a, b) => rank(a) - rank(b) || (b.since ?? "").localeCompare(a.since ?? ""));
+  }, [s.work.live, s.groups, s.progress, s.attention, s.nameOf]);
 
-  const unseen = (s.attention ?? []).filter((a) => !a.seen_at);
-  const finished = useMemo(
-    () => s.recent
-      .filter((t) => (t.depth ?? 0) === 0 && (t.status === "done" || t.status === "failed" || t.status === "stopped") && t.source !== "result")
-      .sort((a, b) => (b.finished_at ?? b.created_at).localeCompare(a.finished_at ?? a.created_at))
-      .slice(0, 12),
-    [s.recent],
-  );
+  const activeGroups = glances.filter((g) => g.group && (g.state !== "idle" || g.needs || g.unread));
+  const shown = [...glances.filter((g) => !g.group), ...activeGroups].sort((a, b) => glances.indexOf(a) - glances.indexOf(b));
+  const workingCount = glances.filter((g) => g.state === "working" || g.state === "stalled").length;
 
   const openAttention = (a: Attention) => {
     s.markSeen([a.id]);
     if (a.room_id) openRoom(navigation, s.groups, a.room_id);
-    else if (a.agent_id && roomOf.get(a.agent_id)) navigation.navigate("Room", { id: roomOf.get(a.agent_id)!.root.id });
-  };
-  const openTask = (t: Task) => {
-    if (s.groups.some((g) => g.id === t.thread_id)) return openRoom(navigation, s.groups, t.thread_id);
-    const r = roomOf.get(t.agent_id);
-    if (r) navigation.navigate("Room", { id: r.root.id, title: r.root.label ?? r.root.name });
   };
 
   return (
     <Screen>
       <View style={[st.bar, { borderColor: p.border }]}>
-        <Dot color={s.connected ? p.ok : p.warn} size={8} />
+        <PulseDot color={s.connected ? p.ok : p.warn} size={7} pulse={!s.connected} />
         <T muted size={13} numberOfLines={1}>{s.connected ? "Live" : "Connecting…"}</T>
         <Pressable onPress={() => navigation.navigate("Servers")} accessibilityRole="button" hitSlop={8}
           accessibilityLabel={`agentbox: ${serverName(pairing)}. ${servers.length > 1 ? "Switch" : "Add another"}`}
@@ -117,94 +132,78 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
       >
         {s.error && !s.loaded && <ErrorBox text={s.error} />}
 
-        <Section title="Needs you" count={unseen.length}
-          action={unseen.length > 1 ? { label: "Mark all seen", onPress: () => s.markSeen("all") } : undefined}>
-          {s.attention === null ? (
-            <T muted size={13}>Not available from this agentbox yet.</T>
-          ) : unseen.length === 0 ? (
-            <T muted size={13}>Nothing needs you right now.</T>
-          ) : unseen.slice(0, 20).map((a) => (
-            <Row key={a.id} onPress={() => openAttention(a)} label={a.title}>
-              <Dot color={a.kind === "failed" ? p.bad : a.kind === "stalled" ? p.warn : p.accent} size={10} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <T weight="600" numberOfLines={2}>{a.title}</T>
-                <T muted size={12}>{KIND[a.kind] ?? a.kind} · {relTime(a.created_at)}</T>
-              </View>
-              <Pressable onPress={() => s.markSeen([a.id])} accessibilityRole="button" accessibilityLabel="Mark seen" hitSlop={10} style={st.seen}>
-                <Text style={{ color: p.muted, fontSize: 16 }}>✓</Text>
-              </Pressable>
-            </Row>
-          ))}
-        </Section>
+        {/* Needs you: one line until opened. */}
+        <View style={[st.card, { backgroundColor: p.surface, borderColor: unseen.length ? p.bad : p.border }]}>
+          <Pressable onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}
+            accessibilityLabel={unseen.length ? `${unseen.length} things need you` : "Nothing needs you"} style={st.needsHead}>
+            {unseen.length ? <PulseDot color={p.bad} size={9} pulse /> : <PulseDot color={p.ok} size={9} />}
+            <T weight="700" style={{ flex: 1 }}>
+              {s.attention === null ? "Needs you" : unseen.length ? "Needs you" : "Nothing needs you"}
+            </T>
+            {unseen.length > 0 && <Badge n={unseen.length} color={p.bad} />}
+            <Text style={{ color: p.muted, fontSize: 14, marginLeft: 6 }}>{open ? "▾" : "▸"}</Text>
+          </Pressable>
+          {open && (
+            <View style={{ gap: 6, marginTop: 6 }}>
+              {s.attention === null ? (
+                <T muted size={13}>Not available from this agentbox yet.</T>
+              ) : unseen.length === 0 ? (
+                <T muted size={13}>You're all caught up.</T>
+              ) : (
+                <>
+                  {unseen.slice(0, 30).map((a) => (
+                    <Pressable key={a.id} onPress={() => openAttention(a)} accessibilityRole="button" accessibilityLabel={a.title}
+                      style={({ pressed }) => [st.needRow, { borderColor: p.border, opacity: pressed ? 0.7 : 1 }]}>
+                      <Dot color={a.kind === "failed" ? p.bad : a.kind === "stalled" ? p.warn : p.accent} size={9} />
+                      <View style={{ flex: 1 }}>
+                        <T size={14} weight="600" numberOfLines={2}>{a.title}</T>
+                        <T muted size={12}>{KIND[a.kind] ?? a.kind} · {relTime(a.created_at)}</T>
+                      </View>
+                      <Pressable onPress={() => s.markSeen([a.id])} accessibilityRole="button" accessibilityLabel="Mark seen" hitSlop={10} style={st.seen}>
+                        <Text style={{ color: p.muted, fontSize: 16 }}>✓</Text>
+                      </Pressable>
+                    </Pressable>
+                  ))}
+                  {unseen.length > 1 && <Button small variant="ghost" label="Mark all seen" onPress={() => s.markSeen(unseen.map((a) => a.id))} />}
+                </>
+              )}
+            </View>
+          )}
+        </View>
 
         {!!s.runs?.length && (
-          <Section title="Routines running" count={s.runs.length}>
+          <View style={{ gap: 8, marginTop: 6 }}>
+            <SectionHead title="Routines running" right={<PulseDot color={p.accent} size={7} pulse />} />
             {s.runs.map((r) => (
               <RunCard key={r.id} run={r} progress={runProgress(s.progress, r.id)} now={now}
                 onPress={() => navigation.navigate("Run", { id: r.id, title: r.routine_name })} />
             ))}
-          </Section>
+          </View>
         )}
 
-        <Section title="In progress" count={inProgress.length}>
-          {inProgress.length === 0 ? (
-            <T muted size={13}>No agent is working right now.</T>
-          ) : inProgress.map((x) => {
-            const name = s.nameOf(x.agentId) ?? "agent";
-            const label = labelOf(x.agentId);
+        <View style={{ gap: 8, marginTop: 6 }}>
+          <SectionHead title="Work" right={<T muted size={12}>{workingCount ? `${workingCount} in progress` : "nothing running"}</T>}
+            action={{ label: "All work", onPress: () => navigation.navigate("Work") }} />
+          {shown.length === 0 ? (
+            <T muted size={13}>{s.workLoaded ? "No work yet. Start a task below." : "Loading…"}</T>
+          ) : shown.map((g) => {
+            const color = g.state === "stalled" ? p.warn : g.state === "working" ? p.accent : g.state === "error" ? p.bad : g.state === "queued" ? p.warn : p.muted;
             return (
-              <Row key={x.key} onPress={x.roomId ? () => openRoom(navigation, s.groups, x.roomId!) : undefined} label={`${name}: ${x.activity}`}>
-                <Avatar name={name} color={s.colorOf(x.agentId)} size={30} />
+              <Pressable key={g.id} onPress={() => openRoom(navigation, s.groups, g.id, g.title)} accessibilityRole="button"
+                accessibilityLabel={`${g.title}. ${STATE[g.state]}${g.needs ? `. ${g.needs} need you` : ""}${g.unread ? ". New reply" : ""}`}
+                style={({ pressed }) => [st.row, { backgroundColor: p.surface, borderColor: g.needs ? p.bad : p.border, opacity: pressed ? 0.8 : 1 }]}>
+                <PulseDot color={color} size={10} pulse={g.state === "working" || g.state === "stalled"} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <T weight="600" numberOfLines={1}>{name}{label && label !== name ? <Text style={{ color: p.muted, fontWeight: "400" }}> · {label}</Text> : null}</T>
-                  <T size={13} numberOfLines={2}>{x.activity}</T>
-                  {x.summary && <T muted size={12} numberOfLines={2}>{x.summary}</T>}
-                  <View style={st.meta}>
-                    {x.stalled ? (
-                      <>
-                        <Dot color={p.warn} size={7} />
-                        <T size={12} weight="600" style={{ color: p.warn }}>Possibly stuck{x.stalledFor ? ` · no progress for ${duration(x.stalledFor)}` : ""}</T>
-                      </>
-                    ) : (
-                      <>
-                        <Dot color={p.accent} size={7} />
-                        <T size={12} muted>{x.startedAt ? `Working for ${elapsed(x.startedAt, now)}` : "Working"}</T>
-                      </>
-                    )}
-                  </View>
-                </View>
-              </Row>
-            );
-          })}
-        </Section>
-
-        <Section title="Recently finished">
-          {finished.length === 0 ? (
-            <T muted size={13}>Nothing finished recently.</T>
-          ) : finished.map((t) => {
-            const name = s.nameOf(t.agent_id) ?? "agent";
-            const status = t.status === "done" ? "done" : t.status === "failed" ? "failed" : "stopped";
-            return (
-              <Row key={t.id} onPress={() => openTask(t)} label={`${t.title ?? "Task"}, ${status}`}>
-                <Dot color={statusColor(p, status)} size={10} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <T weight="600" numberOfLines={1}>{t.title ?? "Untitled task"}</T>
-                  <T muted size={12} numberOfLines={2}>
-                    {name} · <Text style={{ color: statusColor(p, status) }}>{status === "done" ? "Done" : status === "failed" ? "Failed" : "Stopped"}</Text>
-                    {" · "}{relTime(t.finished_at ?? t.created_at)}{t.status === "failed" && t.error ? ` · ${t.error}` : ""}
+                  <T weight="600" numberOfLines={1}>{g.title}</T>
+                  <T muted size={12} numberOfLines={1}>
+                    {g.state === "working" || g.state === "stalled" ? (g.since ? `${elapsed(g.since, now)} · ` : "") : ""}{g.sub}
                   </T>
                 </View>
-              </Row>
+                {g.needs > 0 ? <Badge n={g.needs} color={p.bad} /> : g.unread ? <View style={[st.unread, { backgroundColor: p.accent }]} /> : null}
+              </Pressable>
             );
           })}
-        </Section>
-
-        <View style={st.links}>
-          {LINKS.map(([label, to]) => (
-            <Button key={to} small label={label} onPress={() => navigation.navigate(to)} style={st.link} />
-          ))}
         </View>
-        <Button small variant="ghost" label="Settings" onPress={() => navigation.navigate("Settings")} />
       </ScrollView>
       <View style={[st.fab, { bottom: 24 + insets.bottom }]}>
         <Button variant="primary" label="+ New task" onPress={() => navigation.navigate("NewTask")} />
@@ -213,41 +212,21 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
   );
 }
 
-/** Everything else, as on the portal's sidebar. */
-const LINKS: [string, "Work" | "Groups" | "Routines" | "Team" | "SharedScreen" | "Documents" | "Activity" | "System" | "Hosted" | "Connections"][] = [
-  ["All tasks", "Work"], ["Groups", "Groups"], ["Routines", "Routines"],
-  ["Team", "Team"], ["Screen", "SharedScreen"], ["Documents", "Documents"],
-  ["Activity", "Activity"], ["System", "System"], ["Hosted", "Hosted"],
-  ["Integrations & repos", "Connections"],
-];
+const KIND: Record<string, string> = { reply: "Replied", failed: "Blocked: failed", stalled: "Blocked: may be stuck", question: "Needs your input" };
+const STATE: Record<Glance["state"], string> = { working: "In progress", stalled: "May be stuck", queued: "Up next", error: "Error", idle: "Waiting" };
 
-const KIND: Record<string, string> = { reply: "Replied", failed: "Failed", stalled: "Possibly stuck", question: "Question" };
-
-function Section({ title, count, action, children }: { title: string; count?: number; action?: { label: string; onPress: () => void }; children: React.ReactNode }) {
+function SectionHead({ title, right, action }: { title: string; right?: React.ReactNode; action?: { label: string; onPress: () => void } }) {
   const p = usePalette();
   return (
-    <View style={{ gap: 8, marginTop: 8 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <T muted weight="600" size={13}>{title.toUpperCase()}</T>
-        {!!count && <View style={[st.count, { backgroundColor: p.surface2 }]}><T size={12} weight="600">{count}</T></View>}
-        {action && (
-          <Pressable onPress={action.onPress} accessibilityRole="button" hitSlop={8} style={{ marginLeft: "auto" }}>
-            <T size={13} weight="600" style={{ color: p.accent }}>{action.label}</T>
-          </Pressable>
-        )}
-      </View>
-      {children}
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <T muted weight="600" size={13}>{title.toUpperCase()}</T>
+      {right}
+      {action && (
+        <Pressable onPress={action.onPress} accessibilityRole="button" hitSlop={8} style={{ marginLeft: "auto" }}>
+          <T size={13} weight="600" style={{ color: p.accent }}>{action.label}</T>
+        </Pressable>
+      )}
     </View>
-  );
-}
-
-function Row({ children, onPress, label }: { children: React.ReactNode; onPress?: () => void; label: string }) {
-  const p = usePalette();
-  return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? "button" : undefined} accessibilityLabel={label}
-      style={({ pressed }) => [st.row, { backgroundColor: p.surface, borderColor: p.border, opacity: pressed ? 0.8 : 1 }]}>
-      {children}
-    </Pressable>
   );
 }
 
@@ -272,15 +251,15 @@ function UsageChip({ usage }: { usage: Usage | null }) {
 }
 
 const st = StyleSheet.create({
-  bar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+  bar: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
   paused: { marginHorizontal: 16, marginTop: 10, padding: 10, borderRadius: 10, borderWidth: 1, gap: 2 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
-  meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  card: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+  needsHead: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 36 },
+  needRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth },
+  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
+  unread: { width: 10, height: 10, borderRadius: 5 },
   seen: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-  count: { borderRadius: 9, paddingHorizontal: 7, minWidth: 20, alignItems: "center" },
-  links: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16 },
-  link: { flexGrow: 1, flexBasis: "30%" },
-  server: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 },
+  server: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 4 },
   usage: { flexDirection: "row", alignItems: "center", gap: 5 },
   fab: { position: "absolute", right: 16 },
 });
