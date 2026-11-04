@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AskHelper, openAskHelper } from "./AskHelper.tsx";
 import { type Agent, type Usage, type WorkRoom } from "../api.ts";
 import { useStore } from "../store.tsx";
@@ -27,7 +27,7 @@ function UsageChip({ usage }: { usage: Usage | null }) {
     <span className={`chip ${tone}`} title={title}>
       <span className={`dot ${tone || "ok"}`} />
       {rejected ? (
-        <>Claude limited · resumes {resets(usage.resetsAt)}</>
+        <>Claude limited<span className="long">&nbsp;· resumes {resets(usage.resetsAt)}</span></>
       ) : (
         <>Claude {pct(five)}<span className="long">&nbsp;· week {pct(week)}</span></>
       )}
@@ -172,9 +172,24 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const inConfigure = ["setup", "integrations", "repos", "skills", "skill", "new-skill", "draft"].includes(route.name);
   const inComputer = ["screen", "terminal", "system", "devices"].includes(route.name);
   const [showDone, setShowDone] = useRemembered("work.done", false);
+  // Narrow screens: the rail is a drawer behind the burger. It closes on navigation and Escape.
+  const [railOpen, setRailOpen] = useState(false);
+  const routeKey = JSON.stringify(route);
+  useEffect(() => { setRailOpen(false); }, [routeKey]);
+  useEffect(() => {
+    if (!railOpen) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setRailOpen(false); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [railOpen]);
   return (
-    <div className="shell">
+    <div className={`shell${railOpen ? " rail-open" : ""}`}>
       <header className="topbar">
+        <button className="rail-burger" aria-label={needsYou ? `Menu, ${needsYou} need you` : "Menu"} aria-expanded={railOpen} aria-controls="main-rail"
+          onClick={() => setRailOpen(!railOpen)}>
+          <span className="bars" aria-hidden="true"><span /><span /><span /></span>
+          {needsYou > 0 && !railOpen && <span className="burger-dot" aria-hidden="true" />}
+        </button>
         <a className="brand" href="#/">
           <span className="brand-mark">a</span>agentbox
         </a>
@@ -185,7 +200,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       </header>
       <div className="bar-slot"><PausedBar /><VmAlertBar /></div>
 
-      <nav className="rail" aria-label="Main">
+      <div className="rail-backdrop" aria-hidden="true" onClick={() => setRailOpen(false)} />
+      <nav className="rail" id="main-rail" aria-label="Main">
         <a className="btn primary new-task-btn" href="#/new"><Icon name="plus" />New task</a>
         <button className="btn ghost sm ask-helper-btn" onClick={openAskHelper} title="Ask the helper (⌘K / Ctrl+K): change agents, add skills, create agents, connect things">
           <Icon name="sparkle" size={14} /><span className="grow">Ask helper</span><kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>

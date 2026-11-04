@@ -56,7 +56,8 @@ export function VmChip() {
     <a className={`chip ${bad ? "bad" : warn ? "warn" : ""}`} href="#/system" style={{ textDecoration: "none" }}
       title={alerts.map((a) => a.title).join("\n") || undefined}>
       <span className={`dot ${bad ? "bad" : warn ? "warn" : "ok"}`} />
-      {label}
+      {/* On a phone an all-clear is just the green dot; a problem keeps its words. */}
+      {bad || warn ? label : <span className="chip-text">{label}</span>}
     </a>
   );
 }

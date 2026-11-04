@@ -77,7 +77,7 @@ export function PauseControl() {
   return (
     <div className="popover-anchor" ref={ref}>
       <button className="btn sm danger" aria-expanded={confirm} onClick={() => setConfirm(!confirm)}>
-        <Icon name="pause" size={14} />Pause all
+        <Icon name="pause" size={14} />Pause<span className="long">&nbsp;all</span>
       </button>
       {confirm && (
         <div className="popover" role="dialog" aria-label="Pause all agents">

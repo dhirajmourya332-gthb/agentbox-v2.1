@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "org.agentbox.mobile",
-      "versionCode": 9,
+      "versionCode": 10,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
