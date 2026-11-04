@@ -65,6 +65,8 @@ const PHONE_EVENTS = new Set([
   "routine-run.updated",
   // Web parity: a task's notes changed (ids only), a hosted service started or stopped.
   "notes.updated", "hosting.updated",
+  // Roadmaps: the same record GET roadmaps/:id returns.
+  "roadmap.updated",
 ]);
 
 // --- the allowlist ------------------------------------------------------------------------

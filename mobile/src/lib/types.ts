@@ -15,7 +15,13 @@ export type Agent = {
   can_scale?: number;
   retired_at?: string | null;
   live_instances?: number;
+  /** "setup": the built-in helper (its work lives in its own place, not with the team's). */
+  builtin?: string | null;
+  crew_id?: string | null;
 };
+
+/** A crew: a separate team on one agentbox. Its agents only hand work to each other. */
+export type Crew = { id: string; slug: string; name: string; summary: string; lead_role_id: string | null; created_at: string };
 
 export type InstanceSummary = {
   id: string; name: string; label: string | null; role_id: string; color: string; parent_instance_id: string | null;
@@ -102,6 +108,18 @@ export type RoutineRunView = {
 };
 
 // --- web parity (v2.1) -------------------------------------------------------------------------
+
+export type RoadmapStatus = "todo" | "doing" | "done" | "blocked" | "skipped";
+export type RoadmapItem = {
+  id: string; title: string; phase: string; after: string[]; status: RoadmapStatus; owner: string; note: string; link: string;
+  updated_at: string; updated_by: string | null;
+};
+/** A task's roadmap (the portal's Roadmap panel): items by phase with their status. */
+export type Roadmap = {
+  id: string; root_id: string; created_by: string; created_by_name: string | null; thread_id: string | null; title: string;
+  status: "active" | "done" | "archived"; created_at: string; updated_at: string;
+  items: RoadmapItem[]; counts: Record<RoadmapStatus | "total", number>;
+};
 
 /** GET /agents/:id/threads: an agent's conversations (its own chat, hand-offs, routine threads). */
 export type Thread = { id: string; kind: "dm" | "handoff" | "group" | "routine"; agent_id: string; peer_agent_id: string | null; name: string | null; last_at: string | null };

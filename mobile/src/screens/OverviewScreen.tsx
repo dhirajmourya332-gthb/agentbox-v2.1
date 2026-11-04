@@ -3,7 +3,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "r
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Props } from "../nav";
 import { usePairing, useSession } from "../lib/session";
-import { useStore } from "../lib/store";
+import { isHelperWork, useStore } from "../lib/store";
 import { serverName } from "../lib/vault";
 import type { Attention, Group, Progress, Usage, WorkRoom } from "../lib/types";
 import { Badge } from "../ui/Drawer";
@@ -65,7 +65,7 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
       const top = stalled ?? list[0];
       return { top, stalled: !!stalled };
     };
-    const rooms = s.work.live.map((r: WorkRoom): Glance => {
+    const rooms = s.work.live.filter((r) => !isHelperWork(r, s.agents)).map((r: WorkRoom): Glance => {
       const list = prog.filter((x) => x.root_id === r.root.id);
       const { top, stalled } = fromProgress(list);
       const st = roomStatus(r).key;
@@ -95,7 +95,7 @@ export function OverviewScreen({ navigation }: Props<"Overview">) {
     // What needs you first, then what's working, then the rest.
     const rank = (x: Glance) => (x.needs ? 0 : x.state === "stalled" ? 1 : x.state === "working" ? 2 : x.unread ? 3 : x.state === "queued" ? 4 : 5);
     return [...rooms, ...groups].sort((a, b) => rank(a) - rank(b) || (b.since ?? "").localeCompare(a.since ?? ""));
-  }, [s.work.live, s.groups, s.progress, s.attention, s.nameOf]);
+  }, [s.work.live, s.agents, s.groups, s.progress, s.attention, s.nameOf]);
 
   const activeGroups = glances.filter((g) => g.group && (g.state !== "idle" || g.needs || g.unread));
   const shown = [...glances.filter((g) => !g.group), ...activeGroups].sort((a, b) => glances.indexOf(a) - glances.indexOf(b));

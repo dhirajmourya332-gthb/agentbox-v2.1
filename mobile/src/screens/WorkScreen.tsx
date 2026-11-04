@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, RefreshControl, SectionList, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Props } from "../nav";
-import { useStore } from "../lib/store";
+import { isHelperWork, useStore } from "../lib/store";
 import type { InstanceSummary, WorkRoom } from "../lib/types";
 import { Button, Dot, ErrorBox, Screen, T } from "../ui/kit";
 import { relTime, statusColor, usePalette } from "../ui/theme";
@@ -20,7 +20,7 @@ export function roomStatus(r: WorkRoom): { key: string; label: string } {
 
 export function WorkScreen({ navigation }: Props<"Work">) {
   const p = usePalette();
-  const { work, workLoaded, refresh, connected, paused, error } = useStore();
+  const { work, agents, workLoaded, refresh, connected, paused, error } = useStore();
   const [refreshing, setRefreshing] = useState(false);
   const insets = useSafeAreaInsets();
 
@@ -31,8 +31,9 @@ export function WorkScreen({ navigation }: Props<"Work">) {
   };
 
   const sections = [
-    { title: "Live", data: work.live },
-    { title: "Recently done", data: work.done },
+    // The helper's own work stays out of the team's list (as on the portal).
+    { title: "Live", data: work.live.filter((r) => !isHelperWork(r, agents)) },
+    { title: "Recently done", data: work.done.filter((r) => !isHelperWork(r, agents)) },
   ].filter((s) => s.data.length > 0);
 
   return (

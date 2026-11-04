@@ -1,6 +1,6 @@
 import { useIsFocused } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Image, KeyboardAvoidingView, PixelRatio, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { Animated, AppState, Image, KeyboardAvoidingView, PixelRatio, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { api, loadScreen } from "../lib/api";
 import { isMissingRoute, useStore } from "../lib/store";
@@ -32,7 +32,16 @@ export function SharedScreenScreen() {
   const { display, nameOf } = useStore();
   const mine = display?.holder === "owner";
   const [zoom, setZoom] = useState<Zoom>("1");
-  const [frame, setFrame] = useState<string | null>(null);
+  // Two stacked layers: a new frame decodes in the hidden one and only then comes to the front,
+  // so the picture never blanks between frames (swapping one <Image>'s source flickers on Android).
+  const [layers, setLayers] = useState<[string | null, string | null]>([null, null]);
+  const [front, setFront] = useState<0 | 1>(0);
+  const frontRef = useRef<0 | 1>(0);
+  frontRef.current = front;
+  const latest = useRef<string | null>(null);
+  const frame = layers[front];
+  const [mark, setMark] = useState<{ x: number; y: number; n: number } | null>(null);
+  const markFade = useRef(new Animated.Value(0)).current;
   const [ratio, setRatio] = useState(1080 / 1920);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -61,8 +70,22 @@ export function SharedScreenScreen() {
       running = true;
       clearTimeout(timer);
       try {
-        const uri = await loadScreen(PixelRatio.getPixelSizeForLayoutSize(imgW));
-        if (alive) { setFrame(uri); setError(null); }
+        // Fit needs no more than ~1280 px; zoomed in, sharper frames.
+        const uri = await loadScreen(Math.min(zoom === "1" ? 1280 : 1920, PixelRatio.getPixelSizeForLayoutSize(imgW)));
+        if (alive) {
+          setError(null);
+          // Nothing changed on the screen: keep the picture as it is (no re-render, no decode).
+          if (uri !== latest.current) {
+            latest.current = uri;
+            setLayers((l) => {
+              const f = frontRef.current, back = f === 0 ? 1 : 0;
+              const next: [string | null, string | null] = [...l] as [string | null, string | null];
+              if (!l[f]) next[f] = uri; // the first frame goes straight to the front
+              else next[back] = uri;
+              return next;
+            });
+          }
+        }
       } catch (e) {
         if (!alive) return;
         if (isMissingRoute(e)) { setMissing(true); return; }
@@ -70,12 +93,12 @@ export function SharedScreenScreen() {
       } finally {
         running = false;
       }
-      if (alive) timer = setTimeout(tick, mine ? 700 : 1500);
+      if (alive) timer = setTimeout(tick, mine ? 400 : 1200);
     };
     kick.current = () => { setTimeout(tick, 150); };
     tick();
     return () => { alive = false; clearTimeout(timer); kick.current = () => {}; };
-  }, [focused, active, missing, imgW, mine]);
+  }, [focused, active, missing, imgW, mine, zoom]);
 
   const send = useCallback(async (input: Parameters<typeof api.screenInput>[0]) => {
     try {
@@ -90,6 +113,10 @@ export function SharedScreenScreen() {
     if (!mine) return;
     const fx = Math.max(0, Math.min(1, x / imgW)), fy = Math.max(0, Math.min(1, y / imgH));
     last.current = { x: fx, y: fy };
+    // Show where the tap landed straight away; the next frame shows its effect.
+    setMark({ x, y, n: Date.now() });
+    markFade.setValue(1);
+    Animated.timing(markFade, { toValue: 0, duration: 700, useNativeDriver: true }).start();
     send({ kind: "tap", x: fx, y: fy, button });
   };
 
@@ -127,11 +154,21 @@ export function SharedScreenScreen() {
     <Pressable onPress={(e) => onTap(e.nativeEvent.locationX, e.nativeEvent.locationY, "left")}
       onLongPress={(e) => onTap(e.nativeEvent.locationX, e.nativeEvent.locationY, "right")} delayLongPress={450}
       disabled={!mine} accessibilityLabel={mine ? "Shared screen. Tap to click, long-press to right-click." : "Shared screen"}>
-      <Image source={{ uri: frame }} style={{ width: imgW, height: imgH, backgroundColor: "#000" }} resizeMode="contain" fadeDuration={0}
-        onLoad={(e) => {
-          const { width, height } = e.nativeEvent.source;
-          if (width > 0 && height > 0 && Math.abs(height / width - ratio) > 0.001) setRatio(height / width);
-        }} />
+      <View style={{ width: imgW, height: imgH, backgroundColor: "#000" }}>
+        {([0, 1] as const).map((i) => layers[i] ? (
+          <Image key={i} source={{ uri: layers[i]! }} resizeMode="contain" fadeDuration={0}
+            style={[StyleSheet.absoluteFill, { opacity: i === front ? 1 : 0 }]}
+            onLoad={(e) => {
+              const { width, height } = e.nativeEvent.source;
+              if (width > 0 && height > 0 && Math.abs(height / width - ratio) > 0.001) setRatio(height / width);
+              // The hidden layer finished decoding the newest frame: bring it to the front.
+              if (i !== front && layers[i] === latest.current) setFront(i);
+            }} />
+        ) : null)}
+        {mark && (
+          <Animated.View pointerEvents="none" style={[st.mark, { left: mark.x - 14, top: mark.y - 14, borderColor: p.accent, opacity: markFade }]} />
+        )}
+      </View>
     </Pressable>
   ) : (
     <View style={{ width: winW, height: Math.round(winW * ratio), alignItems: "center", justifyContent: "center", backgroundColor: p.surface2 }}>
@@ -194,5 +231,6 @@ const st = StyleSheet.create({
   row: { flexDirection: "row", gap: 8, alignItems: "center" },
   input: { flex: 1, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15 },
   keys: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  mark: { position: "absolute", width: 28, height: 28, borderRadius: 14, borderWidth: 3 },
   key: { minWidth: 52, minHeight: 36, paddingHorizontal: 10, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
 });

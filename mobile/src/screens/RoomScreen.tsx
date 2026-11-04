@@ -14,6 +14,7 @@ import {
   DocumentsList, entryFromProgress, entryFromTask, FilterChip, LiveBars, MembersSheet, MemberStack, type LiveEntry, type MemberRow,
 } from "../ui/Live";
 import { NotesPanel } from "../ui/Notes";
+import { RoadmapPanel } from "../ui/Roadmap";
 import { buildRows, isMessageRow, isMineRow, TimelineItem, type TimelineRow } from "../ui/Timeline";
 import { statusColor, usePalette } from "../ui/theme";
 import { useVoice } from "../ui/Voice";
@@ -40,7 +41,7 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
   const { threads, live, loadThread, work, progress, attention, markSeen, agents, nameOf } = useStore();
   const [view, setView] = useState<RoomView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"chat" | "docs" | "notes">("chat");
+  const [tab, setTab] = useState<"chat" | "docs" | "notes" | "roadmap">("chat");
   const [sheet, setSheet] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
   const chat = useRef<ChatListHandle>(null);
@@ -152,9 +153,11 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
   return (
     <Screen>
       <View style={st.tabs}>
-        <Segmented value={tab} onChange={setTab} options={[{ key: "chat", label: "Conversation" }, { key: "docs", label: "Documents" }, { key: "notes", label: "Notes" }]} />
+        <Segmented value={tab} onChange={setTab} options={[{ key: "chat", label: "Chat" }, { key: "roadmap", label: "Roadmap" }, { key: "docs", label: "Docs" }, { key: "notes", label: "Notes" }]} />
       </View>
-      {tab === "notes" ? (
+      {tab === "roadmap" ? (
+        <RoadmapPanel instanceId={root.id} />
+      ) : tab === "notes" ? (
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }} keyboardVerticalOffset={headerHeight}>
           <NotesPanel instanceId={root.id} />
         </KeyboardAvoidingView>

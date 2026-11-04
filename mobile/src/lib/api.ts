@@ -3,7 +3,7 @@ import * as keyring from "./keyring";
 import { base64url, strictEncode } from "../crypto/encoding";
 import { isSafeId } from "../crypto/sign";
 import type {
-  ActivityItem, Agent, Attention, DisplayHolder, DocumentInfo, Group, Health, HostedService, IntegrationSummary, Note, Progress, Repo, RetiredAgent, Routine,
+  ActivityItem, Agent, Attention, Crew, Roadmap, DisplayHolder, DocumentInfo, Group, Health, HostedService, IntegrationSummary, Note, Progress, Repo, RetiredAgent, Routine,
   RoutineRun, RoutineRunView, RoomView, Skill, SkillDraft, Task, Thread, ThreadData, CleanedText, Usage, WorkRoom,
 } from "./types";
 
@@ -175,7 +175,7 @@ const q = (path: string) => `?path=${strictEncode(path)}`;
 
 export const api = {
   whoami: () => json<{ status: "pending" } | { status: "active"; device_id: string; name: string }>("GET", "/m/v1/whoami"),
-  state: () => json<{ agents: Agent[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/m/v1/state"),
+  state: () => json<{ agents: Agent[]; crews?: Crew[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[] }>("GET", "/m/v1/state"),
   work: () => json<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/m/v1/work"),
   room: (rootId: string) => json<RoomView>("GET", `/m/v1/work/${seg(rootId)}`),
   thread: (id: string) => json<ThreadData>("GET", `/m/v1/threads/${seg(id)}`),
@@ -230,6 +230,7 @@ export const api = {
   addNote: (instanceId: string, body: string) => json<Note>("POST", `/m/v1/work/${seg(instanceId)}/notes`, { body }),
   updateNote: (id: string, body: string) => json<Note>("PATCH", `/m/v1/notes/${seg(id)}`, { body }),
   deleteNote: (id: string) => json<unknown>("DELETE", `/m/v1/notes/${seg(id)}`),
+  taskRoadmaps: (instanceId: string) => json<{ root_id: string; roadmaps: Roadmap[] }>("GET", `/m/v1/agents/${seg(instanceId)}/roadmaps`),
   hosted: () => json<{ services: HostedService[] }>("GET", "/m/v1/hosting"),
   stopHosted: (id: string) => json<HostedService>("POST", `/m/v1/hosting/${seg(id)}/stop`),
   integrations: () => json<{ integrations: IntegrationSummary[]; error: string | null }>("GET", "/m/v1/integrations/summary"),
