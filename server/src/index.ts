@@ -28,6 +28,7 @@ import {
 } from "./skills.ts";
 import { health } from "./health.ts";
 import { VoiceError, cleanVoice, transcribeVoice } from "./voice.ts";
+import { AssistantError, askAssistant } from "./assistant.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
 import { createAccess, registerAccessRoutes } from "./access.ts";
 import { startPush, wirePush } from "./push.ts";
@@ -378,6 +379,15 @@ if (VOICE) {
     }
   });
 }
+// The phone's voice assistant (assistant.ts): a spoken question in, a short spoken answer out,
+// maybe with one proposed action the phone carries out itself after a spoken "yes". Never logged.
+app.post("/api/assistant/ask", async (req) => {
+  try { return await askAssistant(req.body); } catch (e: any) {
+    if (e instanceof AssistantError) throw new HttpError(e.statusCode, e.message);
+    req.log.error({ err: e?.message }, "assistant failed");
+    throw new HttpError(502, "The assistant couldn't answer just now");
+  }
+});
 app.post("/api/threads/:id/messages", async (req) => {
   const threadId = (req.params as any).id;
   const text = String((req.body as any)?.text ?? "");

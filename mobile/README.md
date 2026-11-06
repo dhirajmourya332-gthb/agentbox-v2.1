@@ -97,11 +97,12 @@ wipes it locally. If agentbox couldn't be reached, also **Revoke** it in the por
   return against both the wall clock and a monotonic clock; a clock set backwards also locks).
   Locking wipes the key and all loaded data from memory.
 - Screenshots and screen recording are blocked. App backups are off. Cleartext HTTP is off.
-- Permissions: camera (QR scan only), microphone (voice input, asked for on the first tap of the
-  mic) and notifications (asked for once, after pairing or on the first unlock). Images are picked
-  with the system photo picker (or the system file picker on older phones), which needs no storage
-  permission. No foreground service, background recording, background fetch or boot receiver
-  permissions (they're in `blockedPermissions`).
+- Permissions: camera (QR scan only), microphone (voice input and the assistant, asked for on the
+  first tap of a mic) and notifications (asked for once, after pairing or on the first unlock).
+  Images are picked with the system photo picker (or the system file picker on older phones), which
+  needs no storage permission. The only background work is the assistant's hands-free listening: a
+  microphone foreground service (with its notification) that runs only after you turn it on
+  (docs/VOICE-ASSISTANT.md). No background fetch or boot receiver (they're in `blockedPermissions`).
 - Voice input uses Android's own speech recognition (`expo-speech-recognition`). It runs on-device
   when the offline model for the chosen language is installed; otherwise the audio goes to the
   phone's online Google recognition service. The listening bar says which ("on-device" or

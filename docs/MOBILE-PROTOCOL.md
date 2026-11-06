@@ -413,10 +413,15 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
   `device/forget`) and when notification permission has been turned off. Notification taps are
   handled only after unlock; `data.room_id` and `data.attention_id` must be safe ids, everything
   else is ignored. A `room_id` that matches a group opens the group, anything else a task room.
+- **Voice assistant (app 1.7.0, docs/VOICE-ASSISTANT.md):** `POST assistant/ask {text (1–1000),
+  history? [{role: user|assistant, text}] (last 10), name?, box?}` → `{speech, action | null}`,
+  timeout 100 s. `action` is a proposal only (`new_task`, `reply`, `decide_plan`, `run_routine`);
+  the app carries it out after a spoken yes with the routes above. 404/410: an older agentbox.
 - **Permissions (app manifest):** INTERNET, CAMERA, RECORD_AUDIO, POST_NOTIFICATIONS,
-  USE_BIOMETRIC, USE_FINGERPRINT. Blocked with `tools:node="remove"`, among others:
-  FOREGROUND_SERVICE (and its MICROPHONE / MEDIA_PLAYBACK types), RECEIVE_BOOT_COMPLETED,
-  MODIFY_AUDIO_SETTINGS, storage and media. Firebase Messaging's library manifest adds its own
+  USE_BIOMETRIC, USE_FINGERPRINT, and since 1.7.0 FOREGROUND_SERVICE, FOREGROUND_SERVICE_MICROPHONE
+  and WAKE_LOCK for the assistant's hands-free listening (a service that runs only when the owner
+  turns it on). Blocked with `tools:node="remove"`, among others: FOREGROUND_SERVICE_MEDIA_PLAYBACK,
+  RECEIVE_BOOT_COMPLETED, MODIFY_AUDIO_SETTINGS, storage and media. Firebase Messaging's library manifest adds its own
   delivery permissions (WAKE_LOCK, ACCESS_NETWORK_STATE, c2dm RECEIVE) at build time.
 **Live progress and "needs you" (CONTRACTS-v2 § A, B; workstream "live")**
 - Allowlisted, signed, same JSON as the portal:

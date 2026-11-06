@@ -67,6 +67,22 @@ function sweepTemp() {
   } catch { /* ignore */ }
 }
 
+/** The voice assistant takes the recognizer: whatever dictation is running is cancelled first. */
+export function claimRecognizer(cancel: () => void): number {
+  if (activeOwner !== null) activeCancel?.();
+  const id = ++ownerSeq;
+  activeOwner = id;
+  activeCancel = cancel;
+  return id;
+}
+export const ownsRecognizer = (id: number) => activeOwner === id;
+export function releaseRecognizer(id: number) {
+  if (activeOwner !== id) return;
+  activeOwner = null;
+  activeCancel = null;
+  setTimeout(sweepTemp, 1500);
+}
+
 const join = (parts: string[]) => parts.map((s) => s.trim()).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 
 /** Recognition errors in plain words. Null: not an error worth stopping for. */

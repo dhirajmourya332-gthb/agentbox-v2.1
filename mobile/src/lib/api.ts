@@ -129,6 +129,9 @@ async function json<T>(method: Method, path: string, body?: unknown, timeout?: n
   return data as T;
 }
 
+/** The voice assistant's calls through the unlocked app (lib/assistant.ts); same checks as above. */
+export const signedJson = <T>(method: "GET" | "POST", path: string, body?: unknown, timeout?: number) => json<T>(method, path, body, timeout);
+
 /**
  * Best effort: tell the gateway to delete this device (204) before we wipe locally. Never halts,
  * never throws. Needs the key in memory, so it only runs while unlocked.

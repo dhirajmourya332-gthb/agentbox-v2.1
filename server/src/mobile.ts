@@ -94,7 +94,9 @@ const ALLOW: { method: "GET" | "POST" | "PATCH" | "DELETE"; re: RegExp }[] = [
     `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`, `setup-requests/${ID}/start`, `setup-requests/${ID}/reject`, `plans/${ID}/decide`,
     // The screen: take and give back control, and tap / scroll / type while holding it.
     "display/take", "display/release", "screen/input",
-    `work/${ID}/notes`, `hosting/${ID}/stop`]
+    `work/${ID}/notes`, `hosting/${ID}/stop`,
+    // The voice assistant: a question in, a spoken answer out (it only proposes; actions are the routes above).
+    "assistant/ask"]
     .map((p) => ({ method: "POST" as const, re: new RegExp(`^${p}$`) })),
   // A task's notes: edit and delete.
   { method: "PATCH", re: new RegExp(`^notes/${ID}$`) },
@@ -491,7 +493,7 @@ export async function startMobileGateway(app: FastifyInstance, port: number) {
     // room it opens: not audited.
     // Neither is each tap or keystroke on the shared screen (taking control is).
     if (res.statusCode >= 200 && res.statusCode < 300 && !rest.startsWith("attention/") && rest !== "screen/input") {
-      let ref: string | null = /^(voice|display)\//.test(rest) ? null : rest.split("/")[1] ?? null;
+      let ref: string | null = /^(voice|display|assistant)\//.test(rest) ? null : rest.split("/")[1] ?? null;
       if (rest === "work") {
         try { ref = String(JSON.parse(res.payload).id ?? "") || null; } catch { ref = null; }
       }

@@ -1,0 +1,28 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'local.agentbox'
+version = '1.0.0'
+
+// sherpa-onnx (Apache-2.0, k2-fsa): on-device keyword spotting. JitPack serves the release AAR.
+repositories {
+  maven { url "https://jitpack.io" }
+}
+
+android {
+  namespace "expo.modules.wakeword"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+  // The model files are copied out of the APK once; storing them uncompressed makes that a plain copy.
+  androidResources {
+    noCompress += ["onnx"]
+  }
+}
+
+dependencies {
+  implementation "com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v2.0.1@aar"
+}

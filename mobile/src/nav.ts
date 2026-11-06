@@ -21,6 +21,8 @@ export type Stack = {
   Hosted: undefined;
   Connections: undefined;
   Servers: undefined;
+  // Voice assistant.
+  Assistant: undefined;
 };
 
 export type Props<K extends keyof Stack> = NativeStackScreenProps<Stack, K>;

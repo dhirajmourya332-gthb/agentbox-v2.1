@@ -16,11 +16,12 @@ import { usePalette } from "./theme";
  */
 
 export type Section = keyof Pick<Stack,
-  "Overview" | "Work" | "Groups" | "Team" | "Activity" | "Routines" | "Documents" | "SharedScreen" | "Hosted" | "System" | "Connections" | "Settings">;
+  "Overview" | "Assistant" | "Work" | "Groups" | "Team" | "Activity" | "Routines" | "Documents" | "SharedScreen" | "Hosted" | "System" | "Connections" | "Settings">;
 
 /** The sections, in the portal's order. Top-level screens show the burger instead of a back arrow. */
 export const SECTIONS: { name: Section; label: string; icon: string; group: "work" | "computer" | "app" }[] = [
   { name: "Overview", label: "Home", icon: "⌂", group: "work" },
+  { name: "Assistant", label: "Assistant", icon: "◉", group: "work" },
   { name: "Work", label: "Work", icon: "▤", group: "work" },
   { name: "Groups", label: "Groups", icon: "#", group: "work" },
   { name: "Team", label: "Team", icon: "☺", group: "work" },

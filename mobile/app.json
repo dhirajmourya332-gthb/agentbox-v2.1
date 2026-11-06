@@ -2,7 +2,7 @@
   "expo": {
     "name": "agentbox",
     "slug": "agentbox",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "platforms": [
       "android"
     ],
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "org.agentbox.mobile",
-      "versionCode": 11,
+      "versionCode": 12,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -27,7 +27,10 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.WAKE_LOCK"
       ],
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -46,8 +49,6 @@
         "android.permission.WRITE_CONTACTS",
         "android.permission.READ_PHONE_STATE",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "com.google.android.gms.permission.AD_ID"
@@ -71,14 +72,33 @@
       [
         "expo-image-picker",
         {
-          "microphonePermission": "agentbox uses the microphone only while you dictate, to turn your speech into text."
+          "microphonePermission": "agentbox uses the microphone while you dictate or talk to its assistant, and, only when you turn hands-free on, to listen for the assistant's name on the phone."
         }
       ],
       [
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": false
+            "usesCleartextTraffic": false,
+            "extraMavenRepos": [
+              "https://jitpack.io"
+            ],
+            "packagingOptions": {
+              "exclude": [
+                "lib/armeabi-v7a/libonnxruntime.so",
+                "lib/armeabi-v7a/libsherpa-onnx-c-api.so",
+                "lib/armeabi-v7a/libsherpa-onnx-cxx-api.so",
+                "lib/armeabi-v7a/libsherpa-onnx-jni.so",
+                "lib/x86/libonnxruntime.so",
+                "lib/x86/libsherpa-onnx-c-api.so",
+                "lib/x86/libsherpa-onnx-cxx-api.so",
+                "lib/x86/libsherpa-onnx-jni.so",
+                "lib/x86_64/libonnxruntime.so",
+                "lib/x86_64/libsherpa-onnx-c-api.so",
+                "lib/x86_64/libsherpa-onnx-cxx-api.so",
+                "lib/x86_64/libsherpa-onnx-jni.so"
+              ]
+            }
           }
         }
       ],
@@ -86,7 +106,7 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "agentbox uses the microphone only while you dictate, to turn your speech into text.",
+          "microphonePermission": "agentbox uses the microphone while you dictate or talk to its assistant, and, only when you turn hands-free on, to listen for the assistant's name on the phone.",
           "androidSpeechServicePackages": [
             "com.google.android.googlequicksearchbox"
           ]

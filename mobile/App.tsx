@@ -28,10 +28,12 @@ import { AgentScreen } from "./src/screens/AgentScreen";
 import { ConnectionsScreen } from "./src/screens/ConnectionsScreen";
 import { DocumentsScreen } from "./src/screens/DocumentsScreen";
 import { HostedScreen } from "./src/screens/HostedScreen";
+import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ServersScreen } from "./src/screens/ServersScreen";
 import { SharedScreenScreen } from "./src/screens/SharedScreenScreen";
 import { SystemScreen } from "./src/screens/SystemScreen";
 import { TeamScreen } from "./src/screens/TeamScreen";
+import { AssistantButton, AssistantHost } from "./src/ui/AssistantHost";
 import { PauseControl } from "./src/ui/PauseControl";
 import { Burger, DrawerProvider, TOP_LEVEL, type Section } from "./src/ui/Drawer";
 import { DialogHost, showDialog } from "./src/ui/dialog";
@@ -57,7 +59,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style={isDark(p) ? "light" : "dark"} />
       {secured === "on" ? (
-        <SessionProvider><Gate /><DialogHost /></SessionProvider>
+        <SessionProvider><Gate /><AssistantHost /><DialogHost /></SessionProvider>
       ) : secured === "failed" ? (
         <View style={{ flex: 1, backgroundColor: p.bg, justifyContent: "center", padding: 24, gap: 12 }}>
           <T size={22} weight="700">Screen protection unavailable</T>
@@ -120,7 +122,7 @@ function MainApp() {
           // Sections (the menu's entries) show the burger; everything opened from them shows Back.
           ...(TOP_LEVEL.has(route.name) ? { headerLeft: () => <Burger />, headerBackVisible: false } : {}),
         })}>
-          <Nav.Screen name="Overview" component={OverviewScreen} options={{ title: "agentbox", headerRight: () => <PauseControl /> }} />
+          <Nav.Screen name="Overview" component={OverviewScreen} options={{ title: "agentbox", headerRight: () => <View style={{ flexDirection: "row", alignItems: "center" }}><AssistantButton /><PauseControl /></View> }} />
           <Nav.Screen name="Work" component={WorkScreen} options={{ title: "Work", headerRight: () => <PauseControl /> }} />
           <Nav.Screen name="Room" component={RoomScreen} options={{ title: "Task" }} />
           <Nav.Screen name="Groups" component={GroupsScreen} options={{ title: "Groups" }} />
@@ -139,6 +141,7 @@ function MainApp() {
           <Nav.Screen name="Hosted" component={HostedScreen} options={{ title: "Hosted services" }} />
           <Nav.Screen name="Connections" component={ConnectionsScreen} options={{ title: "Integrations & repos" }} />
           <Nav.Screen name="Servers" component={ServersScreen} options={{ title: "Your agentboxes" }} />
+          <Nav.Screen name="Assistant" component={AssistantScreen} options={{ title: "Assistant" }} />
         </Nav.Navigator>
       </NavigationContainer>
       </DrawerProvider>
