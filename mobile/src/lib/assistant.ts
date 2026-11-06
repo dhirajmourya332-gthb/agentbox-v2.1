@@ -173,18 +173,40 @@ function call<T>(deviceId: string, method: "GET" | "POST", path: string, body?: 
 
 // --- speaking and listening --------------------------------------------------------------------------
 
-let ttsLang = "en-IN";
+let ttsLang: string | undefined = "en-IN";
+let voicesChecked = "";
 
+/** The recognition language's voice when the phone has one; otherwise the phone's default voice. */
+async function pickTtsLang(lang: string) {
+  const want = lang === "hi-IN" ? "en-IN" : lang;
+  if (voicesChecked === want) return;
+  voicesChecked = want;
+  try {
+    const voices = await Promise.race([Speech.getAvailableVoicesAsync(), new Promise<null>((r) => setTimeout(() => r(null), 2000))]);
+    const has = (l: string) => !!voices?.some((v) => v.language?.replace("_", "-").toLowerCase() === l.toLowerCase());
+    ttsLang = !voices || !voices.length ? undefined : has(want) ? want : has("en-US") ? "en-US" : undefined;
+  } catch {
+    ttsLang = undefined;
+  }
+}
+
+/**
+ * Speaks `text`. Never hangs: some text-to-speech engines don't report the end (no voice for the
+ * language, engine busy), so a watchdog sized to the text resolves it anyway.
+ */
 function say(text: string, my: number): Promise<void> {
   if (my !== gen) return Promise.resolve();
   set({ phase: "speaking" });
   note("assistant", text);
   return new Promise((resolve) => {
-    const done = () => resolve();
+    let over = false;
+    const done = () => { if (!over) { over = true; clearTimeout(watchdog); resolve(); } };
+    const words = text.split(/\s+/).length;
+    const watchdog = setTimeout(() => { try { Speech.stop(); } catch { /* not speaking */ } done(); }, 4000 + words * 600);
     try {
-      Speech.speak(text, { language: ttsLang, rate: 1.0, onDone: done, onStopped: done, onError: done });
+      Speech.speak(text, { ...(ttsLang ? { language: ttsLang } : {}), rate: 1.0, onDone: done, onStopped: done, onError: done });
     } catch {
-      resolve();
+      done();
     }
   });
 }
@@ -198,7 +220,7 @@ async function listenOnce(waitMs: number, my: number): Promise<string | null> {
   const perm = await ExpoSpeechRecognitionModule.getMicrophonePermissionsAsync();
   if (!perm.granted) throw new Error("agentbox needs the microphone. Allow it in the app's Android settings.");
   const vp = await loadVoicePrefs();
-  ttsLang = vp.lang === "hi-IN" ? "en-IN" : vp.lang;
+  await pickTtsLang(vp.lang);
   const pick = await pickEngine(vp.lang, vp.onDeviceOnly);
   if (!pick.engine) throw new Error("The offline speech model isn't installed. Download it in Settings, Voice.");
   if (my !== gen) return null;
@@ -231,13 +253,18 @@ async function listenOnce(waitMs: number, my: number): Promise<string | null> {
         if (ownsRecognizer(id)) finish(join([...finals, interim]) || null);
       }),
     ];
-    // Nothing said: give up quietly. Something said: the recogniser ends on its own at the pause.
+    // Nothing said: give up quietly. Something said: the recogniser ends on its own at the pause
+    // (and if it doesn't within a few seconds of the last words, stop it ourselves).
     const quiet = setTimeout(() => {
       if (heard) return;
       try { ExpoSpeechRecognitionModule.abort(); } catch { /* not running */ }
       finish(null);
     }, waitMs);
-    const cap = setTimeout(() => { try { ExpoSpeechRecognitionModule.stop(); } catch { /* not running */ } }, 45_000);
+    // At most 45 s per utterance; if Android never reports the end, take what was heard.
+    const cap = setTimeout(() => {
+      try { ExpoSpeechRecognitionModule.stop(); } catch { /* not running */ }
+      setTimeout(() => finish(join([...finals, interim]) || null), 3000);
+    }, 45_000);
     try {
       ExpoSpeechRecognitionModule.start({
         lang: vp.lang,
@@ -261,6 +288,8 @@ type Turn = { role: "user" | "assistant"; text: string };
 /** The current conversation with one agentbox (sent back as context). Forgotten after 5 minutes. */
 let convo: { deviceId: string; turns: Turn[]; at: number } | null = null;
 const CONVO_MS = 5 * 60_000;
+/** The agentbox gives up at 90 s; past a minute the owner has stopped waiting anyway. */
+const ASK_TIMEOUT_MS = 60_000;
 
 let gen = 0;
 let running = false;
@@ -277,8 +306,17 @@ function friendly(e: unknown, box: string): string {
 async function ask(t: Target, text: string, my: number): Promise<{ speech: string; action: Action | null }> {
   if (!convo || convo.deviceId !== t.deviceId || Date.now() - convo.at > CONVO_MS) convo = { deviceId: t.deviceId, turns: [], at: Date.now() };
   set({ phase: "thinking" });
-  const res = await call<{ speech: string; action: Action | null }>(t.deviceId, "POST", "/m/v1/assistant/ask",
-    { text, history: convo.turns.slice(-10), name: assistantName(prefs.wakePhrase), box: t.name }, 100_000);
+  // Answers take several seconds (a Claude turn on the agentbox): say so, so silence isn't a mystery.
+  const holding = setTimeout(() => {
+    if (my === gen && state.phase === "thinking") { try { Speech.speak("One moment.", ttsLang ? { language: ttsLang } : {}); } catch { /* no voice */ } }
+  }, 1500);
+  let res: { speech: string; action: Action | null };
+  try {
+    res = await call<{ speech: string; action: Action | null }>(t.deviceId, "POST", "/m/v1/assistant/ask",
+      { text, history: convo.turns.slice(-10), name: assistantName(prefs.wakePhrase), box: t.name }, ASK_TIMEOUT_MS);
+  } finally {
+    clearTimeout(holding);
+  }
   if (my === gen && convo?.deviceId === t.deviceId) {
     convo.turns.push({ role: "user", text }, { role: "assistant", text: res.speech });
     convo.at = Date.now();
