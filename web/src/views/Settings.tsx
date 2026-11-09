@@ -58,8 +58,8 @@ export function Settings() {
           {s && (
             <span className="hint">
               {s.live_tasks} live now. Every task that hasn't been finished counts, including helpers an agent started, routines and groups.
-              Each one is a Claude session and its processes on this computer, so a higher limit needs more memory and uses more of the
-              Claude plan. Default {s.default_max_live_tasks}; from {s.min_live_tasks} to {s.limit_live_tasks}.
+              A waiting task costs nothing but its folder (and repo checkouts) on disk: Claude only runs while a task takes a turn, and at
+              most 6 turns run at once (the rest queue), whatever this limit is. Default {s.default_max_live_tasks}; from {s.min_live_tasks} to {s.limit_live_tasks}.
               {!valid && limit !== "" ? ` Enter a whole number from ${s.min_live_tasks} to ${s.limit_live_tasks}.` : ""}
             </span>
           )}

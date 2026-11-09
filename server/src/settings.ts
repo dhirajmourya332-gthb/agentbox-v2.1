@@ -3,10 +3,11 @@ import { get, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 
 /**
- * The owner's settings (portal → Settings). For now one: how many tasks may be live at once
- * (every live instance is a Claude session and a process tree on this VM, so the cap protects its
- * memory and the Claude plan). Stored in the database, read on every check, so a change applies
- * straight away.
+ * The owner's settings (portal → Settings). For now one: how many tasks (unfinished instances) may
+ * exist at once. A waiting instance is only a row and its folders on disk; Claude runs only during
+ * a turn, and runner.ts caps turns at once separately (MAX_RUNNING), so this limit guards against
+ * runaway task creation and disk use, not memory or the Claude plan. Stored in the database, read
+ * on every check, so a change applies straight away.
  */
 
 run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`);
