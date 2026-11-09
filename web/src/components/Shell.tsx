@@ -170,7 +170,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const liveWork = work.live.filter((w) => !setupIds.has(w.root.id));
   const doneWork = work.done.filter((w) => !setupIds.has(w.root.id));
   const inConfigure = ["setup", "integrations", "repos", "skills", "skill", "new-skill", "draft"].includes(route.name);
-  const inComputer = ["screen", "terminal", "system", "devices"].includes(route.name);
+  const inComputer = ["screen", "terminal", "system", "devices", "settings"].includes(route.name);
   const [showDone, setShowDone] = useRemembered("work.done", false);
   // Narrow screens: the rail is a drawer behind the burger. It closes on navigation and Escape.
   const [railOpen, setRailOpen] = useState(false);
@@ -290,6 +290,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           <RailLink to={{ name: "terminal" }} current={route} icon={<Icon name="terminal" />}>Terminal</RailLink>
           <RailLink to={{ name: "system" }} current={route} icon={<Icon name="pulse" />}>System</RailLink>
           <RailLink to={{ name: "devices" }} current={route} icon={<Icon name="phone" />}>Devices</RailLink>
+          <RailLink to={{ name: "settings" }} current={route} icon={<Icon name="settings" />}>Settings</RailLink>
         </Section>
       </nav>
 

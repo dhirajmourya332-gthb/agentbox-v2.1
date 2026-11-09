@@ -357,6 +357,16 @@ cmd("pause", "pause [--keep-running]                     Pause all: no new turns
   out("Paused. agentbox resume to carry on.");
 });
 cmd("resume", "resume                                     resume after Pause all", async (api) => { await api.post("/api/resume"); out("Resumed."); });
+cmd("settings", "settings [--json] | settings set max-live-tasks <n>  the owner's settings (live task limit)", async (api, argv) => {
+  if (argv[0] === "set") {
+    if (argv[1] !== "max-live-tasks" || !argv[2]) throw new Error("Usage: agentbox settings set max-live-tasks <n>");
+    const d = await api.put("/api/settings", { max_live_tasks: Number(argv[2]) });
+    return out(`Live tasks at once: ${d.max_live_tasks} (${d.live_tasks} live now).`);
+  }
+  const d = await api.get("/api/settings");
+  if (argv.includes("--json")) return json(d);
+  out(`${bold("Live tasks at once")}: ${d.max_live_tasks} ${dim(`(${d.live_tasks} live now; default ${d.default_max_live_tasks}, ${d.min_live_tasks}–${d.limit_live_tasks})`)}`);
+});
 cmd("health", "health [--json]                            modules, integrations and tools on the VM", async (api, argv) => {
   const h = await api.get("/api/health");
   if (argv.includes("--json")) return json(h);
@@ -1355,7 +1365,7 @@ export const PORTAL_USAGE = `On your computer (agentbox login …) or the VM. Ta
 title or id prefix (coder#3, "Fix login", 3a67cf). Most commands take --json.
 
   ${bold("connect")}     login · profiles · use · logout · whoami
-  ${bold("overview")}    agentbox (dash) · needs · activity · graph · health · control · pause · resume
+  ${bold("overview")}    agentbox (dash) · needs · activity · graph · health · control · pause · resume · settings
   ${bold("work")}        task new · work · show · log · send · chat · watch · stop · done · keep · rename
               notes · note · links · link · services · docs · open · share · shares
   ${bold("review")}      roadmap · plans · plan · plan-gate · changes · review

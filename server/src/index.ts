@@ -29,6 +29,7 @@ import {
 import { health } from "./health.ts";
 import { VoiceError, cleanVoice, transcribeVoice } from "./voice.ts";
 import { AssistantError, askAssistant } from "./assistant.ts";
+import { LiveLimitError, registerSettingsRoutes } from "./settings.ts";
 import { guardApi, registerDeviceAdmin, startMobileGateway } from "./mobile.ts";
 import { createAccess, registerAccessRoutes } from "./access.ts";
 import { startPush, wirePush } from "./push.ts";
@@ -97,7 +98,7 @@ app.setErrorHandler((err: any, _req, reply) => {
   const status = err.statusCode ?? 400;
   if (status >= 500) app.log.error(err);
   // 409s from repos carry what's in the way (open tasks, unpushed worktrees); the phone gets web_only.
-  reply.status(status).send({ error: err.message, ...(err.detail ? { detail: err.detail } : {}), ...(err.web_only ? { web_only: true } : {}) });
+  reply.status(status).send({ error: err.message, ...(err.detail ? { detail: err.detail } : {}), ...(err.web_only ? { web_only: true } : {}), ...(err.reason ? { reason: err.reason } : {}) });
 });
 
 const agentView = (a: ReturnType<typeof getAgent> & {}) => ({
@@ -210,6 +211,7 @@ app.get("/api/documents", async () =>
   ));
 
 // --- work: tasks (instances) and task rooms ------------------------------------------------
+registerSettingsRoutes(app);
 app.get("/api/work", async () => workList());
 app.post("/api/work", async (req) => {
   const b = req.body as any;
@@ -227,6 +229,8 @@ app.post("/api/work", async (req) => {
     });
     return agentView(inst);
   } catch (e: any) {
+    // At the live task limit: 409 with reason "live_task_limit", so the portal links to Settings.
+    if (e instanceof LiveLimitError) throw e;
     throw new HttpError(400, e.message);
   }
 });

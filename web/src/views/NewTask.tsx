@@ -39,6 +39,8 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
   const [links, setLinks] = useState<string[]>([]);
   useEffect(() => { api.repos().then((d) => setRepos(d.repos.filter((r) => r.status === "ready"))).catch(() => setRepos([])); }, []);
   const [error, setError] = useState<string | null>(null);
+  // At the live task limit (409, reason live_task_limit): the card links to Settings.
+  const [atLimit, setAtLimit] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const att = useAttachments();
   const voice = useVoice({ input: ref, text, setText, purpose: "task", agentId: picked ?? undefined });
@@ -74,6 +76,7 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
     if (!role || (!text.trim() && !att.paths.length) || att.uploading) return;
     setBusy(true);
     setError(null);
+    setAtLimit(false);
     try {
       if (crews.length && crew !== null) { try { localStorage.setItem(LAST_CREW, crew); } catch { /* fine without it */ } }
       const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined, planFirst && !role.builtin, links);
@@ -82,6 +85,7 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
       go(role.builtin === "setup" ? { name: "setup", id: inst.id } : { name: "agent", id: inst.id });
     } catch (e: any) {
       setError(e.message);
+      setAtLimit(e?.data?.reason === "live_task_limit");
       setBusy(false);
     }
   }
@@ -105,7 +109,12 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
           <h1>New task</h1>
           <p className="lede" style={{ marginBottom: 0 }}>Each task gets its own conversation, so work never gets mixed up.</p>
         </div>
-        {error && <div className="error-box" role="alert">{error}</div>}
+        {error && (
+          <div className="error-box" role="alert">
+            {error}
+            {atLimit && <> <a href="#/settings">Change the limit in Settings →</a></>}
+          </div>
+        )}
 
         {crews.length > 0 && (
           <div className="field">

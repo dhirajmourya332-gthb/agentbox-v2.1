@@ -22,6 +22,7 @@ export type Route =
   | { name: "terminal" }
   | { name: "system" }
   | { name: "devices" }
+  | { name: "settings" }
   | { name: "skills" }
   | { name: "skill"; skill: string }
   | { name: "new-skill" }
@@ -58,7 +59,7 @@ export function parse(hash: string): Route {
   if (parts[0] === "new") return { name: "new-task", role: parts[1] };
   if (parts[0] === "work" && parts[1]) return { name: "room", id: parts[1] };
   if (parts[0] === "documents") return { name: "documents" };
-  if (parts[0] === "screen" || parts[0] === "terminal" || parts[0] === "system" || parts[0] === "devices") return { name: parts[0] };
+  if (parts[0] === "screen" || parts[0] === "terminal" || parts[0] === "system" || parts[0] === "devices" || parts[0] === "settings") return { name: parts[0] };
   return { name: "home" };
 }
 

@@ -23,6 +23,7 @@ import { Room } from "./views/Room.tsx";
 import { DocumentsPage } from "./views/DocumentsPage.tsx";
 import { LinkedFileReader } from "./views/Documents.tsx";
 import { Devices } from "./views/Devices.tsx";
+import { Settings } from "./views/Settings.tsx";
 import { Integrations } from "./views/Integrations.tsx";
 import { Repos } from "./views/Repos.tsx";
 // The Setup workspace brings xterm.js: loaded on first use.
@@ -76,6 +77,7 @@ function App() {
       {route.name === "terminal" && <Terminal />}
       {route.name === "system" && <System />}
       {route.name === "devices" && <Devices />}
+      {route.name === "settings" && <Settings />}
       {route.name === "integrations" && <Integrations />}
       {route.name === "repos" && <Repos focus={route.repo} />}
       {route.name === "setup" && <Suspense fallback={<div className="page" />}><SetupWorkspace key={route.id ?? "latest"} instanceId={route.id} /></Suspense>}

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { LiveLimitError, liveTaskCount, liveTaskLimit } from "./settings.ts";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 import { paths } from "./config.ts";
@@ -53,8 +54,7 @@ export type Agent = {
 
 /** Per creator: how many live instances of one role an agent may run at once (role.max_replicas overrides). */
 export const DEFAULT_PER_CREATOR = 5;
-/** Safety cap on live instances overall (VM memory and Claude usage). */
-export const MAX_LIVE_INSTANCES = 40;
+// The cap on live instances overall (VM memory and Claude usage) is the owner's: settings.ts.
 
 export function slugify(name: string) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
@@ -190,8 +190,9 @@ export function spawnInstance(roleId: string, s: Spawn) {
   if (role.base_agent_id) throw new Error(`${role.name} is an instance; start work on its agent, ${getAgent(role.base_agent_id)?.name}`);
   // The setup agent gets temporary sudo while it works: only the owner starts its tasks.
   if (role.builtin === "setup" && s.createdBy !== "owner") throw new Error(`Only the owner starts ${role.name} tasks; ask the owner.`);
-  const live = (get<{ n: number }>(`SELECT COUNT(*) AS n FROM agents WHERE base_agent_id IS NOT NULL AND retired_at IS NULL`)?.n ?? 0) as number;
-  if (live >= MAX_LIVE_INSTANCES) throw new Error(`There are already ${live} live tasks, the limit. Finish some first.`);
+  const live = liveTaskCount();
+  const cap = liveTaskLimit();
+  if (live >= cap) throw new LiveLimitError(live, cap);
   const byAgent = s.createdBy !== "owner" && !s.createdBy.startsWith("routine:") && !s.createdBy.startsWith("group:")
     && !s.createdBy.startsWith("lead:");
   if (byAgent && !s.asLead) {

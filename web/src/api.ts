@@ -340,6 +340,9 @@ export type BenchStatus = {
   devices: { id: string; kind: string; description: string; manufacturer: string; vid: string; pid: string; port: number; url: string; dev: string | null; in_use: boolean }[];
 };
 
+/** The owner's settings (server/src/settings.ts). */
+export type Settings = { max_live_tasks: number; default_max_live_tasks: number; min_live_tasks: number; limit_live_tasks: number; live_tasks: number };
+
 /** An API error with what the server attached (409s from repos carry `detail`). */
 export class ApiError extends Error {
   constructor(message: string, public status: number, public data: any) { super(message); }
@@ -494,6 +497,8 @@ export const api = {
   attentionSeenRoom: (roomId: string) => call<{ seen: number }>("POST", `/api/attention/seen-room/${roomId}`),
   // Device admin always sends a JSON body: the server requires it (it forces a CORS preflight).
   devices: () => call<{ pending: Device[]; active: Device[] }>("GET", "/api/devices"),
+  settings: () => call<Settings>("GET", "/api/settings"),
+  saveSettings: (change: Partial<Pick<Settings, "max_live_tasks">>) => call<Settings>("PUT", "/api/settings", change),
   newPairing: () => call<Pairing>("POST", "/api/devices/pairings", {}),
   cancelPairing: () => call("DELETE", "/api/devices/pairings", {}),
   approveDevice: (id: string) => call("POST", `/api/devices/${id}/approve`, {}),
