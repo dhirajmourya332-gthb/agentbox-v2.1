@@ -164,6 +164,7 @@ for (const [col, type] of [
   ["workspace", "TEXT"],           // task rooms: the shared folder (on the room's root instance)
   ["context_tokens", "INTEGER"],   // instances: size of the conversation after its last turn
   ["crew_id", "TEXT"],             // agents (roles): the crew it's in (crews.ts); instances follow their role
+  ["tags", "TEXT"],                // work roots: the owner's tags, a JSON array (tags.ts)
 ] as const) {
   if (!columns("agents").includes(col)) db.exec(`ALTER TABLE agents ADD COLUMN ${col} ${type}`);
 }

@@ -40,6 +40,8 @@ export type Agent = {
   label?: string | null;
   /** Instances: a finished task room the owner chose to keep visible. */
   kept?: number;
+  /** Work roots: the owner's tags, a JSON array (tags.ts). */
+  tags?: string | null;
   /** Task rooms (root instance): the room's shared folder. */
   workspace?: string | null;
   /** Instances: conversation size after the last turn, in tokens. */

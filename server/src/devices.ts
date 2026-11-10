@@ -275,6 +275,7 @@ const AUDIT_TITLES: [RegExp, string][] = [
   [/^display\/release$/, "gave back the screen"],
   [/^work\/[^/]+\/notes$/, "added a note"],
   [/^notes\/[^/]+$/, "edited a note"],
+  [/^work\/[^/]+\/tags$/, "tagged a piece of work"],
   [/^hosting\/[^/]+\/stop$/, "stopped a hosted service"],
   [/^plans\/[^/]+\/decide$/, "decided on a plan"],
   [/^setup-requests\/[^/]+\/start$/, "started a setup request"],

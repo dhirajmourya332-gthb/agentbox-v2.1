@@ -374,14 +374,16 @@ cmd("health", "health [--json]                            modules, integrations 
 });
 
 // work and tasks
-cmd("work", "work [list] [--done] [--json] | work show <task> [--json]   pieces of work (task rooms)", async (api, argv) => {
+cmd("work", "work [list] [--done] [--tag t|--untagged] [--json] | work show <task>   pieces of work (task rooms)", async (api, argv) => {
   if (argv[0] === "show") return H["show"](api, argv.slice(1));
-  const a = args(argv[0] === "list" ? argv.slice(1) : argv, { bool: ["done", "json"] });
+  const a = args(argv[0] === "list" ? argv.slice(1) : argv, { bool: ["done", "json", "untagged"] });
   const w = await world(api);
-  const rooms = a.flags.done ? w.work.done : w.work.live;
+  const tag = a.flags.tag ? String(a.flags.tag).toLowerCase().replace(/^#/, "") : null;
+  const rooms = (a.flags.done ? w.work.done : w.work.live)
+    .filter((r) => (a.flags.untagged ? !(r.root.tags ?? []).length : !tag || (r.root.tags ?? []).includes(tag)));
   if (a.flags.json) return json(rooms);
   if (!rooms.length) out(dim(a.flags.done ? "Nothing finished lately." : "Nothing in progress. agentbox task new …"));
-  table(rooms.map((r) => [status(r.members.some((m) => m.status === "working") ? "working" : r.root.status), cut(r.root.label ?? r.root.name, 56), r.root.name, r.members.length > 1 ? `${r.members.length} tasks` : "", dim(ago(r.last_activity)), dim(r.root.id.slice(0, 8))]), ["", "work", "lead", "", "last", "id"]);
+  table(rooms.map((r) => [status(r.members.some((m) => m.status === "working") ? "working" : r.root.status), cut(r.root.label ?? r.root.name, 56) + ((r.root.tags ?? []).length ? dim(` #${r.root.tags.join(" #")}`) : ""), r.root.name, r.members.length > 1 ? `${r.members.length} tasks` : "", dim(ago(r.last_activity)), dim(r.root.id.slice(0, 8))]), ["", "work", "lead", "", "last", "id"]);
 });
 cmd("show", "show <task> [--n 15] [--json]              a task or room: members, roadmap, latest messages", async (api, argv) => {
   const a = args(argv, { bool: ["json"] });
@@ -404,8 +406,8 @@ cmd("show", "show <task> [--n 15] [--json]              a task or room: members,
   out("");
   for (const m of room.messages.slice(-Number(a.flags.n ?? 15))) printMessage(w, m);
 });
-cmd("task new", "task new [--crew c] [--to agent] [--title t] [--repo r]… [--link work]… [--plan-first] [-f file]… <text|->", async (api, argv) => {
-  const a = args(argv, { bool: ["plan-first", "json"], multi: ["repo", "link", "file"], alias: { f: "file", t: "title", c: "crew" } });
+cmd("task new", "task new [--crew c] [--to agent] [--title t] [--tag t]… [--repo r]… [--link work]… [--plan-first] [-f file]… <text|->", async (api, argv) => {
+  const a = args(argv, { bool: ["plan-first", "json"], multi: ["repo", "link", "file", "tag"], alias: { f: "file", t: "title", c: "crew" } });
   const text = (a._[0] === "-" ? fs.readFileSync(0, "utf8") : a._.join(" ")).trim();
   if (!text && !a.flags.file) fail("Say what needs doing: agentbox task new --crew software \"Fix the login retry\"");
   const w = await world(api);
@@ -419,7 +421,7 @@ cmd("task new", "task new [--crew c] [--to agent] [--title t] [--repo r]… [--l
   }
   const links = list(a.flags.link).map((l) => rootOf(w, findTask(w, l)).id);
   const images = await upload(api, list(a.flags.file));
-  const inst = await api.post("/api/work", { role_id: role.id, text, title: a.flags.title, images, repos: list(a.flags.repo), require_plan: !!a.flags["plan-first"] || undefined, links: links.length ? links : undefined });
+  const inst = await api.post("/api/work", { role_id: role.id, text, title: a.flags.title, images, repos: list(a.flags.repo), require_plan: !!a.flags["plan-first"] || undefined, links: links.length ? links : undefined, tags: list(a.flags.tag).length ? list(a.flags.tag) : undefined });
   if (a.flags.json) return json(inst);
   out(`${green("✔")} Started ${bold(inst.name)} "${inst.label}"  ${dim(inst.id.slice(0, 8))}\n  follow it: agentbox chat ${inst.name}`);
 });
@@ -465,6 +467,30 @@ cmd("keep", "keep <task> [--off]                        keep a finished room lis
   const t = findTask(w, a._.join(" "));
   await api.patch(`/api/agents/${t.id}/meta`, { kept: !a.flags.off });
   out(a.flags.off ? "No longer kept." : "Kept.");
+});
+cmd("tag", "tag <task> [+tag|-tag|tag]… [--clear] [--json]   tag work (tags filter the Work list); no tags: show them", async (api, argv) => {
+  const a = args(argv, { bool: ["clear", "json"] });
+  const [ref, ...ops] = a._;
+  if (!ref) fail("Usage: agentbox tag <task> +brandsek -infra   (agentbox tags lists the tags in use)");
+  const w = await world(api);
+  const root = rootOf(w, findTask(w, ref));
+  const room = [...w.work.live, ...w.work.done].find((r) => r.root.id === root.id);
+  let tags = a.flags.clear ? [] : [...(room?.root.tags ?? [])];
+  for (const op of ops) {
+    const t = op.replace(/^[+-]/, "").toLowerCase();
+    if (op.startsWith("-")) tags = tags.filter((x) => x !== t);
+    else if (!tags.includes(t)) tags.push(t);
+  }
+  const r = ops.length || a.flags.clear ? await api.patch(`/api/work/${root.id}/tags`, { tags }) : { id: root.id, tags };
+  if (a.flags.json) return json(r);
+  out(`"${root.label ?? root.name}": ${r.tags.length ? r.tags.map((t) => `#${t}`).join(" ") : dim("no tags")}`);
+});
+cmd("tags", "tags [--json]                              the tags in use on work, most used first", async (api, argv) => {
+  const a = args(argv, { bool: ["json"] });
+  const r = await api.get("/api/work-tags");
+  if (a.flags.json) return json(r.tags);
+  if (!r.tags.length) return out(dim("No tags yet. agentbox tag <task> +name"));
+  table(r.tags.map((t) => [`#${t.tag}`, String(t.n)]), ["tag", "work"]);
 });
 cmd("rename", "rename <task> <new title>                  rename a task", async (api, argv) => {
   const w = await world(api);
@@ -1366,7 +1392,7 @@ title or id prefix (coder#3, "Fix login", 3a67cf). Most commands take --json.
 
   ${bold("connect")}     login · profiles · use · logout · whoami
   ${bold("overview")}    agentbox (dash) · needs · activity · graph · health · control · pause · resume · settings
-  ${bold("work")}        task new · work · show · log · send · chat · watch · stop · done · keep · rename
+  ${bold("work")}        task new · work · show · log · send · chat · watch · stop · done · keep · rename · tag · tags
               notes · note · links · link · services · docs · open · share · shares
   ${bold("review")}      roadmap · plans · plan · plan-gate · changes · review
   ${bold("routines")}    routines · routine · wakeups

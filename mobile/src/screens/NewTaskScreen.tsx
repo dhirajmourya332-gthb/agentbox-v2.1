@@ -10,6 +10,7 @@ import { Composer } from "../ui/Composer";
 import { Screen, T } from "../ui/kit";
 import { usePalette } from "../ui/theme";
 import { useVoice } from "../ui/Voice";
+import { TagInput } from "../ui/Tags";
 
 /** The crew's lead: the one the crew names, else one that plans and delegates, else the first. */
 export function crewLead(crewId: string, roles: Agent[], crews: Crew[]) {
@@ -40,6 +41,7 @@ export function NewTaskScreen({ navigation }: Props<"NewTask">) {
   const [picked, setPicked] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const att = useAttachments();
@@ -70,7 +72,7 @@ export function NewTaskScreen({ navigation }: Props<"NewTask">) {
     setBusy(true);
     setError(null);
     try {
-      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths);
+      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, tags);
       if (crews.length && crew !== null) lastCrew = crew;
       att.clear();
       navigation.replace("Room", { id: inst.id, title: title.trim() || undefined });
@@ -128,6 +130,8 @@ export function NewTaskScreen({ navigation }: Props<"NewTask">) {
           <T weight="600">Title <T muted size={13}>(optional)</T></T>
           <TextInput value={title} onChangeText={setTitle} maxLength={120} placeholder="Defaults to the first line" accessibilityLabel="Title"
             placeholderTextColor={p.muted} style={input} />
+          <T weight="600">Tags <T muted size={13}>(optional; filter Work by them, e.g. a client)</T></T>
+          <TagInput value={tags} onChange={setTags} />
           <T muted size={13}>Say what needs doing below{role ? `; ${role.name} starts on it in a new room` : ""}.</T>
         </ScrollView>
         <Composer text={text} setText={setText} att={att} voice={voice} onSend={start} busy={busy} error={error} disabled={!role} maxLines={8}

@@ -8,6 +8,7 @@ import { PauseControl, PausedBar, ScreenPip, ThemeSwitch } from "./Controls.tsx"
 import { MarkDot, needsOwner, useRoomMarks, type Mark } from "./Live.tsx";
 import { RailRuns } from "./Runs.tsx";
 import { VmAlertBar, VmChip } from "./VmHealth.tsx";
+import { TagChip, tagHue, UNTAGGED, matchesFilter, useWorkFilter } from "./Tags.tsx";
 
 function UsageChip({ usage }: { usage: Usage | null }) {
   if (!usage) return null;
@@ -115,6 +116,9 @@ function WorkItem({ room, route, mark }: { room: WorkRoom; route: Route; mark?: 
           icon={isRoom ? <span className={`room-dot${busy ? " busy" : ""}`}><Icon name="room" size={12} /></span> : <Glyph status={room.root.status} />}>
           <span className="grow" title={`${room.root.label} · ${room.root.name}`}>{room.root.label ?? room.root.name}</span>
           {mark && <MarkDot mark={mark.mark} title={mark.title} />}
+          {room.root.tags?.length > 0 && <span className="rail-tags-dots" title={room.root.tags.map((t) => `#${t}`).join(" ")}>
+            {room.root.tags.slice(0, 3).map((t) => <span key={t} className="tag-dot" style={{ "--tag-h": tagHue(t) } as React.CSSProperties} />)}
+          </span>}
           {isRoom && <span className="count subtle">{children.length + 1}</span>}
         </RailLink>
       </div>
@@ -167,8 +171,24 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const setupIds = new Set(setupRole ? [setupRole.id, ...agents.filter((a) => a.base_agent_id === setupRole.id).map((a) => a.id)] : []);
   const setupWorking = agents.filter((a) => setupIds.has(a.id) && a.status === "working").length;
   const roles = agents.filter((a) => !a.base_agent_id && !a.builtin);
-  const liveWork = work.live.filter((w) => !setupIds.has(w.root.id));
-  const doneWork = work.done.filter((w) => !setupIds.has(w.root.id));
+  const allLive = work.live.filter((w) => !setupIds.has(w.root.id));
+  const allDone = work.done.filter((w) => !setupIds.has(w.root.id));
+  // Tag filter (Tags.tsx): tags in use on the listed work, most used first. A tag nobody has any
+  // more falls back to everything. The open room always stays listed.
+  const [tagFilter, setTagFilter] = useWorkFilter();
+  const tagCounts = new Map<string, number>();
+  for (const w of [...allLive, ...allDone]) for (const t of w.root.tags ?? []) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+  const railTags = [...tagCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
+  const anyUntagged = [...allLive, ...allDone].some((w) => !(w.root.tags ?? []).length);
+  const filter = tagFilter === UNTAGGED ? (railTags.length && anyUntagged ? UNTAGGED : "") : railTags.includes(tagFilter) ? tagFilter : "";
+  const openId = route.name === "room" || route.name === "agent" ? route.id : null;
+  const shown = (w: (typeof allLive)[number]) => matchesFilter(w.root.tags, filter) || w.root.id === openId || w.members.some((m) => m.id === openId);
+  const liveWork = allLive.filter(shown);
+  const doneWork = allDone.filter(shown);
+  const hidden = allLive.filter((w) => !shown(w));
+  // Hidden work that needs the owner is still counted, so a filter never hides a question.
+  const hiddenIds = new Set(hidden.map((w) => w.root.id));
+  const hiddenNeedsYou = new Set(attention.filter((i) => needsOwner(i) && i.room_id && hiddenIds.has(i.room_id)).map((i) => i.room_id)).size;
   const inConfigure = ["setup", "integrations", "repos", "skills", "skill", "new-skill", "draft"].includes(route.name);
   const inComputer = ["screen", "terminal", "system", "devices", "settings"].includes(route.name);
   const [showDone, setShowDone] = useRemembered("work.done", false);
@@ -221,9 +241,21 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           <RailLink to={{ name: "documents" }} current={route} icon={<Icon name="doc" />}>Documents</RailLink>
         </div>
 
-        <Section id="work" label="Work">
+        <Section id="work" label="Work" badge={filter ? <span className="rail-filter-badge">#{filter === UNTAGGED ? "untagged" : filter}</span> : undefined}>
+          {railTags.length > 0 && (
+            <div className="rail-tags" role="group" aria-label="Show work tagged">
+              <button type="button" className="tag-chip small all" aria-pressed={!filter} onClick={() => setTagFilter("")}>All</button>
+              {railTags.map((t) => <TagChip key={t} tag={t} small pressed={filter === t} onClick={() => setTagFilter(filter === t ? "" : t)} />)}
+              {anyUntagged && <button type="button" className="tag-chip small all" aria-pressed={filter === UNTAGGED} onClick={() => setTagFilter(filter === UNTAGGED ? "" : UNTAGGED)}>untagged</button>}
+            </div>
+          )}
           {liveWork.map((w) => <WorkItem key={w.root.id} room={w} route={route} mark={marks.get(w.root.id)} />)}
-          {liveWork.length === 0 && activeRuns.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
+          {allLive.length === 0 && activeRuns.length === 0 && <p className="empty">Nothing in progress. <a href="#/new">Start a task</a></p>}
+          {hidden.length > 0 && (
+            <button className="rail-more" onClick={() => setTagFilter("")} title="Show all work">
+              {hidden.length} more not #{filter === UNTAGGED ? "untagged" : filter}{hiddenNeedsYou > 0 && <span className="badge" title={`${hiddenNeedsYou} of them need you`}>{hiddenNeedsYou}</span>}
+            </button>
+          )}
           <RailRuns currentRunId={route.name === "routine-run" ? route.runId : undefined} />
           {doneWork.length > 0 && (
             <>

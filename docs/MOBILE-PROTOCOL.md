@@ -508,6 +508,9 @@ Built to `docs/CONTRACTS-v2.md` A–F. What the app calls, all signed, under `/m
 - Allowlisted writes: `POST display/take`, `POST display/release`, `POST screen/input`,
   `POST work/:id/notes`, `PATCH notes/:id`, `DELETE notes/:id`, `POST hosting/:id/stop`. The gateway
   now forwards PATCH and DELETE (only these two routes use them).
+- Tags on work: `GET work-tags` (tags in use, most used first), `PATCH work/:id/tags {tags}` (sets
+  the tags of the work `:id` is in; audited as "tagged a piece of work"), and `POST work` takes
+  `tags`. `WorkRoom.root.tags` is a string array (missing on older agentboxes).
 - `POST screen/input` takes one of `{kind:"tap", x, y, button?: "left"|"right", double?}`,
   `{kind:"scroll", x, y, dir:"up"|"down", amount?: 1–15}`, `{kind:"text", text}` (printable only,
   at most 1000 characters) or `{kind:"key", key}` from a fixed list (Return, BackSpace, Tab, Escape,

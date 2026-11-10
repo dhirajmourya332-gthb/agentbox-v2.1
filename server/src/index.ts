@@ -13,6 +13,7 @@ import { isPaused, displayState as screen, releaseDisplay, setPaused, takeDispla
 import { activity, graph } from "./activity.ts";
 import { checkAttachments, displayWithAttachments, saveUpload } from "./uploads.ts";
 import { allDocuments, allowed, contentType, documentsForWork, listDocuments } from "./documents.ts";
+import { registerTagRoutes } from "./tags.ts";
 import { finishTree, roomDocuments, roomView, startOwnerWork, workList } from "./work.ts";
 import { migrateToInstances } from "./migrate.ts";
 import { openTasksOf, pauseAll, runningCount, agentStatus, currentUsage, resetSession, sendMessage, stopTask, threadView } from "./runner.ts";
@@ -212,6 +213,7 @@ app.get("/api/documents", async () =>
 
 // --- work: tasks (instances) and task rooms ------------------------------------------------
 registerSettingsRoutes(app);
+registerTagRoutes(app);
 app.get("/api/work", async () => workList());
 app.post("/api/work", async (req) => {
   const b = req.body as any;
@@ -222,7 +224,7 @@ app.post("/api/work", async (req) => {
   for (const w of links) if (!getAgent(w)?.base_agent_id) throw new HttpError(400, "A linked piece of work no longer exists");
   try {
     const inst = startOwnerWork({
-      role, text: String(b?.text ?? ""), images, title: b?.title, requirePlan: !!b?.require_plan,
+      role, text: String(b?.text ?? ""), images, title: b?.title, requirePlan: !!b?.require_plan, tags: b?.tags,
       repos: Array.isArray(b?.repos) ? b.repos.map((x: unknown) => String(x)) : [],
       // Other work this task may read (linkedWork.ts), linked before its first turn so it sees them.
       beforeStart: (inst) => { for (const w of links) addLink(inst.id, w); },

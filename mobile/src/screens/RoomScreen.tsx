@@ -8,6 +8,7 @@ import { useStore } from "../lib/store";
 import type { InstanceSummary, Message, RoomView, Step, Task } from "../lib/types";
 import { useAttachments } from "../ui/Attachments";
 import { ChatList, type ChatListHandle } from "../ui/ChatList";
+import { TagEditor } from "../ui/Tags";
 import { Composer } from "../ui/Composer";
 import { Button, Dot, ErrorBox, Screen, Segmented, T } from "../ui/kit";
 import {
@@ -147,11 +148,14 @@ export function RoomScreen({ route, navigation }: Props<"Room">) {
   if (!view || !root) return <Screen style={{ justifyContent: "center" }}><ActivityIndicator color={p.muted} /></Screen>;
 
   const rootThread = view.threads.find((t) => t.agent_id === root.id && t.kind === "dm")?.id;
+  // Tags from the Work list (kept current by events); routine and group rooms aren't listed and have none.
+  const listed = [...work.live, ...work.done].find((w) => w.root.id === root.id);
 
   const filtered = filter ? member(filter) : undefined;
 
   return (
     <Screen>
+      {listed && <View style={{ paddingHorizontal: 16, paddingTop: 8 }}><TagEditor workId={root.id} tags={listed.root.tags ?? []} /></View>}
       <View style={st.tabs}>
         <Segmented value={tab} onChange={setTab} options={[{ key: "chat", label: "Chat" }, { key: "roadmap", label: "Roadmap" }, { key: "docs", label: "Docs" }, { key: "notes", label: "Notes" }]} />
       </View>

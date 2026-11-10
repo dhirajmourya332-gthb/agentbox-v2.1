@@ -1,9 +1,10 @@
-import { all, now } from "./db.ts";
+import { all, now, run } from "./db.ts";
 import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, spawnInstance, type Agent } from "./agents.ts";
 import { agentStatus, openTasksOf, sendMessage } from "./runner.ts";
 import { bindRepo, getRepo, roleAllowed } from "./repos.ts";
 import { setGate } from "./plans.ts";
 import { documentsInFolder, documentsForWork } from "./documents.ts";
+import { normalizeTags, tagsOf } from "./tags.ts";
 
 /**
  * Work: top-level tasks (instances started by the owner) and the task rooms they grow into
@@ -21,7 +22,7 @@ export function instanceSummary(a: Agent) {
   const running = open.find((t) => t.status === "running");
   return {
     id: a.id, name: a.name, label: a.label, role_id: a.base_agent_id, color: a.color, parent_instance_id: a.parent_instance_id,
-    created_by: a.created_by, created_at: a.created_at, retired_at: a.retired_at, kept: !!a.kept,
+    created_by: a.created_by, created_at: a.created_at, retired_at: a.retired_at, kept: !!a.kept, tags: tagsOf(a),
     status: a.retired_at ? "done" : agentStatus(a.id).status, current: running?.title ?? null, queued: open.length - (running ? 1 : 0),
   };
 }
@@ -123,6 +124,8 @@ export function finishTree(rootId: string) {
  */
 export function startOwnerWork(input: {
   role: Agent; text: string; images?: string[]; repos?: string[]; title?: string; requirePlan?: boolean;
+  /** The owner's tags for the new work (tags.ts). */
+  tags?: unknown;
   /** Runs once the task exists, before its first turn is queued (e.g. linking other work to it). */
   beforeStart?: (inst: Agent) => void;
 }) {
@@ -134,6 +137,7 @@ export function startOwnerWork(input: {
   const firstLine = text.split("\n")[0] || "Task from an image";
   const label = String(input.title ?? "").trim() || (firstLine.length > 70 ? firstLine.slice(0, 67) + "…" : firstLine);
   // Repos for this task (each gets its worktree before the first turn): checked before it starts.
+  const tags = normalizeTags(input.tags);
   const repoNames = [...new Set((input.repos ?? []).map((x) => String(x).trim()).filter(Boolean))];
   for (const n of repoNames) {
     const repo = getRepo(n);
@@ -143,6 +147,7 @@ export function startOwnerWork(input: {
   }
   const inst = spawnInstance(role.id, { label, createdBy: "owner" });
   for (const n of repoNames) bindRepo(inst, n);
+  if (tags.length) { run(`UPDATE agents SET tags = ? WHERE id = ?`, JSON.stringify(tags), inst.id); inst.tags = JSON.stringify(tags); }
   if (input.requirePlan) setGate(inst.id, true);
   input.beforeStart?.(inst);
   sendMessage(inst.id, dmThreadOf(inst.id)!, text, images);

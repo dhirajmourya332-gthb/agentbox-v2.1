@@ -1463,3 +1463,31 @@ select.text.mapper-picker { width: auto; max-width: 100%; padding-top: 4px; padd
 .share-list li { display: flex; align-items: center; gap: 8px; }
 .share-list-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .guest-avatar { background: color-mix(in srgb, var(--accent) 25%, var(--raised)); color: var(--text); }
+
+/* Tags on work (components/Tags.tsx): a steady hue per tag. */
+.tag-chip {
+  --tag-h: 210;
+  display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 999px;
+  border: 1px solid hsl(var(--tag-h) 45% 50% / .45); background: hsl(var(--tag-h) 60% 50% / .12);
+  color: var(--text); font: 12px/1 var(--sans); white-space: nowrap; cursor: default;
+}
+button.tag-chip { cursor: pointer; }
+button.tag-chip:hover { border-color: hsl(var(--tag-h) 50% 50% / .8); }
+.tag-chip.small { height: 20px; padding: 0 7px; font-size: 11.5px; }
+.tag-chip.on, .tag-chip[aria-pressed="true"] { background: hsl(var(--tag-h) 60% 50% / .32); border-color: hsl(var(--tag-h) 55% 50%); font-weight: 600; }
+.tag-chip.all { border-color: var(--line-strong); background: transparent; color: var(--muted); }
+.tag-chip.all[aria-pressed="true"] { color: var(--text); border-color: var(--muted); background: var(--surface-2, transparent); }
+.tag-x { display: inline-flex; border: 0; background: none; color: var(--muted); padding: 0; margin-right: -3px; cursor: pointer; }
+.tag-x:hover { color: var(--text); }
+.tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 3px; }
+.tag-add {
+  display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 7px; border-radius: 999px;
+  border: 1px dashed var(--line-strong); background: none; color: var(--muted); font: 11.5px var(--sans); cursor: pointer;
+}
+.tag-add:hover { color: var(--text); border-color: var(--muted); }
+input.text.tag-input { width: 110px; height: 24px; min-height: 24px; padding: 0 8px; font-size: 12px; }
+.tag-suggest { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; }
+.rail-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 10px 6px; }
+.rail-tags-dots { display: inline-flex; gap: 2px; }
+.tag-dot { --tag-h: 210; width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--tag-h) 60% 55%); }
+.rail-filter-badge { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--muted); text-transform: none; letter-spacing: 0; }

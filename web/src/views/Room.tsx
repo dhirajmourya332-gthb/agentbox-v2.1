@@ -1,3 +1,4 @@
+import { TagEditor, useWorkTags } from "../components/Tags.tsx";
 import { ScrollToBottom } from "../components/ScrollToBottom.tsx";
 import { PlanCard } from "../components/Plan.tsx";
 import { ReviewCard } from "./Changes.tsx";
@@ -60,6 +61,7 @@ export function Room({ id }: { id: string }) {
   const taskById = useMemo(() => new Map(merged.tasks.map((t) => [t.id, t])), [merged]);
   const running = merged.tasks.filter((t) => t.status === "running");
   useEscToStop(running.length > 0, () => running.forEach((t) => api.stop(t.id)));
+  const listedTags = useWorkTags(view?.root.id);
 
   if (error) return <div className="page"><div className="page-inner"><div className="error-box">{error}</div></div></div>;
   if (!view) return <div className="page" />;
@@ -79,6 +81,7 @@ export function Room({ id }: { id: string }) {
           <div className="who" style={{ minWidth: 0 }}>
             <strong>{root.label ?? root.name}</strong>
             <span>Task room · {members.length} task{members.length === 1 ? "" : "s"} · led by {root.name}</span>
+            <TagEditor workId={root.id} tags={listedTags ?? root.tags ?? []} />
           </div>
           <div className="actions">
             {running.length > 0 && (

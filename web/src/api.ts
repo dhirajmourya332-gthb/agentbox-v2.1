@@ -118,6 +118,8 @@ export const fileUrl = (path: string, download = false) =>
 export type InstanceSummary = {
   id: string; name: string; label: string | null; role_id: string; color: string; parent_instance_id: string | null;
   created_by: string | null; created_at: string; retired_at: string | null; kept: boolean;
+  /** The owner's tags on the work (meaningful on a room's root). */
+  tags: string[];
   status: AgentStatus | "done"; current: string | null; queued: number;
 };
 /** A workspace a group's lead launched (groupWork.ts). */
@@ -381,8 +383,10 @@ export const api = {
   state: () => call<{ agents: Agent[]; crews?: Crew[]; usage: Usage | null; groups: Group[]; paused: boolean; display: DisplayHolder; retired: RetiredAgent[]; roots?: { agents: string; work: string } }>("GET", "/api/state"),
   fileInfo: (path: string) => call<Pick<DocumentInfo, "path" | "name" | "folder" | "size" | "modified">>("GET", `/api/file/info?path=${encodeURIComponent(path)}`),
   work: () => call<{ live: WorkRoom[]; done: WorkRoom[] }>("GET", "/api/work"),
-  newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean, links?: string[]) =>
-    call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined, links: links?.length ? links : undefined }),
+  newTask: (roleId: string, text: string, title?: string, images?: string[], repos?: string[], requirePlan?: boolean, links?: string[], tags?: string[]) =>
+    call<Agent>("POST", "/api/work", { role_id: roleId, text, title, images, repos, require_plan: requirePlan || undefined, links: links?.length ? links : undefined, tags: tags?.length ? tags : undefined }),
+  workTags: () => call<{ tags: { tag: string; n: number }[] }>("GET", "/api/work-tags"),
+  setWorkTags: (workId: string, tags: string[]) => call<{ id: string; tags: string[] }>("PATCH", `/api/work/${workId}/tags`, { tags }),
   publicConfig: () => call<{ host: string; access: string; modules: Record<string, boolean> }>("GET", "/api/config/public"),
   shares: (roomId: string) => call<{ shares: WorkShare[]; ready: boolean; missing: string | null }>("GET", `/api/work/${roomId}/shares`),
   createShare: (roomId: string, b: { perm: "read" | "edit"; expiry: ShareExpiry; label?: string }) =>

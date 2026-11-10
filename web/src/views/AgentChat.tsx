@@ -1,3 +1,4 @@
+import { TagEditor, useWorkTags } from "../components/Tags.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -91,6 +92,7 @@ function TaskChat({ agent, threadParam, msgParam }: { agent: Agent; threadParam?
             <TaskTitle agent={agent} />
             <span><TaskOrigin agent={agent} /></span>
             <RepoChips instanceId={agent.id} />
+            {!isSetup && agent.base_agent_id && <TaskTags agent={agent} />}
           </div>
           <div className="actions">
             {!isSetup && <PlanChip instanceId={agent.id} />}
@@ -159,6 +161,14 @@ export function TaskTitle({ agent }: { agent: Agent }) {
       <strong>{agent.label ?? agent.name}</strong>
     </button>
   );
+}
+
+/** The tags of the work this task is part of (set on the work's root; routine and group tasks have none). */
+function TaskTags({ agent }: { agent: Agent }) {
+  const { everyone } = useStore();
+  const root = agent.parent_instance_id ? rootOfLocal(agent, everyone) : agent;
+  const tags = useWorkTags(root.id);
+  return tags ? <TagEditor workId={root.id} tags={tags} /> : null;
 }
 
 /** "coder#2 · Coder · started by tech-lead#1 · in Partner API keys" */

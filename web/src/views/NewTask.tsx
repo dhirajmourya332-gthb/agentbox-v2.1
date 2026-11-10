@@ -1,3 +1,4 @@
+import { TagInput } from "../components/Tags.tsx";
 import { AttachButton, AttachmentStrip, useAttachments } from "../components/Attachments.tsx";
 import { MicButton, VoiceStatus, useVoice } from "../components/Voice.tsx";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -32,6 +33,7 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
   const [picked, setPicked] = useState<string | null>(roleId ?? null);
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [pickedRepos, setPickedRepos] = useState<string[]>([]);
@@ -79,7 +81,7 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
     setAtLimit(false);
     try {
       if (crews.length && crew !== null) { try { localStorage.setItem(LAST_CREW, crew); } catch { /* fine without it */ } }
-      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined, planFirst && !role.builtin, links);
+      const inst = await api.newTask(role.id, text.trim(), title.trim() || undefined, att.paths, chosenRepos.length ? chosenRepos : undefined, planFirst && !role.builtin, links, role.builtin ? undefined : tags);
       att.clear();
       // The setup agent works in its own workspace (chat, terminal and checklist on one screen).
       go(role.builtin === "setup" ? { name: "setup", id: inst.id } : { name: "agent", id: inst.id });
@@ -198,6 +200,12 @@ export function NewTask({ roleId: param }: { roleId?: string }) {
           <label htmlFor="nt-title">Title <span className="hint">(optional; defaults to the first line)</span></label>
           <input id="nt-title" className="text" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="Partner API keys" />
         </div>
+        {!role?.builtin && (
+          <div className="field">
+            <label htmlFor="nt-tags">Tags <span className="hint">(optional; filter the Work list by them, e.g. a client or project)</span></label>
+            <TagInput id="nt-tags" value={tags} onChange={setTags} />
+          </div>
+        )}
 
         <div className="wizard-nav">
           <a className="btn ghost" href="#/">Cancel</a>

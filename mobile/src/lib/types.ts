@@ -26,6 +26,8 @@ export type Crew = { id: string; slug: string; name: string; summary: string; le
 export type InstanceSummary = {
   id: string; name: string; label: string | null; role_id: string; color: string; parent_instance_id: string | null;
   created_by: string | null; created_at: string; retired_at: string | null; kept: boolean;
+  /** The owner's tags on the work (on a room's root); older agentboxes leave it out. */
+  tags?: string[];
   status: AgentStatus | "done"; current: string | null; queued: number;
 };
 export type WorkRoom = { root: InstanceSummary; members: InstanceSummary[]; last_activity: string | null; hides_at?: string | null };

@@ -184,8 +184,10 @@ export const api = {
   thread: (id: string) => json<ThreadData>("GET", `/m/v1/threads/${seg(id)}`),
   routines: () => json<Routine[]>("GET", "/m/v1/routines"),
   control: () => json<{ paused: boolean; display: DisplayHolder; running: number }>("GET", "/m/v1/control"),
-  newTask: (roleId: string, text: string, title?: string, images?: string[]) =>
-    json<Agent>("POST", "/m/v1/work", { role_id: roleId, text, title, images }),
+  newTask: (roleId: string, text: string, title?: string, images?: string[], tags?: string[]) =>
+    json<Agent>("POST", "/m/v1/work", { role_id: roleId, text, title, images, tags: tags?.length ? tags : undefined }),
+  workTags: () => json<{ tags: { tag: string; n: number }[] }>("GET", "/m/v1/work-tags"),
+  setWorkTags: (workId: string, tags: string[]) => json<{ id: string; tags: string[] }>("PATCH", `/m/v1/work/${seg(workId)}/tags`, { tags }),
   send: (threadId: string, text: string, images?: string[]) =>
     json<unknown>("POST", `/m/v1/threads/${seg(threadId)}/messages`, { text, images }),
   stop: (taskId: string) => json<unknown>("POST", `/m/v1/tasks/${seg(taskId)}/stop`),
