@@ -1,4 +1,5 @@
 # The desktop app for macOS, Windows and Linux (docs/DESKTOP.md). Runs only when started by hand.
+# To use it: copy to .github/workflows/desktop.yml (pushing workflows needs a token with the workflow scope).
 name: desktop
 on:
   workflow_dispatch:

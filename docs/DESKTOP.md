@@ -34,7 +34,7 @@ npm run dist:mac     # or dist:win / dist:linux → desktop/dist/
 Builds are unsigned: macOS asks to confirm the first open (right-click → Open), Windows SmartScreen
 asks too. Signing needs an Apple Developer ID / a Windows code-signing certificate
 (electron-builder's `CSC_LINK` / `CSC_KEY_PASSWORD`). Each platform is built on that platform;
-`.github/workflows/desktop.yml` (run it by hand from the Actions tab) builds all three.
+`desktop/ci/desktop.yml`, copied to `.github/workflows/`, builds all three (run it by hand from the Actions tab).
 
 ## What it needs on your computer
 
