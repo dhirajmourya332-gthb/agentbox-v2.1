@@ -222,10 +222,15 @@ function portalUrl(req: FastifyRequest) {
   return `${config.access === "ssh-tunnel" ? "http" : "https"}://${host}`;
 }
 
+/** The bridge's settings file (~/.agentbox-bench/config.json): the installer writes it; the desktop app fetches it. */
+function bridgeConfig(req: FastifyRequest, token: string) {
+  const s = benchSettings();
+  return { portal: portalUrl(req), token, serial: s.serial, loopback: s.loopback, devices: [] as string[] };
+}
+
 function installer(req: FastifyRequest, token: string) {
   const portal = portalUrl(req);
-  const s = benchSettings();
-  const cfg = JSON.stringify({ portal, token, serial: s.serial, loopback: s.loopback, devices: [] }, null, 2);
+  const cfg = JSON.stringify(bridgeConfig(req, token), null, 2);
   return `#!/usr/bin/env bash
 # agentbox device bridge installer, made for ${portal}.
 # Puts the bridge in ~/.agentbox-bench and checks the connection. It installs nothing system-wide and
@@ -264,6 +269,14 @@ export function registerBench(app: FastifyInstance) {
     if (!on(reply)) return;
     reply.type("text/x-python; charset=utf-8").header("cache-control", "no-store");
     return fs.readFileSync(BRIDGE_FILE(), "utf8");
+  });
+  // The desktop app's bridge switch (desktop/src/main/bridge.mjs): the same settings, as JSON.
+  app.get("/api/bench/config", async (req, reply) => {
+    if (!on(reply)) return;
+    const token = readToken();
+    if (!token) return reply.code(409).send({ error: "No bridge token yet: run the Device bridge's install step" });
+    reply.header("cache-control", "no-store");
+    return bridgeConfig(req, token);
   });
   app.get("/api/bench/install.sh", async (req, reply) => {
     if (!on(reply)) return;

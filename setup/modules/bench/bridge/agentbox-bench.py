@@ -28,7 +28,8 @@ import threading
 import time
 
 VERSION = 1
-HOME = os.path.join(os.path.expanduser("~"), ".agentbox-bench")
+# AGENTBOX_BENCH_HOME: another folder (the desktop app keeps one per agentbox, each with its own token).
+HOME = os.environ.get("AGENTBOX_BENCH_HOME") or os.path.join(os.path.expanduser("~"), ".agentbox-bench")
 CONFIG = os.path.join(HOME, "config.json")
 VENV = os.path.join(HOME, "venv")
 DEPS = ["pyserial>=3.5", "websockets>=12"]

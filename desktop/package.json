@@ -1,0 +1,32 @@
+{
+  "name": "agentbox-desktop",
+  "productName": "agentbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The agentbox desktop app: your agentboxes' portals, the device bridge, cloud setup and updates (docs/DESKTOP.md).",
+  "main": "src/main/main.mjs",
+  "author": "agentbox",
+  "license": "SEE LICENSE IN ../LICENSE.md",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "dist": "electron-builder --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:linux": "electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "local.agentbox.desktop",
+    "productName": "agentbox",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["src/**/*", "build/icon.png", "build/tray*.png", "package.json"],
+    "mac": { "category": "public.app-category.developer-tools", "target": ["dmg", "zip"] },
+    "win": { "target": ["nsis"] },
+    "linux": { "target": ["AppImage", "deb"], "category": "Development" }
+  }
+}

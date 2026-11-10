@@ -18,6 +18,7 @@ const EXEMPT = {
   "/api/bench/connect": "the device bridge's own WebSocket",
   "/api/bench/status": "shown by agentbox health / the Integrations page; the bridge reports it",
   "/api/bench/test": "a button that pings the bridge from the Integrations page",
+  "/api/bench/config": "the desktop app's bridge switch fetches the bridge's settings (the installer has the same)",
   "/api/voice/transcribe": "voice input in the portal and the app (mic)",
   "/api/voice/clean": "voice input in the portal and the app (mic)",
   "/api/assistant/ask": "the phone app's voice assistant (spoken questions)",
