@@ -129,7 +129,8 @@ export type GroupWorkspace = {
 };
 /** Linked work (linkedWork.ts): other work this one's agents may read. */
 export type LinkedWorkInfo = { id: string; label: string; name: string; crew: string | null; crew_name: string; status: "live" | "done" | "deleted" };
-export type WorkLink = { id: string; created_at: string; work: LinkedWorkInfo };
+/** via_group: read because the work is linked to that group (unlink it there). */
+export type WorkLink = { id: string; created_at: string; work: LinkedWorkInfo & { group?: boolean }; via_group?: string | null };
 export type WorkRoom = { root: InstanceSummary; members: InstanceSummary[]; last_activity: string | null; hides_at?: string | null };
 export type RoomView = {
   root: InstanceSummary; members: InstanceSummary[]; workspace: string | null; threads: { id: string; agent_id: string; kind: string }[];
@@ -395,6 +396,8 @@ export const api = {
   links: (instanceId: string) => call<{ room_id: string; links: WorkLink[]; linked_from: WorkLink[] }>("GET", `/api/work/${instanceId}/links`),
   addLink: (instanceId: string, workId: string) => call<{ room_id: string; links: WorkLink[] }>("POST", `/api/work/${instanceId}/links`, { work_id: workId }),
   removeLink: (id: string) => call<{ ok: true }>("DELETE", `/api/links/${id}`),
+  groupLinks: (groupId: string) => call<{ group_id: string; links: WorkLink[] }>("GET", `/api/groups/${groupId}/links`),
+  addGroupLink: (groupId: string, workId: string) => call<{ group_id: string; links: WorkLink[] }>("POST", `/api/groups/${groupId}/links`, { work_id: workId }),
   room: (rootId: string) => call<RoomView>("GET", `/api/work/${rootId}`),
   hosted: (rootId: string) => call<{ services: HostedService[] }>("GET", `/api/hosting?room=${encodeURIComponent(rootId)}`),
   hostedAll: () => call<{ services: HostedService[] }>("GET", "/api/hosting"),

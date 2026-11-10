@@ -658,26 +658,40 @@ async function noteId(api, ref) {
   }
   fail(`No note "${ref}"`);
 }
-cmd("links", "links <task> [--json]                      the work this one reads, and what reads it", async (api, argv) => {
+/** "#name" (or a group's bare name, when no task has it) means a group. */
+const isGroupRef = (w, ref) => String(ref ?? "").startsWith("#") || (w.groups.some((g) => norm(g.name) === norm(ref)) && !w.tasks.some((t) => norm(t.name) === norm(ref)));
+cmd("links", "links <task|#group> [--json]              the work this one (or a group) reads, and what reads it", async (api, argv) => {
   const a = args(argv, { bool: ["json"] });
   const w = await world(api);
-  const d = await api.get(`/api/work/${findTask(w, a._.join(" ")).id}/links`);
+  const ref = a._.join(" ");
+  const d = isGroupRef(w, ref)
+    ? { ...(await api.get(`/api/groups/${findGroup(w, ref).id}/links`)), linked_from: [] }
+    : await api.get(`/api/work/${findTask(w, ref).id}/links`);
   if (a.flags.json) return json(d);
   out(bold("Reads"));
-  table(d.links.map((l) => [l.work.label, dim(`${l.work.crew_name} crew · ${l.work.name} · ${l.work.status}`), dim(l.id.slice(0, 8))]));
+  table(d.links.map((l) => [l.work.label, dim(`${l.work.crew_name} crew · ${l.work.name} · ${l.work.status}${l.via_group ? " · via the group" : ""}`), dim(l.id.slice(0, 8))]));
   if (!d.links.length) out(dim("  nothing"));
   if (d.linked_from.length) { out(bold("Read by")); table(d.linked_from.map((l) => [l.work.label, dim(l.work.name)])); }
 });
-cmd("link", "link <task> <other work> | link rm <task> <other work>   let a task read other work", async (api, argv) => {
+cmd("link", "link <task|#group> <other work> | link rm <task|#group> <other work>   let a task (or every member of a group) read other work", async (api, argv) => {
   const w = await world(api);
   if (argv[0] === "rm") {
-    const t = findTask(w, argv[1]);
+    const group = isGroupRef(w, argv[1]) ? findGroup(w, argv[1]) : null;
+    const t = group ? null : findTask(w, argv[1]);
     const other = rootOf(w, findTask(w, argv.slice(2).join(" ")));
-    const d = await api.get(`/api/work/${t.id}/links`);
+    const d = await api.get(group ? `/api/groups/${group.id}/links` : `/api/work/${t.id}/links`);
     const l = d.links.find((x) => x.work.id === other.id);
     if (!l) fail("Not linked");
+    if (l.via_group) fail("That's linked to the group: agentbox link rm #<group> …");
     await api.del(`/api/links/${l.id}`);
     out("Unlinked.");
+    return;
+  }
+  if (isGroupRef(w, argv[0])) {
+    const g = findGroup(w, argv[0]);
+    const other = rootOf(w, findTask(w, argv.slice(1).join(" ")));
+    await api.post(`/api/groups/${g.id}/links`, { work_id: other.id });
+    out(`Every member of #${g.name} now reads "${other.label ?? other.name}" in the group.`);
     return;
   }
   const t = findTask(w, argv[0]);

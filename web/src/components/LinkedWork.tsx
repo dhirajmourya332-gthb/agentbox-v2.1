@@ -3,20 +3,25 @@ import { api, type WorkLink, type WorkRoom } from "../api.ts";
 import { useStore } from "../store.tsx";
 import { Icon } from "./ui.tsx";
 
+/** What links are for: a piece of work (any task in it), or a group (every member reads them there). */
+type Target = { instanceId: string; groupId?: undefined } | { groupId: string; instanceId?: undefined };
+
 /** Other work linked to this one (linkedWork.ts): any task in the work gives the same links. Live via links.updated. */
-export function useLinks(instanceId: string) {
+export function useLinks(t: Target) {
   const { onEvent } = useStore();
   const [state, setState] = useState<{ room: string; links: WorkLink[]; from: WorkLink[] } | null>(null);
+  const key = t.groupId ?? t.instanceId;
   useEffect(() => {
     let alive = true;
-    let room = "";
-    const load = () => api.links(instanceId)
-      .then((r) => { room = r.room_id; if (alive) setState({ room: r.room_id, links: r.links, from: r.linked_from }); })
+    const load = () => (t.groupId
+      ? api.groupLinks(t.groupId).then((r) => ({ room: r.group_id, links: r.links, from: [] as WorkLink[] }))
+      : api.links(t.instanceId!).then((r) => ({ room: r.room_id, links: r.links, from: r.linked_from })))
+      .then((s) => { if (alive) setState(s); })
       .catch(() => { if (alive) setState((s) => s ?? { room: "", links: [], from: [] }); });
     load();
     const off = onEvent((e) => { if (e.type === "links.updated") load(); });
     return () => { alive = false; off(); };
-  }, [instanceId, onEvent]);
+  }, [key, onEvent]);
   return state;
 }
 
@@ -38,21 +43,23 @@ export function useLinkableWork(exclude: string[] = []) {
 const workHref = (id: string) => `#/work/${id}`;
 
 /** A header button: link other work to this one, so its agents can read it. */
-export function LinkWorkButton({ instanceId }: { instanceId: string }) {
-  const links = useLinks(instanceId);
+export function LinkWorkButton(t: Target) {
+  const links = useLinks(t);
   const [open, setOpen] = useState(false);
   return (
     <div className="popover-anchor">
       <button className="btn sm" aria-expanded={open} onClick={() => setOpen(!open)}
-        title="Link other work (e.g. another crew's) so the agents here can read its progress, conversation and documents">
+        title={t.groupId
+          ? "Link work to this group: every member can read its progress, conversation and documents in the group"
+          : "Link other work (e.g. another crew's) so the agents here can read its progress, conversation and documents"}>
         <Icon name="web" size={14} />Link{links?.links.length ? <span className="tab-count">{links.links.length}</span> : null}
       </button>
-      {open && links && <LinkPicker instanceId={instanceId} room={links.room} linked={links.links} onClose={() => setOpen(false)} />}
+      {open && links && <LinkPicker target={t} room={links.room} linked={links.links} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 
-function LinkPicker({ instanceId, room, linked, onClose }: { instanceId: string; room: string; linked: WorkLink[]; onClose: () => void }) {
+function LinkPicker({ target, room, linked, onClose }: { target: Target; room: string; linked: WorkLink[]; onClose: () => void }) {
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const options = useLinkableWork([room, ...linked.map((l) => l.work.id)])
@@ -60,8 +67,8 @@ function LinkPicker({ instanceId, room, linked, onClose }: { instanceId: string;
     .slice(0, 30);
   return (
     <div className="popover link-picker" role="dialog" aria-label="Link other work" onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }}>
-      <strong>Link other work</strong>
-      <p className="hint" style={{ margin: 0 }}>Agents here can then read it (progress, roadmap, conversation, documents, links), but not hand it work.</p>
+      <strong>{target.groupId ? "Link work to this group" : "Link other work"}</strong>
+      <p className="hint" style={{ margin: 0 }}>{target.groupId ? "Every member can then read it in the group" : "Agents here can then read it"} (progress, roadmap, conversation, documents, links), but not hand it work.</p>
       <input className="text" autoFocus placeholder="Search work…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search work" />
       {error && <div className="error-box">{error}</div>}
       <ul className="link-options">
@@ -69,7 +76,7 @@ function LinkPicker({ instanceId, room, linked, onClose }: { instanceId: string;
           <li key={w.root.id}>
             <button className="menu-item" onClick={async () => {
               setError(null);
-              try { await api.addLink(instanceId, w.root.id); onClose(); } catch (e: any) { setError(e.message); }
+              try { await (target.groupId ? api.addGroupLink(target.groupId, w.root.id) : api.addLink(target.instanceId!, w.root.id)); onClose(); } catch (e: any) { setError(e.message); }
             }}>
               <span className="link-option-text">
                 <span>{w.root.label ?? w.root.name}</span>
@@ -85,8 +92,8 @@ function LinkPicker({ instanceId, room, linked, onClose }: { instanceId: string;
 }
 
 /** Under a task's or room's header: the work linked to it (each opens it; × unlinks), and who reads this one. */
-export function LinkedStrip({ instanceId }: { instanceId: string }) {
-  const links = useLinks(instanceId);
+export function LinkedStrip(t: Target) {
+  const links = useLinks(t);
   if (!links || (!links.links.length && !links.from.length)) return null;
   return (
     <div className="linked-strip" aria-label="Linked work">
@@ -94,13 +101,13 @@ export function LinkedStrip({ instanceId }: { instanceId: string }) {
       {links.links.map((l) => (
         <span key={l.id} className="linked-chip" title={`${l.work.label} · ${l.work.crew_name} crew · led by ${l.work.name}. The agents here can read it.`}>
           <a href={workHref(l.work.id)}>{l.work.label}</a>
-          <span className="hint">{l.work.crew_name}{l.work.status === "done" ? " · done" : ""}</span>
-          <button className="linked-x" aria-label={`Unlink ${l.work.label}`} title="Unlink" onClick={() => api.removeLink(l.id)}><Icon name="x" size={10} /></button>
+          <span className="hint">{l.work.crew_name}{l.work.status === "done" ? " · done" : ""}{l.via_group ? " · via the group" : ""}</span>
+          {!l.via_group && <button className="linked-x" aria-label={`Unlink ${l.work.label}`} title="Unlink" onClick={() => api.removeLink(l.id)}><Icon name="x" size={10} /></button>}
         </span>
       ))}
       {links.from.length > 0 && (
         <span className="hint linked-from">
-          Read by {links.from.map((l, i) => <span key={l.id}>{i ? ", " : ""}<a href={workHref(l.work.id)}>{l.work.label}</a></span>)}
+          Read by {links.from.map((l, i) => <span key={l.id}>{i ? ", " : ""}<a href={l.work.group ? `#/groups/${l.work.id}` : workHref(l.work.id)}>{l.work.label}</a></span>)}
         </span>
       )}
     </div>

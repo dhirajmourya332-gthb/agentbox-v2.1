@@ -63,3 +63,28 @@ test("the phone may set tags and read the known ones, nothing more", () => {
   assert.ok(allowedRoute("GET", "work-tags"));
   assert.ok(!allowedRoute("PATCH", "agents/abc123/meta"));
 });
+
+test("groups: @everyone wakes every member (owner only); work linked to a group is read by its members there", async () => {
+  const G = await import("../src/groups.ts");
+  const L = await import("../src/linkedWork.ts");
+  const mk = (name: string) => A.getAgent(A.createAgent({ name, title: name, summary: name, model: "sonnet", instructions: `# ${name}\n`, interview: {} }).id)!;
+  const a = mk("alpha"), b = mk("beta");
+  const g = G.createGroup({ name: "core", purpose: "", members: [lead.id, a.id, b.id], lead: b.id });
+  const all_ = G.mentions(g, "hi @everyone", undefined, { everyone: true });
+  assert.equal(all_[0], b.id); // the lead first
+  assert.deepEqual([...all_].sort(), [lead.id, a.id, b.id].sort());
+  assert.deepEqual(G.mentions(g, "@all and @alpha", a.id, { everyone: true }).sort(), [b.id, lead.id].sort());
+  assert.deepEqual(G.mentions(g, "hi @everyone"), []); // an agent's @everyone wakes nobody
+  const work = W.startOwnerWork({ role: lead, text: "Migration" });
+  L.addGroupLink(g.id, work.id);
+  assert.equal(L.groupLinksOf(g.id).links[0].work.id, work.id);
+  const member = G.groupInstance(g, a.id);
+  const seen = L.linksOf(member.id);
+  assert.equal(seen.links[0].work.id, work.id);
+  assert.equal(seen.links[0].via_group, g.id);
+  assert.match(L.linkedSection(member), /group #core/);
+  assert.equal(L.linksOf(work.id).linked_from[0].work.label, "#core");
+  assert.throws(() => L.addGroupLink(g.id, member.id), /own conversation/);
+  G.deleteGroup(g.id);
+  assert.equal(L.linksOf(work.id).linked_from.length, 0);
+});

@@ -183,7 +183,7 @@ function Intro({ group, lead }: { group: Group; lead?: Agent }) {
       <T weight="600">#{group.name}</T>
       {!!group.purpose && <T muted size={13}>{group.purpose}</T>}
       <T muted size={12}>
-        @mention members to bring them in; a message without a mention goes to the lead{lead ? ` (${lead.name})` : ""}.
+        @mention members to bring them in, or @everyone for all of them; a message without a mention goes to the lead{lead ? ` (${lead.name})` : ""}.
       </T>
     </View>
   );
@@ -214,6 +214,8 @@ function GroupComposer({ group, members, lead, onSent }: { group: Group; members
   const partial = text.match(/@([A-Za-z0-9_-]*)$/)?.[1];
   const suggestions = partial === undefined ? [] : members.filter((a) => a.slug.startsWith(partial.toLowerCase())).slice(0, 6);
   const pick = (a: Agent) => setText((t) => t.replace(/@([A-Za-z0-9_-]*)$/, `@${a.slug} `));
+  // @everyone brings in every member (the owner's only).
+  const everyone = partial !== undefined && members.length > 1 && "everyone".startsWith(partial.toLowerCase());
 
   const send = async () => {
     const v = text.trim();
@@ -233,9 +235,15 @@ function GroupComposer({ group, members, lead, onSent }: { group: Group; members
     }
   };
 
-  const mentions = suggestions.length > 0 && !voice.busy ? (
+  const mentions = (suggestions.length > 0 || everyone) && !voice.busy ? (
     <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ gap: 6, paddingVertical: 4, paddingHorizontal: 4 }}>
+      {everyone && (
+        <Pressable onPress={() => setText((t) => t.replace(/@([A-Za-z0-9_-]*)$/, "@everyone "))} accessibilityRole="button" accessibilityLabel="Mention everyone"
+          style={[st.suggest, { backgroundColor: p.surface, borderColor: p.border }]}>
+          <T size={14}>@everyone</T><T muted size={12}>{members.length}</T>
+        </Pressable>
+      )}
       {suggestions.map((a) => (
         <Pressable key={a.id} onPress={() => pick(a)} accessibilityRole="button" accessibilityLabel={`Mention ${a.name}`}
           style={[st.suggest, { backgroundColor: p.surface, borderColor: p.border }]}>

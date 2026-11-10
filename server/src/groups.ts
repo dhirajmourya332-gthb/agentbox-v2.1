@@ -81,17 +81,31 @@ export function deleteGroup(id: string) {
   const busy = get(`SELECT 1 FROM tasks WHERE thread_id = ? AND status IN ('queued', 'running')`, id);
   if (busy) throw new Error("Agents are still replying in this group; wait or stop them first");
   run(`DELETE FROM threads WHERE id = ?`, id);
+  // Work linked to the group (linkedWork.ts) goes with it.
+  try { run(`DELETE FROM work_links WHERE room_id = ?`, id); } catch { /* no links table yet */ }
   publish({ type: "group.deleted", id });
 }
 
-/** Member ids @mentioned in `text` (by slug or name), in order, excluding `except`. */
-/** Member agents (roles) @mentioned in `text`, in order, excluding the agent `except` (a role or instance). */
-export function mentions(group: Group, text: string, except?: string): string[] {
+/** Mentions that mean every member: only the owner can use them (an agent's would wake the whole group). */
+export const EVERYONE = ["everyone", "all", "channel"];
+
+/**
+ * Member agents (roles) @mentioned in `text`, in order, excluding the agent `except` (a role or
+ * instance). With `everyone`, @everyone / @all / @channel mean every member (lead first).
+ */
+export function mentions(group: Group, text: string, except?: string, opts: { everyone?: boolean } = {}): string[] {
   except = except ? getAgent(except)?.base_agent_id ?? except : except;
   const members = group.members.map((id) => getAgent(id)).filter(Boolean) as Agent[];
   const found: string[] = [];
   for (const m of text.matchAll(/@([A-Za-z0-9][A-Za-z0-9_-]*)/g)) {
     const k = m[1].toLowerCase();
+    if (opts.everyone && EVERYONE.includes(k) && !members.some((x) => x.slug === k)) {
+      const lead = group.lead_agent_id;
+      for (const a of [...members].sort((x, y) => Number(y.id === lead) - Number(x.id === lead))) {
+        if (a.id !== except && !found.includes(a.id)) found.push(a.id);
+      }
+      continue;
+    }
     const a = members.find((x) => x.slug === k || x.name.toLowerCase() === k);
     if (a && a.id !== except && !found.includes(a.id)) found.push(a.id);
   }
@@ -162,7 +176,7 @@ export function postAsOwner(groupId: string, text: string) {
     message.id, message.thread_id, message.author, message.task_id, message.content, message.created_at,
   );
   publish({ type: "message.created", message });
-  const targets = mentions(group, text);
+  const targets = mentions(group, text, undefined, { everyone: true });
   const lead = group.lead_agent_id ?? group.members[0];
   const first = text.split("\n")[0].slice(0, 80);
   trigger({ ...group, paused: false }, targets.length ? targets : [lead], first);
@@ -248,7 +262,8 @@ How this group works:
 - An @mention gives that member a turn right away. @mention someone only when you need them to act
   now (e.g. "@${listAgents().find((a) => group.members.includes(a.id) && a.id !== me)?.slug ?? "teammate"} please run the tests").
   To refer to someone without waking them, write their name without the @. Never @mention just
-  to thank, acknowledge or keep someone informed.
+  to thank, acknowledge or keep someone informed. Don't use @everyone or @all: only the owner can
+  bring in the whole group (when they do, each member answers its own part, or ${NO_REPLY}).
 - Hand off one step at a time: don't mention the next person until the current step is done.
 - If you have nothing to add or do, reply with exactly ${NO_REPLY} and nothing will be posted.
 - Keep replies short; put long detail in GitHub issues/PRs and link them.`;

@@ -13,9 +13,16 @@ import { LiveBar, useSeenRoom } from "../components/Live.tsx";
 
 const MENTION = /@([A-Za-z0-9][A-Za-z0-9_-]*)/g;
 
+/** @everyone / @all / @channel bring in every member (the owner's only; server/src/groups.ts). */
+const EVERYONE = ["everyone", "all", "channel"];
+
 function mentioned(text: string, members: Agent[]) {
   const out: Agent[] = [];
   for (const m of text.matchAll(MENTION)) {
+    if (EVERYONE.includes(m[1].toLowerCase()) && !members.some((x) => x.slug === m[1].toLowerCase())) {
+      for (const a of members) if (!out.includes(a)) out.push(a);
+      continue;
+    }
     const a = members.find((x) => x.slug === m[1].toLowerCase() || x.name.toLowerCase() === m[1].toLowerCase());
     if (a && !out.includes(a)) out.push(a);
   }
@@ -26,6 +33,7 @@ function mentioned(text: string, members: Agent[]) {
 
 import { GroupWorkspaceList, useGroupWorkspaces } from "../components/GroupWorkspaces.tsx";
 import { RoadmapStrip } from "../components/Roadmap.tsx";
+import { LinkWorkButton, LinkedStrip } from "../components/LinkedWork.tsx";
 
 export function GroupChat({ id }: { id: string }) {
   const { groups, agents, everyone, threads, live, loadThread, progress } = useStore();
@@ -70,6 +78,7 @@ export function GroupChat({ id }: { id: string }) {
               <Icon name="stop" size={14} />Stop
             </button>
           )}
+          <LinkWorkButton groupId={group.id} />
           <button className="btn sm" aria-pressed={docs && side === "workspaces"} title="Workspaces the group's lead launched"
             onClick={() => { setSide("workspaces"); setDocs(!(docs && side === "workspaces")); }}>
             <Icon name="room" size={14} />Workspaces{liveWs ? <span className="tab-count">{liveWs}</span> : null}
@@ -78,6 +87,7 @@ export function GroupChat({ id }: { id: string }) {
           <a className="icon-btn" href={`#/groups/${id}/settings`} aria-label="Group settings" title="Group settings"><Icon name="panel" /></a>
         </div>
       </header>
+      <LinkedStrip groupId={group.id} />
       {program?.lead_instance_id && <RoadmapStrip instanceId={program.lead_instance_id} />}
 
       {thread ? <GroupTimeline group={group} members={members} lead={lead} data={thread} live={live} /> : <div className="timeline" />}
@@ -146,7 +156,7 @@ function GroupTimeline({ group, members, lead, data, live }: {
           <div className="group-intro">
             <p><strong>#{group.name}</strong>{group.purpose && <> — {group.purpose}</>}</p>
             <p className="hint">
-              @mention members to bring them in; a message without a mention goes to the lead
+              @mention members to bring them in, or @everyone for all of them; a message without a mention goes to the lead
               {lead && <> (<strong>{lead.name}</strong>)</>}. Agents reply here and can @mention each other to pass the next step.
             </p>
           </div>
@@ -224,13 +234,15 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
   }, [text]);
 
   const partial = text.match(/@([A-Za-z0-9_-]*)$/)?.[1];
-  const suggestions = partial === undefined || dismissed ? [] : members.filter((a) => a.slug.startsWith(partial.toLowerCase()));
+  const memberHits = partial === undefined || dismissed ? [] : members.filter((a) => a.slug.startsWith(partial.toLowerCase()));
+  const everyoneHit = partial !== undefined && !dismissed && members.length > 1 && "everyone".startsWith(partial.toLowerCase());
+  const suggestions: (Agent | "everyone")[] = [...memberHits, ...(everyoneHit ? ["everyone" as const] : [])];
   const targets = mentioned(text, members);
 
   const att = useAttachments();
   const voice = useVoice({ input: ref, text, setText, purpose: "message", agentId: lead?.id });
-  function insert(a: Agent) {
-    setText(text.replace(/@([A-Za-z0-9_-]*)$/, `@${a.slug} `));
+  function insert(a: Agent | "everyone") {
+    setText(text.replace(/@([A-Za-z0-9_-]*)$/, `@${a === "everyone" ? "everyone" : a.slug} `));
     ref.current?.focus();
   }
   async function send() {
@@ -268,7 +280,11 @@ function GroupComposer({ group, members, lead }: { group: Group; members: Agent[
     <div className="composer-wrap">
       {suggestions.length > 0 && (
         <div className="choices" style={{ maxWidth: 820, margin: "0 auto 8px" }} role="listbox" aria-label="Mention a member" data-esc-owner="">
-          {suggestions.map((a) => (
+          {suggestions.map((a) => a === "everyone" ? (
+            <button key="everyone" className="pill" onClick={() => insert(a)} title="Every member answers">
+              <Icon name="team" size={14} />@everyone <span className="hint">{members.length} members</span>
+            </button>
+          ) : (
             <button key={a.id} className="pill" onClick={() => insert(a)}>
               <Avatar name={a.name} color={a.color} size={16} />@{a.slug}
             </button>

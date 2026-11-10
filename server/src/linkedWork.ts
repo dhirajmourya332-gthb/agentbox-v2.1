@@ -6,6 +6,7 @@ import { roomDocuments, roomView } from "./work.ts";
 import { counts, itemsOf, roadmapsOf } from "./roadmaps.ts";
 import { roomServices } from "./hosting.ts";
 import { crewIdOf, crewName } from "./crews.ts";
+import { getGroup } from "./groups.ts";
 
 /**
  * Linked work: the owner links another piece of work (a task or task room, usually another crew's)
@@ -13,6 +14,9 @@ import { crewIdOf, crewName } from "./crews.ts";
  * conversation, its documents and what it hosts. Reading only: crews stay separate teams, so nobody
  * here can hand work to or message the other work's agents. Only the owner links and unlinks
  * (the portal); agents see the links in their instructions and read with linked_work tools.
+ *
+ * Work can also be linked to a group (room_id = the group's id): then every member reads it in
+ * its turns in that group, on top of what its group conversation itself links.
  */
 
 run(`CREATE TABLE IF NOT EXISTS work_links (
@@ -44,15 +48,48 @@ function describe(rootId: string) {
   return { id: r.id, label: r.label ?? r.name, name: r.name, crew, crew_name: crewName(crew), status: r.retired_at ? "done" : "live" };
 }
 
+/** Something that links to work: a piece of work, or a group. */
+function describeReader(roomId: string) {
+  const g = getGroup(roomId);
+  if (g) return { id: g.id, label: `#${g.name}`, name: "group", crew: null as string | null, crew_name: "group", status: "live", group: true };
+  return describe(roomId);
+}
+
 export function linksOf(instanceId: string) {
   const root = workRootOf(instanceId);
   const links = all<Link>(`SELECT * FROM work_links WHERE room_id = ? ORDER BY created_at`, root.id);
+  // A member's conversation in a group also reads what's linked to the group.
+  const groupId = root.created_by?.startsWith("group:") ? root.created_by.slice(6) : null;
+  const viaGroup = groupId ? all<Link>(`SELECT * FROM work_links WHERE room_id = ? ORDER BY created_at`, groupId)
+    .filter((l) => l.linked_id !== root.id && !links.some((x) => x.linked_id === l.linked_id)) : [];
   const from = all<Link>(`SELECT * FROM work_links WHERE linked_id = ? ORDER BY created_at`, root.id);
   return {
     room_id: root.id,
-    links: links.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id) })),
-    linked_from: from.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.room_id) })),
+    links: [
+      ...links.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id), via_group: null as string | null })),
+      ...viaGroup.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id), via_group: groupId })),
+    ],
+    linked_from: from.map((l) => ({ id: l.id, created_at: l.created_at, work: describeReader(l.room_id) })),
   };
+}
+
+/** Work linked to a group: every member reads it in its turns there. */
+export function groupLinksOf(groupId: string) {
+  if (!getGroup(groupId)) throw httpError(404, "No such group");
+  const links = all<Link>(`SELECT * FROM work_links WHERE room_id = ? ORDER BY created_at`, groupId);
+  return { group_id: groupId, links: links.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id) })) };
+}
+
+export function addGroupLink(groupId: string, targetId: unknown) {
+  if (!getGroup(groupId)) throw httpError(404, "No such group");
+  const target = workRootOf(String(targetId ?? ""));
+  if (target.created_by === `group:${groupId}`) throw httpError(400, "That's this group's own conversation");
+  if (get(`SELECT 1 FROM work_links WHERE room_id = ? AND linked_id = ?`, groupId, target.id)) return groupLinksOf(groupId);
+  const n = (get<{ n: number }>(`SELECT COUNT(*) AS n FROM work_links WHERE room_id = ?`, groupId)?.n ?? 0) as number;
+  if (n >= LIMITS.links) throw httpError(400, `At most ${LIMITS.links} linked pieces of work`);
+  run(`INSERT INTO work_links (id, room_id, linked_id, created_at) VALUES (?, ?, ?, ?)`, newId(), groupId, target.id, now());
+  publish({ type: "links.updated", roomId: groupId });
+  return groupLinksOf(groupId);
 }
 
 export function addLink(instanceId: string, targetId: unknown) {
@@ -83,8 +120,10 @@ export function linkedSection(agent: Agent): string {
   let links: ReturnType<typeof linksOf>["links"];
   try { links = linksOf(agent.id).links; } catch { return ""; }
   if (!links.length) return "";
+  const group = links.find((l) => l.via_group)?.via_group;
+  const groupName = group ? getGroup(group)?.name : null;
   return `## Linked work (read-only)
-The owner linked this other work to yours so you can follow it: its progress, roadmap,
+The owner linked this other work to yours${groupName ? ` (or to the group #${groupName}, for all its members)` : ""} so you can follow it: its progress, roadmap,
 conversation, documents and hosted links. Read it with \`mcp__team__read_linked_work\` (work = the
 title or id below) whenever it matters to your task, e.g. before planning or when it may have moved on.
 It's for reading only: you can't hand work to or message its agents (other crews are separate teams).
@@ -160,4 +199,6 @@ export function registerLinkRoutes(app: FastifyInstance) {
   app.get("/api/work/:id/links", async (req) => linksOf((req.params as any).id));
   app.post("/api/work/:id/links", async (req) => addLink((req.params as any).id, (req.body as any)?.work_id));
   app.delete("/api/links/:id", async (req) => removeLink((req.params as any).id));
+  app.get("/api/groups/:id/links", async (req) => groupLinksOf((req.params as any).id));
+  app.post("/api/groups/:id/links", async (req) => addGroupLink((req.params as any).id, (req.body as any)?.work_id));
 }
