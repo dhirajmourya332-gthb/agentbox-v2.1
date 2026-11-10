@@ -52,3 +52,10 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 }
 .share-corner { position: fixed; top: 12px; right: 16px; }
 .share-offline { color: var(--warn); }
+
+/* A group's link: the group, its workspaces and linked work (Places). */
+.share-places { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.share-places-group { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.share-places-label { font-size: 12px; }
+.share-places .pill { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
+@media (max-width: 640px) { .share-places { flex-wrap: nowrap; } .share-places-group { flex-wrap: nowrap; } }

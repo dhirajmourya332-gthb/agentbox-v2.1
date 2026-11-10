@@ -8,7 +8,8 @@ import { ports } from "./config.ts";
 import { subscribe, type BusEvent } from "./bus.ts";
 import { AGENTS_ROOT, WORK_ROOT, dmThreadOf, getAgent, instanceTree, type Agent } from "./agents.ts";
 import { roomDocuments } from "./work.ts";
-import { allowed, contentType } from "./documents.ts";
+import { allowed, contentType, documentsForWork } from "./documents.ts";
+import { getGroup, postAsGuest } from "./groups.ts";
 import { listNotes } from "./notes.ts";
 import { roadmapsOf, roadmapView } from "./roadmaps.ts";
 import { roomServices } from "./hosting.ts";
@@ -16,7 +17,7 @@ import { listProgress } from "./progress.ts";
 import { enqueueTask, stopTask } from "./runner.ts";
 import { attachmentsForAgent, checkAttachments, displayWithAttachments, saveUpload } from "./uploads.ts";
 import { redactSecrets } from "./redact.ts";
-import { publicHost, shareByToken, shareById, isLive, touch, type Share } from "./shares.ts";
+import { publicHost, scopeOf, shareByToken, shareById, isLive, touch, type ScopeRoom, type Share } from "./shares.ts";
 
 /**
  * The guest server for shared work (docs/SHARING.md). It listens on 127.0.0.1:<ports.share> and is
@@ -33,6 +34,10 @@ import { publicHost, shareByToken, shareById, isLive, touch, type Share } from "
  *   edit links only: POST /api/messages, /api/uploads, /api/stop
  * Text a guest reads is passed through the secret redactor; files that look like credentials are
  * never listed or served.
+ *
+ * A group's link (shares.ts scopeOf) opens several places: the group's conversation, its workspaces
+ * and the work linked to it. Reads take ?room=<id> (default: the first), and every id is checked
+ * against the link's scope as it is now; writes check that the place takes chat (never linked work).
  */
 
 export const COOKIE = "__Host-agentbox_guest";
@@ -60,15 +65,25 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 // --- what a guest sees of a room ------------------------------------------------------------------
 
-type RoomCtx = { roomId: string; members: Set<string>; threads: Set<string> };
+/** A place a guest looks at: its agents (instances), its threads, and the roots its progress and roadmaps hang off. */
+type RoomCtx = { roomId: string; group: boolean; members: Set<string>; threads: Set<string>; roots: Set<string> };
 
 export function roomCtx(roomId: string): RoomCtx {
+  if (getGroup(roomId)) return groupCtx(roomId);
   const tree = instanceTree(roomId);
   const ids = tree.map((a) => a.id);
   const threads = ids.length
     ? all<{ id: string }>(`SELECT id FROM threads WHERE agent_id IN (${ids.map(() => "?").join(",")}) AND kind IN ('dm', 'handoff', 'routine')`, ...ids)
     : [];
-  return { roomId, members: new Set(ids), threads: new Set(threads.map((t) => t.id)) };
+  return { roomId, group: false, members: new Set(ids), threads: new Set(threads.map((t) => t.id)), roots: new Set([roomId]) };
+}
+
+/** A group's conversation: its members' group instances (and anything they started), its one thread. */
+function groupCtx(groupId: string): RoomCtx {
+  const insts = all<{ id: string }>(`SELECT id FROM agents WHERE created_by = ?`, `group:${groupId}`).map((r) => r.id);
+  const members = new Set<string>();
+  for (const id of insts) for (const a of instanceTree(id)) members.add(a.id);
+  return { roomId: groupId, group: true, members, threads: new Set([groupId]), roots: new Set(insts) };
 }
 
 const who = (id: string | null | undefined) => {
@@ -109,34 +124,47 @@ function guestMember(a: Agent) {
 }
 
 export function guestRoom(roomId: string) {
-  const root = getAgent(roomId);
-  if (!root) throw new Error("No such work");
   const ctx = roomCtx(roomId);
+  const group = ctx.group ? getGroup(roomId) : undefined;
+  const root = group ? null : getAgent(roomId);
+  if (!group && !root) throw new Error("No such work");
   const tIds = [...ctx.threads];
   const marks = tIds.map(() => "?").join(",") || "''";
   const messages = tIds.length ? all(`SELECT * FROM messages WHERE thread_id IN (${marks}) ORDER BY created_at, rowid`, ...tIds) : [];
   const tasks = tIds.length ? all(`SELECT * FROM tasks WHERE thread_id IN (${marks}) ORDER BY created_at`, ...tIds) : [];
+  const members = [...ctx.members].map((id) => getAgent(id)).filter((a): a is Agent => !!a && (!group || !a.retired_at));
   return {
-    root: { id: root.id, name: root.name, label: red(root.label), color: root.color, done: !!root.retired_at },
-    members: instanceTree(roomId).map(guestMember),
-    lead_thread: dmThreadOf(root.id),
+    root: group
+      ? { id: group.id, name: "group", label: `#${group.name}`, color: "var(--muted)", done: false, group: true, purpose: red(group.purpose) }
+      : { id: root!.id, name: root!.name, label: red(root!.label), color: root!.color, done: !!root!.retired_at },
+    members: group ? members.map(guestMember).map((m) => ({ ...m, label: null })) : instanceTree(roomId).map(guestMember),
+    lead_thread: group ? group.id : dmThreadOf(root!.id),
     messages: (messages as any[]).map(guestMessage),
     tasks: (tasks as any[]).filter((t) => t.source !== "compact").map(guestTask),
-    progress: listProgress().filter((p) => p.root_id === roomId).map(guestProgress),
+    progress: listProgress().filter((p) => !!p.root_id && ctx.roots.has(p.root_id)).map(guestProgress),
     // Where file paths in messages point (the page links them to /api/file, which checks each one).
     roots: [AGENTS_ROOT, WORK_ROOT],
   };
 }
 
 function guestRoadmaps(roomId: string) {
-  return roadmapsOf(roomId).map(roadmapView).map((r: any) => ({
+  return [...roomCtx(roomId).roots].flatMap((id) => roadmapsOf(id)).map(roadmapView).map((r: any) => ({
     id: r.id, title: red(r.title), status: r.status, counts: r.counts, updated_at: r.updated_at,
     items: r.items.map((i: any) => ({ id: i.id, title: red(i.title), status: i.status, phase: i.phase ?? null, owner: i.owner ?? null, note: red(i.note ?? null), after: i.after ?? [] })),
   }));
 }
 
+/** A group's documents: what its turns (and anything they delegated) wrote. */
+function groupDocuments(groupId: string) {
+  const tasks = all<{ id: string }>(
+    `WITH RECURSIVE t(id) AS (SELECT id FROM tasks WHERE thread_id = ? UNION ALL SELECT tasks.id FROM tasks JOIN t ON tasks.parent_task_id = t.id)
+     SELECT id FROM t`, groupId,
+  ).map((r) => r.id);
+  return documentsForWork(tasks, [groupId]);
+}
+
 function guestDocuments(roomId: string) {
-  return roomDocuments(roomId).filter((d) => !SENSITIVE.test(d.path)).map((d) => ({
+  return (getGroup(roomId) ? groupDocuments(roomId) : roomDocuments(roomId)).filter((d) => !SENSITIVE.test(d.path)).map((d) => ({
     path: d.path, name: d.name, location: d.location, size: d.size, modified: d.modified, task_title: red(d.task_title),
   }));
 }
@@ -170,12 +198,19 @@ function roomScopes(roomId: string, members: Set<string>) {
  * Each is still checked by /api/file: under the agents' homes or the work area, not credential-looking.
  */
 function guestFiles(s: Share, uploads: Set<string>) {
-  const ctx = roomCtx(s.room_id);
-  const scopes = roomScopes(s.room_id, ctx.members);
   const out = new Set<string>();
+  for (const u of uploads) { const p = real(u); if (p) out.add(p); }
+  // A group's link: everything in its scope (a file named in the group may live in a workspace).
+  for (const r of scopeOf(s)) roomFiles(r.id, out);
+  imagesOfDocuments(out);
+  return out;
+}
+
+function roomFiles(roomId: string, out: Set<string>) {
+  const ctx = roomCtx(roomId);
+  const scopes = roomScopes(roomId, ctx.members);
   const add = (p: string | null) => { if (p) out.add(p); };
-  for (const d of guestDocuments(s.room_id)) add(real(d.path));
-  for (const u of uploads) add(real(u));
+  for (const d of guestDocuments(roomId)) add(real(d.path));
   const tIds = [...ctx.threads];
   if (tIds.length) {
     const rows = all<{ author: string; content: string }>(
@@ -192,7 +227,10 @@ function guestFiles(s: Share, uploads: Set<string>) {
       }
     }
   }
-  // Images a Markdown document shows by relative path (e.g. report-img/fig.png next to report.md).
+}
+
+/** Images a Markdown document shows by relative path (e.g. report-img/fig.png next to report.md). */
+function imagesOfDocuments(out: Set<string>) {
   for (const p of [...out]) {
     if (!/\.(md|markdown)$/i.test(p)) continue;
     let text = "";
@@ -207,7 +245,6 @@ function guestFiles(s: Share, uploads: Set<string>) {
       if (img && inside(img, folder)) out.add(img); // no ../ out of the document's folder
     }
   }
-  return out;
 }
 
 /** The event a guest's live view gets for a bus event, or null when it isn't about their room. */
@@ -218,11 +255,11 @@ export function guestEvent(ctx: RoomCtx, e: BusEvent): any | null {
     case "task.updated":
       return ctx.threads.has(e.task?.thread_id) || ctx.members.has(e.task?.agent_id) ? { type: "task", task: guestTask(e.task) } : null;
     case "progress.updated":
-      return e.progress?.root_id === ctx.roomId ? { type: "progress", progress: guestProgress(e.progress) } : null;
+      return ctx.roots.has(e.progress?.root_id) ? { type: "progress", progress: guestProgress(e.progress) } : null;
     case "progress.cleared":
       return ctx.members.has(e.agent_id) ? { type: "progress.cleared", task_id: e.task_id } : null;
     case "roadmap.updated":
-      return e.roadmap?.root_id === ctx.roomId ? { type: "roadmaps" } : null;
+      return ctx.roots.has(e.roadmap?.root_id) ? { type: "roadmaps" } : null;
     case "notes.updated":
       return e.roomId === ctx.roomId ? { type: "notes" } : null;
     case "hosting.updated":
@@ -239,8 +276,8 @@ export function guestEvent(ctx: RoomCtx, e: BusEvent): any | null {
 // --- edit links: talking to the agents ----------------------------------------------------------------
 
 /** A guest's message to the room's lead. Agents are told who it's from and what stays the owner's call. */
-export function sendAsGuest(s: Share, text: string, files: string[]) {
-  const root = getAgent(s.room_id);
+export function sendAsGuest(s: Share, text: string, files: string[], roomId = s.room_id) {
+  const root = getAgent(roomId);
   if (!root || root.retired_at) throw httpError(409, "This work is finished");
   const thread = dmThreadOf(root.id);
   if (!thread) throw httpError(409, "This work has no conversation to post to");
@@ -365,6 +402,14 @@ export async function buildShareServer(opts: ShareServerOptions = {}): Promise<F
   const needEdit = (req: FastifyRequest) => {
     if (req.guest!.perm !== "edit") throw httpError(403, "This link is read-only");
   };
+  /** The place this request is about: ?room= (or the body's room), checked against the link's scope now. */
+  const roomOf = (req: FastifyRequest): ScopeRoom => {
+    const scope = scopeOf(req.guest!);
+    const want = (req.query as any)?.room ?? (req.body as any)?.room;
+    const r = want ? scope.find((x) => x.id === String(want)) : scope[0];
+    if (!r) throw httpError(403, "That isn't part of this shared link");
+    return r;
+  };
 
   // --- the page ---
   const sendFile = (reply: FastifyReply, file: string) => {
@@ -407,16 +452,24 @@ export async function buildShareServer(opts: ShareServerOptions = {}): Promise<F
   // --- reading ---
   share.get("/api/room", async (req) => {
     const s = req.guest!;
-    return { share: { perm: s.perm, label: s.label, expires_at: s.expires_at }, ...guestRoom(s.room_id) };
+    const r = roomOf(req);
+    return {
+      share: { perm: s.perm, label: s.label, expires_at: s.expires_at, kind: s.kind ?? "work" },
+      // Every place this link opens (one for a piece of work; a group's conversation, workspaces and linked work).
+      scope: scopeOf(s).map((x) => ({ ...x, title: red(x.title) })),
+      place: { ...r, title: red(r.title) },
+      ...guestRoom(r.id),
+    };
   });
-  share.get("/api/roadmaps", async (req) => ({ roadmaps: guestRoadmaps(req.guest!.room_id) }));
-  share.get("/api/documents", async (req) => ({ documents: guestDocuments(req.guest!.room_id) }));
+  share.get("/api/roadmaps", async (req) => ({ roadmaps: guestRoadmaps(roomOf(req).id) }));
+  share.get("/api/documents", async (req) => ({ documents: guestDocuments(roomOf(req).id) }));
   share.get("/api/notes", async (req) => ({
-    notes: listNotes(req.guest!.room_id).map((n) => ({ id: n.id, quote: red(n.quote), body: red(n.body), created_at: n.created_at, updated_at: n.updated_at })),
+    notes: listNotes(roomOf(req).id).map((n) => ({ id: n.id, quote: red(n.quote), body: red(n.body), created_at: n.created_at, updated_at: n.updated_at })),
   }));
   // Hosted services stay on the owner's private network: guests see what runs, not a way in.
   share.get("/api/services", async (req) => ({
-    services: roomServices(req.guest!.room_id).map((v) => ({ id: v.id, name: v.name, status: v.status, started_by: v.started_by, created_at: v.created_at, stopped_at: v.stopped_at })),
+    services: [...roomCtx(roomOf(req).id).roots, roomOf(req).id].flatMap((id) => roomServices(id))
+      .filter((v, i, a) => a.findIndex((x) => x.id === v.id) === i).map((v) => ({ id: v.id, name: v.name, status: v.status, started_by: v.started_by, created_at: v.created_at, stopped_at: v.stopped_at })),
   }));
   share.get("/api/file", async (req, reply) => {
     const s = req.guest!;
@@ -469,7 +522,11 @@ export async function buildShareServer(opts: ShareServerOptions = {}): Promise<F
     const files = checkAttachments(b?.files);
     if (files.some((f) => !mine.has(f))) throw httpError(403, "Attach files by uploading them here");
     if (!text && !files.length) throw httpError(400, "Message is empty");
-    const t = sendAsGuest(s, text, files);
+    const r = roomOf(req);
+    if (!r.edit) throw httpError(403, "This work is linked for reading only");
+    if (r.done) throw httpError(409, "This work is finished");
+    if (r.kind === "group") return { message_id: postAsGuest(r.id, s.label, text, files).id };
+    const t = sendAsGuest(s, text, files, r.id);
     return { task_id: t.id };
   });
   share.post("/api/stop", async (req) => {
@@ -477,7 +534,7 @@ export async function buildShareServer(opts: ShareServerOptions = {}): Promise<F
     needEdit(req);
     const id = String((req.body as any)?.task_id ?? "");
     const t = get<any>(`SELECT id, agent_id, status FROM tasks WHERE id = ?`, id);
-    if (!t || !roomCtx(s.room_id).members.has(t.agent_id)) throw httpError(404, "No such task in this work");
+    if (!t || !scopeOf(s).some((r) => r.edit && roomCtx(r.id).members.has(t.agent_id))) throw httpError(404, "No such task in this work");
     if (t.status === "running" || t.status === "queued") stopTask(t.id);
     return { ok: true };
   });
@@ -486,7 +543,9 @@ export async function buildShareServer(opts: ShareServerOptions = {}): Promise<F
   share.get("/api/events", { websocket: true }, (socket, req) => {
     const s = req.guest;
     if (!s) return socket.close(1008, "not allowed");
-    let ctx = roomCtx(s.room_id);
+    let place: ScopeRoom;
+    try { place = roomOf(req); } catch { return socket.close(1008, "not part of this link"); }
+    let ctx = roomCtx(place.id);
     // Streamed replies: what's been said so far, redacted as a whole and sent at most 4 times a second.
     const live = new Map<string, { agent_id: string; text: string; timer: NodeJS.Timeout | null }>();
     const send = (o: unknown) => { if (socket.readyState === 1) socket.send(JSON.stringify(o)); };
@@ -510,7 +569,10 @@ export async function buildShareServer(opts: ShareServerOptions = {}): Promise<F
         if (!cur || !isLive(cur)) { send({ type: "expired" }); socket.close(4001, "link turned off"); }
         return;
       }
-      if (e.type === "agent.created" || e.type === "agent.retired" || e.type === "thread.created") ctx = roomCtx(s.room_id);
+      // A group's scope grows (a workspace launched, work linked) or shrinks (unlinked): the page reloads its list.
+      if (s.kind === "group" && ((e.type === "links.updated" && e.roomId === s.room_id)
+        || (e.type === "agent.created" && e.agent?.created_by === `glead:${s.room_id}`))) send({ type: "scope" });
+      if (e.type === "agent.created" || e.type === "agent.retired" || e.type === "thread.created") ctx = roomCtx(place.id);
       const out = guestEvent(ctx, e);
       if (!out) return;
       if (out.type === "message" && out.message.task_id) {

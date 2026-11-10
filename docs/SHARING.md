@@ -21,6 +21,26 @@ guest server), `web/src/share/` (the guest page), `web/src/components/Share.tsx`
 From a terminal: `agentbox share <task> [--edit] [--for 6h|1d|7d] [--name who]`, `agentbox shares <task>`,
 `agentbox share rm <id>`, `agentbox share status`.
 
+## Sharing a group
+
+A group's header has **Share** too. Its link opens a bar of places, each with the same conversation,
+progress, roadmap, documents, notes and services views as shared work:
+
+- **the group's conversation**, with what every member says there;
+- **every workspace the group's lead launched**, now and later (a new one shows up while the guest
+  looks; a finished one stays, marked done);
+- **every piece of work linked to the group** (the group's **Link**), always read-only, the way the
+  group's own members read it.
+
+A **Chat** link can post in the group (like you: `@name` brings a member in, no mention goes to the
+lead; `@everyone` stays yours) and message each workspace's lead, and stop agents there. It can't
+message linked work. Agents in all of these places are told the work is shared and with whom.
+Unlinking work from the group takes it out of the link; deleting the group turns its links off.
+A file opens if it belongs to any place in the link (so a workspace's document named in the group
+opens).
+
+From a terminal: `agentbox share #group [--edit] …`, `agentbox shares #group`.
+
 ## What a guest sees
 
 | | Read | Chat |

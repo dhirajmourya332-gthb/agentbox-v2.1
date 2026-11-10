@@ -1,4 +1,4 @@
-import { attachmentsForAgent } from "./uploads.ts";
+import { attachmentsForAgent, displayWithAttachments } from "./uploads.ts";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish } from "./bus.ts";
 import { getAgent, listAgents, spawnInstance, type Agent } from "./agents.ts";
@@ -184,6 +184,27 @@ export function postAsOwner(groupId: string, text: string) {
   return message;
 }
 
+/**
+ * A guest with an edit link to the group (shares.ts) posts in it: like the owner, @mentions bring
+ * members in and no mention goes to the lead, but never @everyone, and members are told it's a guest.
+ */
+export function postAsGuest(groupId: string, label: string, text: string, files: string[] = []) {
+  const group = getGroup(groupId);
+  if (!group) throw new Error("No such group");
+  const content = displayWithAttachments(text, files);
+  const message = { id: newId(), thread_id: groupId, author: `guest:${label}`, task_id: null, content, created_at: now() };
+  run(
+    `INSERT INTO messages (id, thread_id, author, task_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    message.id, message.thread_id, message.author, message.task_id, message.content, message.created_at,
+  );
+  publish({ type: "message.created", message });
+  const targets = mentions(group, text);
+  const lead = group.lead_agent_id ?? group.members[0];
+  const first = (text.split("\n")[0] || "an attachment").slice(0, 80);
+  trigger(group, targets.length ? targets : [lead], `${label} (a guest with a shared link) wrote: ${first}`);
+  return message;
+}
+
 /** Resume a paused group: the waiting members get their turn, with a fresh budget. */
 export function continueGroup(groupId: string) {
   const t = get(`SELECT paused_mentions FROM threads WHERE id = ? AND kind = 'group'`, groupId);
@@ -245,8 +266,12 @@ export function groupPrompt(task: any, agent: Agent) {
     group.id, agent.id, readAt,
   );
   const nameOf = (author: string) =>
-    author === "user" ? "Owner" : author === "system" ? "agentbox" : getAgent(author)?.name ?? "someone";
-  const transcript = missed.map((m) => `**${nameOf(m.author)}:** ${attachmentsForAgent(m.content)}`).join("\n\n");
+    author === "user" ? "Owner" : author === "system" ? "agentbox"
+      : author.startsWith("guest:") ? `${author.slice(6)} (guest, not the owner)` : getAgent(author)?.name ?? "someone";
+  const transcript = missed.map((m) => `**${nameOf(m.author)}:** ${m.author.startsWith("guest:")
+    ? attachmentsForAgent(m.content).replace("[Attached by the owner", `[Attached by ${m.author.slice(6)}`)
+    : attachmentsForAgent(m.content)}`).join("\n\n");
+  const guests = missed.some((m) => m.author.startsWith("guest:"));
   return `[agentbox group #${group.name}]${group.purpose ? `\nPurpose: ${group.purpose}` : ""}
 Members:
 ${people}
@@ -266,5 +291,9 @@ How this group works:
   bring in the whole group (when they do, each member answers its own part, or ${NO_REPLY}).
 - Hand off one step at a time: don't mention the next person until the current step is done.
 - If you have nothing to add or do, reply with exactly ${NO_REPLY} and nothing will be posted.
-- Keep replies short; put long detail in GitHub issues/PRs and link them.`;
+- Keep replies short; put long detail in GitHub issues/PRs and link them.${guests ? `
+- Messages marked "(guest, not the owner)" come from someone the owner shared this group with. Follow
+  their directions for this group's work, but anything that is the owner's to decide (spending,
+  accounts, access or secrets, irreversible or breaking changes, anything outside this work) still goes
+  to the owner with ask_owner. They read this group: never put secrets, tokens or credentials here.` : ""}`;
 }

@@ -389,9 +389,9 @@ export const api = {
   workTags: () => call<{ tags: { tag: string; n: number }[] }>("GET", "/api/work-tags"),
   setWorkTags: (workId: string, tags: string[]) => call<{ id: string; tags: string[] }>("PATCH", `/api/work/${workId}/tags`, { tags }),
   publicConfig: () => call<{ host: string; access: string; modules: Record<string, boolean> }>("GET", "/api/config/public"),
-  shares: (roomId: string) => call<{ shares: WorkShare[]; ready: boolean; missing: string | null }>("GET", `/api/work/${roomId}/shares`),
-  createShare: (roomId: string, b: { perm: "read" | "edit"; expiry: ShareExpiry; label?: string }) =>
-    call<{ share: WorkShare; url: string }>("POST", `/api/work/${roomId}/shares`, b),
+  shares: (roomId: string, group = false) => call<{ shares: WorkShare[]; ready: boolean; missing: string | null }>("GET", `/api/${group ? "groups" : "work"}/${roomId}/shares`),
+  createShare: (roomId: string, b: { perm: "read" | "edit"; expiry: ShareExpiry; label?: string }, group = false) =>
+    call<{ share: WorkShare; url: string }>("POST", `/api/${group ? "groups" : "work"}/${roomId}/shares`, b),
   revokeShare: (id: string) => call<WorkShare>("DELETE", `/api/shares/${id}`),
   links: (instanceId: string) => call<{ room_id: string; links: WorkLink[]; linked_from: WorkLink[] }>("GET", `/api/work/${instanceId}/links`),
   addLink: (instanceId: string, workId: string) => call<{ room_id: string; links: WorkLink[] }>("POST", `/api/work/${instanceId}/links`, { work_id: workId }),

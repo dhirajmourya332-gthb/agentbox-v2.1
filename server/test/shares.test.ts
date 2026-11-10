@@ -262,3 +262,60 @@ test("agents are told the work is shared; revoking, expiry and finishing the wor
   assert.equal(S.shareByToken(again.token), null);
   publish({ type: "shares.updated", roomId: room.id });
 });
+
+test("a group's link: the group, its workspaces and the work linked to it, and nothing else", async () => {
+  const G = await import("../src/groups.ts");
+  await import("../src/groupWork.ts"); // its tables
+  const L = await import("../src/linkedWork.ts");
+  const grp = G.createGroup({ name: "launch", purpose: "ship it", members: [role.id, coderRole.id], lead: role.id });
+  const lead = G.groupInstance(grp, role.id);
+  run(`INSERT INTO messages (id, thread_id, author, task_id, content, created_at) VALUES (?, ?, ?, NULL, ?, ?)`, newId(), grp.id, lead.id, "Group plan: two workspaces", now());
+  // A workspace the group's lead launched, and other work linked to the group.
+  const ws = A.spawnInstance(role.id, { label: "Billing workspace", createdBy: `glead:${grp.id}` });
+  run(`INSERT INTO group_workspaces (id, group_id, root_id, item_id, title, created_at) VALUES (?, ?, ?, 'i1', 'Billing', ?)`, newId(), grp.id, ws.id, now());
+  const wsFile = path.join(dirs.work, "rooms", "billing", "NOTES.md"); fs.mkdirSync(path.dirname(wsFile), { recursive: true }); fs.writeFileSync(wsFile, "billing notes");
+  run(`UPDATE agents SET workspace = ? WHERE id = ?`, path.dirname(wsFile), ws.id);
+  say(ws.id, ws.id, `Notes in ${wsFile}`);
+  const linked = A.spawnInstance(role.id, { label: "Migration", createdBy: "owner" });
+  say(linked.id, "user", "migration talk");
+  L.addGroupLink(grp.id, linked.id);
+
+  const { share: rs, token: rt } = S.createShare(grp.id, { perm: "read", label: "Ana" }, "group");
+  const { token: et } = S.createShare(grp.id, { perm: "edit", label: "Ben" }, "group");
+  assert.equal(S.shareView(rs).kind, "group");
+  const open = await g("GET", "/api/room", { token: rt });
+  assert.equal(open.statusCode, 200);
+  const body = open.json();
+  assert.deepEqual(body.scope.map((r: any) => [r.kind, r.id, r.edit]), [["group", grp.id, false], ["workspace", ws.id, false], ["linked", linked.id, false]]);
+  assert.equal(body.place.kind, "group");
+  assert.equal(body.root.label, "#launch");
+  assert.deepEqual(body.messages.map((m: any) => m.content), ["Group plan: two workspaces"]);
+  // Each place in scope opens; anything else doesn't.
+  assert.equal((await g("GET", `/api/room?room=${ws.id}`, { token: rt })).json().messages[0].content, `Notes in ${wsFile}`);
+  assert.equal((await g("GET", `/api/room?room=${linked.id}`, { token: rt })).json().messages[0].content, "migration talk");
+  assert.equal((await g("GET", `/api/room?room=${other.id}`, { token: rt })).statusCode, 403);
+  assert.equal((await g("GET", `/api/documents?room=${room.id}`, { token: rt })).statusCode, 403);
+  // A file named in a workspace opens through the group's link; the other work's doesn't.
+  assert.equal((await g("GET", `/api/file?path=${encodeURIComponent(wsFile)}`, { token: rt })).statusCode, 200);
+  assert.equal((await g("GET", `/api/file?path=${encodeURIComponent(otherPlan)}`, { token: rt })).statusCode, 403);
+  // Chat: read links can't; edit links can in the group and its workspaces, never in linked work.
+  assert.equal((await g("POST", "/api/messages", { token: rt, body: { text: "hi", room: grp.id } })).statusCode, 403);
+  const inGroup = await g("POST", "/api/messages", { token: et, body: { text: "@coder please check", room: grp.id } });
+  assert.equal(inGroup.statusCode, 200);
+  assert.equal(get<any>(`SELECT author FROM messages WHERE id = ?`, inGroup.json().message_id).author, "guest:Ben");
+  const coderInst = all<any>(`SELECT id FROM agents WHERE created_by = ? AND base_agent_id = ?`, `group:${grp.id}`, coderRole.id)[0];
+  assert.ok(get(`SELECT 1 FROM tasks WHERE thread_id = ? AND agent_id = ? AND status = 'queued'`, grp.id, coderInst.id), "the mentioned member got a turn");
+  assert.equal((await g("POST", "/api/messages", { token: et, body: { text: "go", room: ws.id } })).statusCode, 200);
+  assert.equal((await g("POST", "/api/messages", { token: et, body: { text: "go", room: linked.id } })).statusCode, 403);
+  assert.equal((await g("POST", "/api/messages", { token: et, body: { text: "go", room: other.id } })).statusCode, 403);
+  // Agents in scope are told; the group prompt marks the guest.
+  assert.match(S.sharedNote(lead), /Ana \(reads only through the group\)/);
+  assert.match(S.sharedNote(ws), /Ben \(can chat with you through the group #launch\)/);
+  assert.match(S.sharedNote(linked), /Ben \(reads only through the group #launch\)/);
+  const t = get<any>(`SELECT * FROM tasks WHERE thread_id = ? AND agent_id = ?`, grp.id, coderInst.id);
+  assert.match(G.groupPrompt(t, A.getAgent(coderInst.id)!), /Ben \(guest, not the owner\)/);
+  // The owner's routes.
+  assert.equal((await owner.inject({ method: "GET", url: `/api/groups/${grp.id}/shares` })).json().shares.length, 2);
+  S.revokeRoom(grp.id);
+  assert.equal(S.shareByToken(et), null);
+});

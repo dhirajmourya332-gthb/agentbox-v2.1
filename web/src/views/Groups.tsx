@@ -34,6 +34,7 @@ function mentioned(text: string, members: Agent[]) {
 import { GroupWorkspaceList, useGroupWorkspaces } from "../components/GroupWorkspaces.tsx";
 import { RoadmapStrip } from "../components/Roadmap.tsx";
 import { LinkWorkButton, LinkedStrip } from "../components/LinkedWork.tsx";
+import { ShareButton } from "../components/Share.tsx";
 
 export function GroupChat({ id }: { id: string }) {
   const { groups, agents, everyone, threads, live, loadThread, progress } = useStore();
@@ -79,6 +80,7 @@ export function GroupChat({ id }: { id: string }) {
             </button>
           )}
           <LinkWorkButton groupId={group.id} />
+          <ShareButton roomId={group.id} group />
           <button className="btn sm" aria-pressed={docs && side === "workspaces"} title="Workspaces the group's lead launched"
             onClick={() => { setSide("workspaces"); setDocs(!(docs && side === "workspaces")); }}>
             <Icon name="room" size={14} />Workspaces{liveWs ? <span className="tab-count">{liveWs}</span> : null}
@@ -170,6 +172,19 @@ function GroupTimeline({ group, members, lead, data, live }: {
                 <div>
                   <div className="msg-meta"><strong>You</strong><time dateTime={m.created_at}>{relTime(m.created_at)}</time></div>
                   <div className="prose" style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
+                </div>
+              </div>
+            );
+          }
+          // A guest the owner shared the group with (shares.ts): "guest:<name>".
+          if (m.author.startsWith("guest:")) {
+            const name = m.author.slice(6);
+            return (
+              <div key={m.id} className="msg">
+                <span className="avatar you-avatar guest-avatar" style={{ width: 28, height: 28, fontSize: 12 }} aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div className="msg-meta"><strong>{name}</strong><span className="tag">guest</span><time dateTime={m.created_at}>{relTime(m.created_at)}</time></div>
+                  <Markdown text={m.content} />
                 </div>
               </div>
             );

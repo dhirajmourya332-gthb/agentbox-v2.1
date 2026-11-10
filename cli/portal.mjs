@@ -701,7 +701,7 @@ cmd("link", "link <task|#group> <other work> | link rm <task|#group> <other work
 });
 
 // sharing one piece of work with a guest (outside the tailnet, through ngrok)
-cmd("share", "share <task> [--edit] [--for 6h|1d|7d] [--name who] | share rm <link id> | share status   a link to this work for a guest", async (api, argv) => {
+cmd("share", "share <task|#group> [--edit] [--for 6h|1d|7d] [--name who] | share rm <link id> | share status   a link for a guest (a group's takes in its workspaces and linked work)", async (api, argv) => {
   if (argv[0] === "status") {
     const d = await api.get("/api/sharing");
     out(d.ready ? `${green("✔")} ready · tunnel ${d.tunnel.status}${d.tunnel.url ? ` ${d.tunnel.url}` : ""} · ${d.live} live link${d.live === 1 ? "" : "s"}` : `${yellow("✖")} ${d.missing}. Set it up: agentbox connect ngrok`);
@@ -716,17 +716,19 @@ cmd("share", "share <task> [--edit] [--for 6h|1d|7d] [--name who] | share rm <li
   }
   const a = args(argv, { bool: ["edit", "read"] });
   const w = await world(api);
-  const t = rootOf(w, findTask(w, a._.join(" ")));
-  const r = await api.post(`/api/work/${t.id}/shares`, { perm: a.flags.edit ? "edit" : "read", expiry: a.flags.for ?? "1d", label: a.flags.name });
+  const ref = a._.join(" ");
+  const grp = isGroupRef(w, ref) ? findGroup(w, ref) : null;
+  const t = grp ? null : rootOf(w, findTask(w, ref));
+  const r = await api.post(grp ? `/api/groups/${grp.id}/shares` : `/api/work/${t.id}/shares`, { perm: a.flags.edit ? "edit" : "read", expiry: a.flags.for ?? "1d", label: a.flags.name });
   out(`${green("✔")} ${r.share.perm === "edit" ? "Can chat with the agents" : "Read-only"} link for ${r.share.label}, until ${new Date(r.share.expires_at).toLocaleString()}:`);
   out(`  ${bold(r.url)}`);
-  out(dim("  Shown once; anyone with it can open this work until it expires. agentbox share rm " + r.share.id.slice(0, 8) + "… turns it off."));
+  out(dim(`  Shown once; anyone with it can open ${grp ? `#${grp.name}, its workspaces and the work linked to it` : "this work"} until it expires. agentbox share rm ` + r.share.id.slice(0, 8) + "… turns it off."));
 });
-cmd("shares", "shares <task> [--all] [--json]             links to this work and who they're for", async (api, argv) => {
+cmd("shares", "shares <task|#group> [--all] [--json]      links to this work (or group) and who they're for", async (api, argv) => {
   const a = args(argv, { bool: ["all", "json"] });
   const w = await world(api);
-  const t = rootOf(w, findTask(w, a._.join(" ")));
-  const d = await api.get(`/api/work/${t.id}/shares`);
+  const ref = a._.join(" ");
+  const d = isGroupRef(w, ref) ? await api.get(`/api/groups/${findGroup(w, ref).id}/shares`) : await api.get(`/api/work/${rootOf(w, findTask(w, ref)).id}/shares`);
   const list = a.flags.all ? d.shares : d.shares.filter((s) => s.live);
   if (a.flags.json) return json(list);
   if (!d.ready) out(yellow(`Sharing isn't set up: ${d.missing}. agentbox connect ngrok`));

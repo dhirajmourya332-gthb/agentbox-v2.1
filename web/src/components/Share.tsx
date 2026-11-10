@@ -4,16 +4,16 @@ import { useStore } from "../store.tsx";
 import { Icon, relTime } from "./ui.tsx";
 
 /** Links to this work for guests (shares.ts). Live via shares.updated. */
-function useShares(roomId: string) {
+function useShares(roomId: string, group: boolean) {
   const { onEvent } = useStore();
   const [state, setState] = useState<{ shares: WorkShare[]; ready: boolean; missing: string | null } | null>(null);
   useEffect(() => {
     let alive = true;
-    const load = () => api.shares(roomId).then((d) => { if (alive) setState(d); }).catch(() => {});
+    const load = () => api.shares(roomId, group).then((d) => { if (alive) setState(d); }).catch(() => {});
     load();
     const off = onEvent((e) => { if (e.type === "shares.updated" && e.roomId === roomId) load(); });
     return () => { alive = false; off(); };
-  }, [roomId, onEvent]);
+  }, [roomId, group, onEvent]);
   return state;
 }
 
@@ -25,23 +25,28 @@ const until = (iso: string) => {
   return h < 1 ? `${Math.ceil(ms / 60_000)} min left` : h < 48 ? `${Math.round(h)} h left` : `${Math.round(h / 24)} days left`;
 };
 
-/** A header button: share this one piece of work with someone outside your tailnet. */
-export function ShareButton({ roomId }: { roomId: string }) {
-  const data = useShares(roomId);
+/**
+ * A header button: share this one piece of work (or, with `group`, a group: its conversation, its
+ * workspaces and the work linked to it) with someone outside your tailnet.
+ */
+export function ShareButton({ roomId, group = false }: { roomId: string; group?: boolean }) {
+  const data = useShares(roomId, group);
   const [open, setOpen] = useState(false);
   const live = data?.shares.filter((s) => s.live) ?? [];
   return (
     <div className="popover-anchor">
       <button className="btn sm" aria-expanded={open} onClick={() => setOpen(!open)}
-        title="Share this work with someone outside your tailnet: a link that expires, read-only or able to chat">
+        title={group
+          ? "Share this group with someone outside your tailnet: its conversation, workspaces and linked work, read-only or able to chat"
+          : "Share this work with someone outside your tailnet: a link that expires, read-only or able to chat"}>
         <Icon name="plug" size={14} />Share{live.length ? <span className="tab-count">{live.length}</span> : null}
       </button>
-      {open && data && <SharePanel roomId={roomId} data={data} onClose={() => setOpen(false)} />}
+      {open && data && <SharePanel roomId={roomId} group={group} data={data} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 
-function SharePanel({ roomId, data, onClose }: { roomId: string; data: { shares: WorkShare[]; ready: boolean; missing: string | null }; onClose: () => void }) {
+function SharePanel({ roomId, group, data, onClose }: { roomId: string; group: boolean; data: { shares: WorkShare[]; ready: boolean; missing: string | null }; onClose: () => void }) {
   const [perm, setPerm] = useState<"read" | "edit">("read");
   const [expiry, setExpiry] = useState<ShareExpiry>("1d");
   const [label, setLabel] = useState("");
@@ -60,7 +65,7 @@ function SharePanel({ roomId, data, onClose }: { roomId: string; data: { shares:
   };
   const make = async () => {
     setBusy(true); setError(null); setCopied(false);
-    try { setMade(await api.createShare(roomId, { perm, expiry, label: label.trim() || undefined })); setLabel(""); }
+    try { setMade(await api.createShare(roomId, { perm, expiry, label: label.trim() || undefined }, group)); setLabel(""); }
     catch (e: any) { setError(e.message); }
     setBusy(false);
   };
@@ -69,8 +74,8 @@ function SharePanel({ roomId, data, onClose }: { roomId: string; data: { shares:
   };
 
   return (
-    <div className="popover share-panel" role="dialog" aria-label="Share this work" onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }}>
-      <strong>Share this work</strong>
+    <div className="popover share-panel" role="dialog" aria-label={group ? "Share this group" : "Share this work"} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }}>
+      <strong>{group ? "Share this group" : "Share this work"}</strong>
       {!data.ready ? (
         <>
           <p className="hint" style={{ margin: 0 }}>
@@ -95,8 +100,9 @@ function SharePanel({ roomId, data, onClose }: { roomId: string; data: { shares:
       ) : (
         <>
           <p className="hint" style={{ margin: 0 }}>
-            Anyone with the link sees only this work: its conversation, live progress, roadmap, documents, notes and hosted services.
-            Nothing else of agentbox.
+            {group
+              ? <>Anyone with the link sees this group's conversation, every workspace its lead launched (now and later) and the work linked to it, each with its progress, roadmap, documents and notes. Linked work is read-only. Nothing else of agentbox.</>
+              : <>Anyone with the link sees only this work: its conversation, live progress, roadmap, documents, notes and hosted services. Nothing else of agentbox.</>}
           </p>
           <div className="share-perms" role="radiogroup" aria-label="Access">
             <label className={`share-perm${perm === "read" ? " on" : ""}`}>
@@ -105,7 +111,7 @@ function SharePanel({ roomId, data, onClose }: { roomId: string; data: { shares:
             </label>
             <label className={`share-perm${perm === "edit" ? " on" : ""}`}>
               <input type="radio" name="perm" checked={perm === "edit"} onChange={() => setPerm("edit")} />
-              <span><strong>Chat</strong><span className="hint">Can also message the agents, attach files and stop them, so they act on this person's word in this work.</span></span>
+              <span><strong>Chat</strong><span className="hint">Can also message the agents, attach files and stop them, so they act on this person's word in this {group ? "group and its workspaces" : "work"}.</span></span>
             </label>
           </div>
           <div className="segmented" role="group" aria-label="Expires after">

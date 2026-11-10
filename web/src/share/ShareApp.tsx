@@ -6,6 +6,9 @@ import { ThemeSwitch } from "../components/ThemeSwitch.tsx";
  * Shared work, as a guest sees it: one task room's conversation (live), its agents' progress, the
  * roadmap, documents, notes and hosted services; with an edit link, a message box too. Everything
  * comes from the guest server (server/src/shareServer.ts), scoped to the link's work.
+ *
+ * A group's link opens several places (the group's conversation, its workspaces, work linked to it):
+ * a bar on top switches between them, and every request names the place (?room=).
  */
 
 type Author =
@@ -18,9 +21,11 @@ type Task = {
 };
 type Member = { id: string; name: string; label: string | null; color: string; status: string; current: string | null };
 type Progress = { agent_id: string; task_id: string; activity: string; state: "working" | "stalled"; started_at: string; stalled_for_s: number | null };
+type Place = { id: string; kind: "work" | "group" | "workspace" | "linked"; title: string; edit: boolean; done: boolean };
 type Room = {
-  share: { perm: "read" | "edit"; label: string; expires_at: string };
-  root: { id: string; name: string; label: string | null; color: string; done: boolean };
+  share: { perm: "read" | "edit"; label: string; expires_at: string; kind?: "work" | "group" };
+  scope?: Place[]; place?: Place;
+  root: { id: string; name: string; label: string | null; color: string; done: boolean; group?: boolean; purpose?: string };
   members: Member[]; lead_thread: string | null; messages: Msg[]; tasks: Task[]; progress: Progress[]; roots: string[];
 };
 type Roadmap = { id: string; title: string; status: string; counts: { done: number; total: number; blocked: number }; items: { id: string; title: string; status: string; phase: string | null; owner: string | null; note: string | null }[] };
@@ -62,6 +67,11 @@ const CARD: Record<string, string> = {
 
 export function ShareApp() {
   const [room, setRoom] = useState<Room | null>(null);
+  // Which place of a group's link is open (none: the server's first, i.e. the group itself).
+  const [placeId, setPlaceId] = useState<string | null>(null);
+  const placeRef = useRef<string | null>(null);
+  placeRef.current = placeId;
+  const q = (id: string | null) => (id ? `?room=${encodeURIComponent(id)}` : "");
   const [gone, setGone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, { agent_id: string; text: string }>>({});
@@ -77,7 +87,11 @@ export function ShareApp() {
    */
   const load = useCallback(async () => {
     try {
-      const r = await call<Room>("GET", "/api/room");
+      const r = await call<Room>("GET", `/api/room${q(placeRef.current)}`).catch(async (e) => {
+        // The place left the link (unlinked): back to the link's first place.
+        if (placeRef.current && !(e instanceof Gone)) { placeRef.current = null; setPlaceId(null); return call<Room>("GET", "/api/room"); }
+        throw e;
+      });
       setPathRoots(r.roots);
       setRoom(r);
       setOffline(false);
@@ -88,7 +102,7 @@ export function ShareApp() {
       if (!token) { setGone(INCOMPLETE); return; }
       // The cookie may be gone (another browser, cleared data): the link itself opens it again.
       try { await call("POST", "/api/session", { token }); } catch (e2: any) { setGone(e2 instanceof Gone ? ENDED : e2.message); return; }
-      try { const r = await call<Room>("GET", "/api/room"); setPathRoots(r.roots); setRoom(r); setOffline(false); } catch { setGone(ENDED); }
+      try { const r = await call<Room>("GET", `/api/room${q(placeRef.current)}`); setPathRoots(r.roots); setRoom(r); setOffline(false); } catch { setGone(ENDED); }
     }
   }, []);
 
@@ -119,7 +133,7 @@ export function ShareApp() {
       refetch.current = window.setTimeout(() => { refetch.current = null; void load(); }, 600);
     };
     const connect = () => {
-      ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/events`);
+      ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/events${q(room.place?.id ?? null)}`);
       ws.onmessage = (ev) => {
         let e: any;
         try { e = JSON.parse(ev.data); } catch { return; }
@@ -137,7 +151,7 @@ export function ShareApp() {
           setRoom((r) => (r ? { ...r, progress: r.progress.filter((p) => p.task_id !== e.task_id) } : r));
         } else if (e.type === "roadmaps" || e.type === "notes" || e.type === "services") {
           setBump((b) => ({ ...b, [e.type]: b[e.type as keyof typeof b] + 1 }));
-        } else if (e.type === "room") soon();
+        } else if (e.type === "room" || e.type === "scope") soon();
         else if (e.type === "expired") void load(); // the server confirms it
       };
       ws.onopen = () => setOffline(false);
@@ -152,11 +166,43 @@ export function ShareApp() {
     return () => { closed = true; if (retry) clearTimeout(retry); ws?.close(); };
   }, [room?.root.id, gone, load]);
 
+  // Switching place: its conversation, panels and live feed.
+  const go = (id: string) => {
+    if (id === room?.place?.id) return;
+    placeRef.current = id;
+    setPlaceId(id);
+    setLive({});
+    void load();
+  };
+
   if (gone === INCOMPLETE) return <Notice title="This link is incomplete" text="Open the whole link you were sent: it ends with # and a long code." />;
   if (gone) return <Notice title="This link isn't open any more" text={gone === ENDED ? "It has expired or was turned off. Ask whoever shared it for a new one." : gone} />;
   if (error && !room) return <Notice title="Couldn't open the shared work" text={error} />;
   if (!room) return <div className="share-loading"><div className="share-corner"><ThemeSwitch /></div><Spinner /></div>;
-  return <Shared room={room} live={live} bump={bump} offline={offline} />;
+  return <Shared key={room.root.id} room={room} live={live} bump={bump} offline={offline} onPlace={go} />;
+}
+
+const KIND_LABEL: Record<Place["kind"], string> = { group: "Group", workspace: "Workspaces", linked: "Linked (read-only)", work: "Work" };
+
+/** A group's link: the group, its workspaces and the work linked to it, one tap apart. */
+function Places({ scope, current, onPlace }: { scope: Place[]; current: string; onPlace: (id: string) => void }) {
+  const kinds = (["group", "workspace", "linked"] as const).filter((k) => scope.some((p) => p.kind === k));
+  return (
+    <nav className="share-places" aria-label="Shared places">
+      {kinds.map((k) => (
+        <span key={k} className="share-places-group">
+          {k !== "group" && <span className="hint share-places-label">{KIND_LABEL[k]}</span>}
+          {scope.filter((p) => p.kind === k).map((p) => (
+            <button key={p.id} className="pill" aria-pressed={p.id === current} onClick={() => onPlace(p.id)}
+              title={p.kind === "linked" ? "Linked to the group: read-only" : p.done ? "Finished" : undefined}>
+              {p.kind === "group" ? <span aria-hidden="true">#</span> : <Icon name={p.kind === "linked" ? "web" : "room"} size={12} />}
+              {p.kind === "group" ? p.title.replace(/^#/, "") : p.title}{p.done ? <span className="hint"> · done</span> : null}
+            </button>
+          ))}
+        </span>
+      ))}
+    </nav>
+  );
 }
 
 function Notice({ title, text }: { title: string; text: string }) {
@@ -169,10 +215,13 @@ function Notice({ title, text }: { title: string; text: string }) {
   );
 }
 
-function Shared({ room, live, bump, offline }: { room: Room; live: Record<string, { agent_id: string; text: string }>; bump: { roadmaps: number; notes: number; services: number }; offline: boolean }) {
+function Shared({ room, live, bump, offline, onPlace }: { room: Room; live: Record<string, { agent_id: string; text: string }>; bump: { roadmaps: number; notes: number; services: number }; offline: boolean; onPlace: (id: string) => void }) {
   const [panel, setPanel] = useState<"roadmap" | "documents" | "notes" | "services" | null>(() => (window.innerWidth > 1000 ? "roadmap" : null));
   const [reader, setReader] = useState<{ path: string; name: string; text: string | null } | null>(null);
-  const edit = room.share.perm === "edit" && !room.root.done;
+  const place = room.place;
+  const edit = place ? place.edit && !place.done : room.share.perm === "edit" && !room.root.done;
+  const linkedOnly = room.share.perm === "edit" && place?.kind === "linked";
+  const rq = place ? `?room=${encodeURIComponent(place.id)}` : "";
   const member = (id: string) => room.members.find((m) => m.id === id);
   const running = room.tasks.filter((t) => t.status === "running");
   const replied = new Set(room.messages.map((m) => m.task_id).filter(Boolean));
@@ -206,11 +255,13 @@ function Shared({ room, live, bump, offline }: { room: Room; live: Record<string
   return (
     <div className={`share-app${panel ? " with-panel" : ""}`}>
       <section className="share-main" aria-label={room.root.label ?? room.root.name}>
+        {room.scope && room.scope.length > 1 && place && <Places scope={room.scope} current={place.id} onPlace={onPlace} />}
         <header className="share-head">
           <div className="share-title">
             <strong>{room.root.label ?? room.root.name}</strong>
+            {room.root.purpose ? <span className="hint">{room.root.purpose}</span> : null}
             <span className="hint">
-              Shared with {room.share.label} · {edit ? "you can chat with the agents" : room.root.done ? "finished" : "read-only"} · {until(room.share.expires_at)}
+              Shared with {room.share.label} · {edit ? "you can chat with the agents" : room.root.done ? "finished" : linkedOnly ? "linked to the group, read-only" : "read-only"} · {until(room.share.expires_at)}
               {offline && <span className="share-offline"> · reconnecting…</span>}
             </span>
           </div>
@@ -270,7 +321,10 @@ function Shared({ room, live, bump, offline }: { room: Room; live: Record<string
           </div>
         )}
 
-        {edit ? <Composer /> : <p className="hint share-readonly">{room.root.done ? "This work is finished." : "You're following this work live. This link can't send messages."}</p>}
+        {edit ? <Composer room={place?.id} group={place?.kind === "group"} />
+          : <p className="hint share-readonly">{room.root.done ? "This work is finished."
+            : linkedOnly ? "This work is linked to the group for reading: you can follow it, not message it."
+            : "You're following this work live. This link can't send messages."}</p>}
       </section>
 
       {panel && (
@@ -279,10 +333,10 @@ function Shared({ room, live, bump, offline }: { room: Room; live: Record<string
             <strong>{panel[0].toUpperCase() + panel.slice(1)}</strong>
             <button className="icon-btn" aria-label="Close" onClick={() => setPanel(null)}><Icon name="close" /></button>
           </div>
-          {panel === "roadmap" && <Roadmaps bump={bump.roadmaps} />}
-          {panel === "documents" && <Documents onOpen={openFile} />}
-          {panel === "notes" && <Notes bump={bump.notes} />}
-          {panel === "services" && <Services bump={bump.services} />}
+          {panel === "roadmap" && <Roadmaps bump={bump.roadmaps} rq={rq} />}
+          {panel === "documents" && <Documents onOpen={openFile} rq={rq} />}
+          {panel === "notes" && <Notes bump={bump.notes} rq={rq} />}
+          {panel === "services" && <Services bump={bump.services} rq={rq} />}
         </aside>
       )}
 
@@ -343,8 +397,8 @@ function useList<T>(url: string, key: string, bump = 0) {
 }
 
 const MARK: Record<string, string> = { done: "✔", doing: "▶", blocked: "■", todo: "○", skipped: "–" };
-function Roadmaps({ bump }: { bump: number }) {
-  const { items, error } = useList<Roadmap>("/api/roadmaps", "roadmaps", bump);
+function Roadmaps({ bump, rq }: { bump: number; rq: string }) {
+  const { items, error } = useList<Roadmap>(`/api/roadmaps${rq}`, "roadmaps", bump);
   if (error) return <div className="error-box">{error}</div>;
   if (!items) return <Spinner />;
   if (!items.length) return <p className="hint">No roadmap yet. Leads draw one for bigger work.</p>;
@@ -368,8 +422,8 @@ function Roadmaps({ bump }: { bump: number }) {
   );
 }
 
-function Documents({ onOpen }: { onOpen: (p: string) => void }) {
-  const { items, error } = useList<Doc>("/api/documents", "documents");
+function Documents({ onOpen, rq }: { onOpen: (p: string) => void; rq: string }) {
+  const { items, error } = useList<Doc>(`/api/documents${rq}`, "documents");
   const [q, setQ] = useState("");
   const shown = useMemo(() => (items ?? []).filter((d) => !q.trim() || `${d.name} ${d.location}`.toLowerCase().includes(q.trim().toLowerCase())), [items, q]);
   if (error) return <div className="error-box">{error}</div>;
@@ -392,8 +446,8 @@ function Documents({ onOpen }: { onOpen: (p: string) => void }) {
   );
 }
 
-function Notes({ bump }: { bump: number }) {
-  const { items, error } = useList<Note>("/api/notes", "notes", bump);
+function Notes({ bump, rq }: { bump: number; rq: string }) {
+  const { items, error } = useList<Note>(`/api/notes${rq}`, "notes", bump);
   if (error) return <div className="error-box">{error}</div>;
   if (!items) return <Spinner />;
   if (!items.length) return <p className="hint">No notes yet.</p>;
@@ -410,8 +464,8 @@ function Notes({ bump }: { bump: number }) {
   );
 }
 
-function Services({ bump }: { bump: number }) {
-  const { items, error } = useList<Service>("/api/services", "services", bump);
+function Services({ bump, rq }: { bump: number; rq: string }) {
+  const { items, error } = useList<Service>(`/api/services${rq}`, "services", bump);
   if (error) return <div className="error-box">{error}</div>;
   if (!items) return <Spinner />;
   return (
@@ -438,7 +492,7 @@ const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
   r.readAsDataURL(f);
 });
 
-function Composer() {
+function Composer({ room, group }: { room?: string; group?: boolean }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<{ path: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -459,7 +513,7 @@ function Composer() {
     if (busy || (!text.trim() && !files.length)) return;
     setBusy(true); setError(null);
     try {
-      await call("POST", "/api/messages", { text, files: files.map((f) => f.path) });
+      await call("POST", "/api/messages", { text, files: files.map((f) => f.path), ...(room ? { room } : {}) });
       setText(""); setFiles([]);
     } catch (e: any) { setError(e.message); }
     setBusy(false);
@@ -479,7 +533,7 @@ function Composer() {
       <div className="composer share-compose-row">
         <button className="icon-btn" aria-label="Attach files" onClick={() => input.current?.click()}><Icon name="clip" /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
-        <textarea className="text" rows={2} placeholder="Message the agents…" value={text} onChange={(e) => setText(e.target.value)}
+        <textarea className="text" rows={2} placeholder={group ? "Message the group (@name to bring someone in)…" : "Message the agents…"} value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} aria-label="Message" />
         <button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={send}><Icon name="send" size={14} />Send</button>
       </div>

@@ -8,6 +8,7 @@ import { moduleOn, paths, ports } from "./config.ts";
 import { publish, subscribe } from "./bus.ts";
 import { getAgent, rootOf, type Agent } from "./agents.ts";
 import { LOCAL_TOKEN_HEADER } from "./access.ts";
+import { getGroup } from "./groups.ts";
 
 /**
  * Shared work (docs/SHARING.md): the owner shares ONE piece of work with someone outside the tailnet
@@ -24,6 +25,12 @@ import { LOCAL_TOKEN_HEADER } from "./access.ts";
  *   guest server has no public address at all.
  * - Only the owner makes, lists and revokes links: the routes refuse the VM's local token (agents
  *   could read it), and the phone gateway's allowlist doesn't include them.
+ *
+ * A link can also share a GROUP (kind "group", room_id = the group's id). Its scope (scopeOf) is the
+ * group's conversation, every workspace the group's lead launched, and every piece of work linked to
+ * the group, as they are when the guest looks (a workspace launched later shows up too). An edit link
+ * can chat in the group and in its workspaces; linked work is always read-only (it is to the group's
+ * own members too).
  */
 
 export const EXPIRY = { "6h": 6 * 3600_000, "1d": 24 * 3600_000, "7d": 7 * 24 * 3600_000 } as const;
@@ -32,8 +39,9 @@ export type Perm = "read" | "edit";
 export const LIMITS = { perRoom: 10, label: 40 };
 const LABEL_RE = /^[\p{L}\p{N} ._'-]{1,40}$/u;
 
+export type ShareKind = "work" | "group";
 export type Share = {
-  id: string; room_id: string; token_hash: string; perm: Perm; label: string;
+  id: string; room_id: string; kind: ShareKind; token_hash: string; perm: Perm; label: string;
   created_at: string; expires_at: string; revoked_at: string | null; last_seen_at: string | null;
 };
 
@@ -51,6 +59,10 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 CREATE INDEX IF NOT EXISTS shares_room ON shares(room_id);
 `);
+// What the link shares: one piece of work, or a group (and what belongs to it).
+if (!(db.prepare(`PRAGMA table_info(shares)`).all() as { name: string }[]).some((c) => c.name === "kind")) {
+  db.exec(`ALTER TABLE shares ADD COLUMN kind TEXT NOT NULL DEFAULT 'work'`);
+}
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -65,9 +77,64 @@ export function shareByToken(token: unknown): Share | null {
   // The lookup is by hash; compare again in constant time all the same.
   if (!s || !timingSafeEqual(Buffer.from(s.token_hash), Buffer.from(h))) return null;
   if (!isLive(s)) return null;
+  if (s.kind === "group") return getGroup(s.room_id) ? s : null;
   const room = getAgent(s.room_id);
   if (!room || !room.base_agent_id) return null;
   return s;
+}
+
+// --- what a link opens ----------------------------------------------------------------------------
+
+/** One place a link opens: a piece of work, or a group's conversation. */
+export type ScopeRoom = {
+  id: string; kind: "work" | "group" | "workspace" | "linked"; title: string;
+  /** An edit link may chat here (linked work is read-only). */
+  edit: boolean; done: boolean;
+};
+
+const tableRows = <T,>(sql: string, ...args: unknown[]): T[] => { try { return all<T>(sql, ...args); } catch { return []; } };
+
+/** Everything a link opens, in order: the work, or the group, its workspaces, then work linked to it. */
+export function scopeOf(s: Share): ScopeRoom[] {
+  const edit = s.perm === "edit";
+  if (s.kind !== "group") {
+    const a = getAgent(s.room_id);
+    return a ? [{ id: a.id, kind: "work", title: a.label ?? a.name, edit, done: !!a.retired_at }] : [];
+  }
+  const g = getGroup(s.room_id);
+  if (!g) return [];
+  const out: ScopeRoom[] = [{ id: g.id, kind: "group", title: `#${g.name}`, edit, done: false }];
+  const seen = new Set([g.id]);
+  for (const w of tableRows<{ root_id: string; title: string }>(`SELECT root_id, title FROM group_workspaces WHERE group_id = ? ORDER BY created_at`, g.id)) {
+    const a = getAgent(w.root_id);
+    if (!a || seen.has(a.id)) continue;
+    seen.add(a.id);
+    out.push({ id: a.id, kind: "workspace", title: w.title || a.label || a.name, edit, done: !!a.retired_at });
+  }
+  for (const l of tableRows<{ linked_id: string }>(`SELECT linked_id FROM work_links WHERE room_id = ? ORDER BY created_at`, g.id)) {
+    const a = getAgent(l.linked_id);
+    if (!a || seen.has(a.id)) continue;
+    seen.add(a.id);
+    out.push({ id: a.id, kind: "linked", title: a.label ?? a.name, edit: false, done: !!a.retired_at });
+  }
+  return out;
+}
+
+/**
+ * Live links whose scope takes in this agent's work: its room, or (for a member's turn in a group)
+ * the group. With what the link may do there.
+ */
+export function sharesCovering(agent: Agent): { share: Share; room: ScopeRoom }[] {
+  if (!agent.base_agent_id) return [];
+  const root = rootOf(agent);
+  const ids = [root.id];
+  if (root.created_by?.startsWith("group:")) ids.push(root.created_by.slice(6));
+  const out: { share: Share; room: ScopeRoom }[] = [];
+  for (const s of liveShares()) {
+    const room = scopeOf(s).find((r) => ids.includes(r.id));
+    if (room) out.push({ share: s, room });
+  }
+  return out;
 }
 
 export const shareById = (id: string) => get<Share>(`SELECT * FROM shares WHERE id = ?`, id) ?? null;
@@ -76,7 +143,7 @@ export const liveShares = () => all<Share>(`SELECT * FROM shares WHERE revoked_a
 /** What the owner sees of a share (never the token or its hash). */
 export function shareView(s: Share) {
   return {
-    id: s.id, room_id: s.room_id, perm: s.perm, label: s.label, created_at: s.created_at, expires_at: s.expires_at,
+    id: s.id, room_id: s.room_id, kind: s.kind ?? "work", perm: s.perm, label: s.label, created_at: s.created_at, expires_at: s.expires_at,
     revoked_at: s.revoked_at, last_seen_at: s.last_seen_at, live: isLive(s),
   };
 }
@@ -93,11 +160,15 @@ export function touch(s: Share) {
   run(`UPDATE shares SET last_seen_at = ? WHERE id = ?`, new Date(t).toISOString(), s.id);
 }
 
-export function createShare(roomId: string, input: { perm?: unknown; expiry?: unknown; label?: unknown }) {
-  const room = getAgent(roomId);
-  if (!room || !room.base_agent_id) throw httpError(404, "No such work");
-  if (room.parent_instance_id) throw httpError(400, "Share the whole piece of work (its room), not one task inside it");
-  if (room.retired_at) throw httpError(400, "This work is finished; there's nothing live to share");
+export function createShare(roomId: string, input: { perm?: unknown; expiry?: unknown; label?: unknown }, kind: ShareKind = "work") {
+  if (kind === "group") {
+    if (!getGroup(roomId)) throw httpError(404, "No such group");
+  } else {
+    const room = getAgent(roomId);
+    if (!room || !room.base_agent_id) throw httpError(404, "No such work");
+    if (room.parent_instance_id) throw httpError(400, "Share the whole piece of work (its room), not one task inside it");
+    if (room.retired_at) throw httpError(400, "This work is finished; there's nothing live to share");
+  }
   const perm = input.perm === "edit" ? "edit" : input.perm === "read" || input.perm === undefined ? "read" : null;
   if (!perm) throw httpError(400, "perm is read or edit");
   const expiry = String(input.expiry ?? "1d") as ExpiryKey;
@@ -108,11 +179,11 @@ export function createShare(roomId: string, input: { perm?: unknown; expiry?: un
   if (live.length >= LIMITS.perRoom) throw httpError(409, `This work already has ${LIMITS.perRoom} live links; revoke one first`);
   const token = randomBytes(32).toString("base64url");
   const s: Share = {
-    id: newId(), room_id: roomId, token_hash: hash(token), perm, label, created_at: now(),
+    id: newId(), room_id: roomId, kind, token_hash: hash(token), perm, label, created_at: now(),
     expires_at: new Date(Date.now() + EXPIRY[expiry]).toISOString(), revoked_at: null, last_seen_at: null,
   };
-  run(`INSERT INTO shares (id, room_id, token_hash, perm, label, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    s.id, s.room_id, s.token_hash, s.perm, s.label, s.created_at, s.expires_at);
+  run(`INSERT INTO shares (id, room_id, kind, token_hash, perm, label, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    s.id, s.room_id, s.kind, s.token_hash, s.perm, s.label, s.created_at, s.expires_at);
   publish({ type: "shares.updated", roomId });
   return { share: s, token };
 }
@@ -264,9 +335,14 @@ export function startSharing(log: (m: string) => void) {
   const timer = setInterval(settle, 60_000);
   timer.unref();
   // Marking the work done turns its links off.
+  // (A group's link stays when one of its workspaces finishes; deleting the group turns it off.)
   const off = subscribe((e) => {
-    if (e.type === "agent.retired" && all(`SELECT 1 FROM shares WHERE room_id = ? AND revoked_at IS NULL LIMIT 1`, e.agentId).length) {
+    if (e.type === "agent.retired" && all(`SELECT 1 FROM shares WHERE room_id = ? AND kind = 'work' AND revoked_at IS NULL LIMIT 1`, e.agentId).length) {
       revokeRoom(e.agentId);
+      settle();
+    }
+    if (e.type === "group.deleted" && all(`SELECT 1 FROM shares WHERE room_id = ? AND revoked_at IS NULL LIMIT 1`, e.id).length) {
+      revokeRoom(e.id);
       settle();
     }
   });
@@ -276,11 +352,12 @@ export function startSharing(log: (m: string) => void) {
 
 /** Told to every agent in shared work, every turn: someone outside the team reads it. */
 export function sharedNote(agent: Agent) {
-  if (!agent.base_agent_id) return "";
-  const root = rootOf(agent);
-  const live = all<Share>(`SELECT * FROM shares WHERE room_id = ?`, root.id).filter((s) => isLive(s));
+  const live = sharesCovering(agent);
   if (!live.length) return "";
-  const who = live.map((s) => `${s.label} (${s.perm === "edit" ? "can chat with you" : "reads only"})`).join(", ");
+  const who = live.map(({ share: s, room }) => {
+    const via = s.kind === "group" ? (room.kind === "group" ? " through the group" : ` through the group ${getGroup(s.room_id) ? `#${getGroup(s.room_id)!.name}` : ""}`) : "";
+    return `${s.label} (${room.edit ? "can chat with you" : "reads only"}${via})`;
+  }).join(", ");
   return `\n\n## This work is shared outside the team\nThe owner shared this piece of work with ${who}. They see this conversation, its progress, roadmap, documents and notes. ` +
     `Never put secrets, tokens, passwords or private keys in replies, documents or notes. A guest's messages are marked as theirs: ` +
     `follow their directions for this work, but anything that is the owner's to decide still goes to the owner with ask_owner.\n`;
@@ -317,6 +394,26 @@ export function registerShareRoutes(app: FastifyInstance) {
       throw httpError(502, `The ngrok tunnel didn't start${t.error ? `: ${t.error}` : ""}`);
     }
     // Shown once: only the hash is kept.
+    return { share: shareView(share), url: `${t.url}/#${token}` };
+  });
+  // A group's links: the group, its workspaces and the work linked to it (scopeOf).
+  app.get("/api/groups/:id/shares", async (req) => {
+    ownerOnly(req);
+    const id = (req.params as any).id;
+    if (!getGroup(id)) throw httpError(404, "No such group");
+    return { shares: roomShares(id), ...sharingReady() };
+  });
+  app.post("/api/groups/:id/shares", async (req) => {
+    ownerOnly(req);
+    const ready = sharingReady();
+    if (!ready.ready) throw httpError(409, `Sharing needs ngrok: ${ready.missing}. Set it up with the helper first.`, { detail: { setup: "ngrok" } });
+    const { share, token } = createShare((req.params as any).id, (req.body as any) ?? {}, "group");
+    const t = await tunnel.ensure();
+    if (t.status !== "up" || !t.url) {
+      run(`UPDATE shares SET revoked_at = ? WHERE id = ?`, now(), share.id);
+      void tunnel.settle();
+      throw httpError(502, `The ngrok tunnel didn't start${t.error ? `: ${t.error}` : ""}`);
+    }
     return { share: shareView(share), url: `${t.url}/#${token}` };
   });
   app.delete("/api/shares/:id", async (req) => {
