@@ -62,12 +62,24 @@ export function linksOf(instanceId: string) {
   const groupId = root.created_by?.startsWith("group:") ? root.created_by.slice(6) : null;
   const viaGroup = groupId ? all<Link>(`SELECT * FROM work_links WHERE room_id = ? ORDER BY created_at`, groupId)
     .filter((l) => l.linked_id !== root.id && !links.some((x) => x.linked_id === l.linked_id)) : [];
+  // A department's lead (the lead's group conversation) also reads its connected departments' workspaces.
+  let viaDept: { id: string; linked_id: string; created_at: string; dept: string }[] = [];
+  if (groupId && get(`SELECT 1 FROM threads WHERE id = ? AND kind = 'group' AND lead_agent_id = ?`, groupId, root.base_agent_id)) {
+    try {
+      viaDept = all<{ id: string; linked_id: string; created_at: string; dept: string }>(
+        `SELECT w.id, w.root_id AS linked_id, w.created_at, w.group_id AS dept FROM group_connections c
+           JOIN group_workspaces w ON w.group_id = CASE WHEN c.a = ? THEN c.b ELSE c.a END
+          WHERE c.a = ? OR c.b = ? ORDER BY w.created_at`, groupId, groupId, groupId,
+      ).filter((w) => !links.some((x) => x.linked_id === w.linked_id) && !viaGroup.some((x) => x.linked_id === w.linked_id));
+    } catch { /* no departments yet */ }
+  }
   const from = all<Link>(`SELECT * FROM work_links WHERE linked_id = ? ORDER BY created_at`, root.id);
   return {
     room_id: root.id,
     links: [
-      ...links.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id), via_group: null as string | null })),
-      ...viaGroup.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id), via_group: groupId })),
+      ...links.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id), via_group: null as string | null, via_department: null as string | null })),
+      ...viaGroup.map((l) => ({ id: l.id, created_at: l.created_at, work: describe(l.linked_id), via_group: groupId, via_department: null as string | null })),
+      ...viaDept.map((w) => ({ id: `dept:${w.id}`, created_at: w.created_at, work: describe(w.linked_id), via_group: null as string | null, via_department: w.dept })),
     ],
     linked_from: from.map((l) => ({ id: l.id, created_at: l.created_at, work: describeReader(l.room_id) })),
   };
@@ -118,7 +130,7 @@ export function removeLink(id: string) {
 export function linkedSection(agent: Agent): string {
   if (!agent.base_agent_id) return "";
   let links: ReturnType<typeof linksOf>["links"];
-  try { links = linksOf(agent.id).links; } catch { return ""; }
+  try { links = linksOf(agent.id).links.filter((l) => !l.via_department); } catch { return ""; }
   if (!links.length) return "";
   const group = links.find((l) => l.via_group)?.via_group;
   const groupName = group ? getGroup(group)?.name : null;

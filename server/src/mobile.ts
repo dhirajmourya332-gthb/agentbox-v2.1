@@ -88,7 +88,7 @@ const ALLOW: { method: "GET" | "POST" | "PATCH" | "DELETE"; re: RegExp }[] = [
     // Activity, every document, an agent's conversations and documents, a task's notes, hosted
     // services, and status-only views of integrations, repos and skills.
     "screen/snapshot", "health", "activity", `agents/${ID}/threads`, `agents/${ID}/documents`, `work/${ID}/notes`,
-    "hosting", "integrations/summary", "repos", "skills", "work-tags"]
+    "hosting", "integrations/summary", "repos", "skills", "work-tags", `groups/${ID}/departments`]
     .map((p) => ({ method: "GET" as const, re: new RegExp(`^${p}$`) })),
   ...["work", `threads/${ID}/messages`, `tasks/${ID}/stop`, "pause", "resume", `routines/${ID}/run`, `agents/${ID}/done`, "uploads", "voice/transcribe", "voice/clean",
     `attention/${ID}/seen`, "attention/seen-all", `attention/seen-room/${ID}`, `setup-requests/${ID}/start`, `setup-requests/${ID}/reject`, `plans/${ID}/decide`,

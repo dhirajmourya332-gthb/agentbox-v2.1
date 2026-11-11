@@ -178,6 +178,14 @@ export function GroupScreen({ route, navigation }: Props<"Group">) {
 
 function Intro({ group, lead }: { group: Group; lead?: Agent }) {
   const p = usePalette();
+  // Connected departments (departments.ts): other groups whose leads work with this one's.
+  const [depts, setDepts] = useState<{ names: string[]; open: number } | null>(null);
+  useEffect(() => {
+    api.departments(group.id).then((d) => setDepts({
+      names: d.connections.map((c) => c.group.name),
+      open: d.requests.filter((r) => r.status === "open" || r.status === "accepted").length,
+    })).catch(() => setDepts(null));
+  }, [group.id]);
   return (
     <View style={[st.intro, { borderColor: p.border }]}>
       <T weight="600">#{group.name}</T>
@@ -185,6 +193,11 @@ function Intro({ group, lead }: { group: Group; lead?: Agent }) {
       <T muted size={12}>
         @mention members to bring them in, or @everyone for all of them; a message without a mention goes to the lead{lead ? ` (${lead.name})` : ""}.
       </T>
+      {depts && depts.names.length > 0 && (
+        <T muted size={12}>
+          Connected departments: {depts.names.map((n) => `#${n}`).join(", ")}{depts.open ? ` · ${depts.open} open request${depts.open > 1 ? "s" : ""}` : ""}
+        </T>
+      )}
     </View>
   );
 }

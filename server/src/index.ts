@@ -54,6 +54,7 @@ import { registerScreenRoutes } from "./screenCapture.ts";
 import { listCrews, registerCrewRoutes, setRoleCrew } from "./crews.ts";
 import { addLink, registerLinkRoutes } from "./linkedWork.ts";
 import { registerGroupWorkRoutes } from "./groupWork.ts";
+import { registerDepartmentRoutes } from "./departments.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
@@ -558,6 +559,7 @@ registerNoteRoutes(app);
 registerCrewRoutes(app);
 registerLinkRoutes(app);
 registerGroupWorkRoutes(app);
+registerDepartmentRoutes(app);
 // Sharing one piece of work with a guest (shares.ts): the owner's side. Guests use shareServer.ts.
 registerShareRoutes(app);
 

@@ -304,7 +304,7 @@ subscribe((e) => {
       // The group lead's reading link frees up for the next workspace (links are capped).
       const g = getGroup(row.group_id);
       const lead = g?.lead_agent_id ? listAgents().find((a) => a.base_agent_id === g.lead_agent_id && a.created_by === `group:${g.id}`) : undefined;
-      if (lead) for (const l of linksOf(lead.id).links.filter((l) => l.work.id === row.root_id && !l.via_group)) { try { removeLink(l.id); } catch { /* already gone */ } }
+      if (lead) for (const l of linksOf(lead.id).links.filter((l) => l.work.id === row.root_id && !l.via_group && !l.via_department)) { try { removeLink(l.id); } catch { /* already gone */ } }
       changed(row.group_id);
     }
   }

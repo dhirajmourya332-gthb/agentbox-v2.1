@@ -122,6 +122,11 @@ export type InstanceSummary = {
   tags: string[];
   status: AgentStatus | "done"; current: string | null; queued: number;
 };
+/** Connected departments (departments.ts): other groups, and the requests between them. */
+export type DepartmentsView = {
+  connections: { id: string; created_at: string; group: { id: string; name: string; purpose: string; lead: { id: string; name: string; color: string } | null }; workspaces: { title: string; root_id: string; status: string }[] }[];
+  requests: { id: string; kind: "question" | "work"; title: string; body: string; status: string; answer: string | null; created_at: string; updated_at: string; direction: "in" | "out"; other: { id: string; name: string } }[];
+};
 /** A workspace a group's lead launched (groupWork.ts). */
 export type GroupWorkspace = {
   id: string; title: string; root_id: string; item_id: string; created_at: string; question: string | null; step: string | null;
@@ -407,6 +412,9 @@ export const api = {
   updateNote: (id: string, body: string) => call<Note>("PATCH", `/api/notes/${id}`, { body }),
   deleteNote: (id: string) => call<{ ok: true }>("DELETE", `/api/notes/${id}`),
   roomDocuments: (rootId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/work/${rootId}/documents`),
+  departments: (groupId: string) => call<DepartmentsView>("GET", `/api/groups/${groupId}/departments`),
+  connectDepartment: (groupId: string, otherId: string) => call<DepartmentsView>("POST", `/api/groups/${groupId}/departments`, { group_id: otherId }),
+  disconnectDepartment: (connId: string) => call<{ ok: true }>("DELETE", `/api/group-connections/${connId}`),
   groupWorkspaces: (groupId: string) => call<{ lead_instance_id: string | null; workspaces: GroupWorkspace[] }>("GET", `/api/groups/${groupId}/workspaces`),
   groupDocuments: (groupId: string) => call<(DocumentInfo & { author: string | null })[]>("GET", `/api/groups/${groupId}/documents`),
   allDocuments: () => call<(DocumentInfo & { role: string })[]>("GET", "/api/documents"),

@@ -16,6 +16,7 @@ import { isSetupAgent } from "./setup.ts";
 import { isOrchestrator } from "./roleGuards.ts";
 import { crewIdOf, crewName, crewmates, sameCrew } from "./crews.ts";
 import { linksOf, readLinked } from "./linkedWork.ts";
+import { askDepartment, connectionsOf, readDepartment, reportToDepartment } from "./departments.ts";
 import { askGroupLead, describeWorkspaces, finishWorkspace, launchWorkspace, ledGroup, messageWorkspace, postToGroup } from "./groupWork.ts";
 import { roadmapsOf } from "./roadmaps.ts";
 import { cachedIntegrations, isConnected, mappedIntegrations } from "./integrations.ts";
@@ -30,6 +31,8 @@ import { LIMITS as RM_LIMITS, STATUSES as RM_STATUSES, createRoadmap, itemsOf as
 
 export const LIMITS = { depth: 3, handoffsPerTurn: 6 };
 const GROUP_LEAD_TOOLS = new Set(["launch_workspace", "list_workspaces", "message_workspace", "finish_workspace", "post_to_group"]);
+// A department's lead with connected departments (departments.ts).
+const DEPARTMENT_TOOLS = new Set(["read_department", "ask_department", "delegate_to_department", "report_to_department"]);
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const refuse = (t: string) => ({ content: [{ type: "text" as const, text: t }], isError: true });
@@ -242,7 +245,8 @@ export function teamServer(agent: Agent, taskId: string) {
     // The helper proposes skills with its own tool (straight to an approval card), not as a draft.
     tools: teamTools(agent, taskId).filter((t) => !(isSetupAgent(agent) && t.name === "propose_skill"))
       // A group's lead runs its workspaces; nobody else sees those tools.
-      .filter((t) => !GROUP_LEAD_TOOLS.has(t.name) || !!ledGroup(agent)),
+      .filter((t) => !GROUP_LEAD_TOOLS.has(t.name) || !!ledGroup(agent))
+      .filter((t) => !DEPARTMENT_TOOLS.has(t.name) || (() => { const g = ledGroup(agent); return !!g && connectionsOf(g.id).length > 0; })()),
   });
 }
 
@@ -346,6 +350,54 @@ export function teamTools(agent: Agent, taskId: string) {
         { text: z.string() },
         async ({ text: body }) => {
           try { postToGroup(agent, body); return text("Posted."); } catch (e: any) { return refuse(e.message); }
+        },
+      ),
+
+      // --- a department's lead: connected departments (departments.ts) ---
+      tool(
+        "read_department",
+        "Department lead only: a connected department's work (its workspaces, where each stands, requests between you) or its latest group conversation.",
+        {
+          department: z.string().describe("Its group name, e.g. #software"),
+          part: z.enum(["overview", "conversation"]).optional().describe("overview (default) or conversation"),
+          limit: z.number().int().min(1).max(40).optional().describe("conversation: how many messages (default 20)"),
+        },
+        async ({ department, part, limit }) => {
+          try { return text(readDepartment(agent, department, part ?? "overview", limit ?? 20)); } catch (e: any) { return refuse(e.message); }
+        },
+      ),
+      tool(
+        "ask_department",
+        "Department lead only: ask a connected department a question only they can answer. Their lead answers in their group; the answer comes back to you here as a report.",
+        { department: z.string().describe("Its group name, e.g. #robotics"), question: z.string().describe("Self-contained: what you need and why, with links") },
+        async ({ department, question }) => {
+          try { const r = askDepartment(agent, taskId, department, "question", { text: question }); return text(`Asked #${r.to.name} (request ${r.id.slice(0, 8)}); ${r.lead.name}'s answer comes back to you.`); }
+          catch (e: any) { return refuse(e.message); }
+        },
+      ),
+      tool(
+        "delegate_to_department",
+        "Department lead only: hand a connected department work that's theirs. Their lead plans it (usually a workspace), acknowledges at once, and reports the result to you when done.",
+        {
+          department: z.string().describe("Its group name, e.g. #product-design"),
+          title: z.string().describe("Short title"),
+          brief: z.string().describe("Everything they need: goal, scope, constraints, links, what done looks like, when you need it"),
+        },
+        async ({ department, title, brief }) => {
+          try { const r = askDepartment(agent, taskId, department, "work", { title, text: brief }); return text(`Handed to #${r.to.name} (request ${r.id.slice(0, 8)}). ${r.lead.name} acknowledges shortly and reports the result when it's done.`); }
+          catch (e: any) { return refuse(e.message); }
+        },
+      ),
+      tool(
+        "report_to_department",
+        "Department lead only: send the result of work a connected department handed you (or an update with done=false). It wakes their lead with it.",
+        {
+          request: z.string().describe("The request id (from your instructions' open requests) or its title"),
+          result: z.string().describe("The outcome, links (PRs, documents), what was verified, anything left open"),
+          done: z.boolean().optional().describe("false: an update, the work goes on (default true)"),
+        },
+        async ({ request, result, done }) => {
+          try { const r = reportToDepartment(agent, taskId, request, result, done ?? true); return text(`Sent to #${r.to.name}.`); } catch (e: any) { return refuse(e.message); }
         },
       ),
 

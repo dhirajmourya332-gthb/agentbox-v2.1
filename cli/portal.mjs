@@ -949,7 +949,8 @@ cmd("groups", "groups [--json]                            group chats", async (a
   if (!w.groups.length) out(dim("No groups: agentbox group new …"));
 });
 cmd("group", `group new <name> --members a,b [--lead a] [--purpose text] · group edit <#g> [--name] [--members] [--lead] [--purpose]
-  group rm <#g> · group post <#g> <text> · group continue <#g> · group workspaces <#g> [--json]`, async (api, argv) => {
+  group rm <#g> · group post <#g> <text> · group continue <#g> · group workspaces <#g> [--json]
+  group connect <#g> <#other> · group disconnect <#g> <#other> · group departments [<#g>] [--json]   departments: connected groups`, async (api, argv) => {
   const [sub, ...rest] = argv;
   const a = args(rest, { bool: ["json", "yes"] });
   const w = await world(api);
@@ -971,6 +972,40 @@ cmd("group", `group new <name> --members a,b [--lead a] [--purpose text] · grou
     }
     case "post": return H["send"](api, [`#${findGroup(w, a._[0]).name}`, ...a._.slice(1)]);
     case "continue": { await api.post(`/api/groups/${findGroup(w, a._[0]).id}/continue`); out("Continued."); return; }
+    case "connect": {
+      const g = findGroup(w, a._[0]), o = findGroup(w, a._[1]);
+      await api.post(`/api/groups/${g.id}/departments`, { group_id: o.id });
+      out(`${green("✔")} #${g.name} ↔ #${o.name}: their leads now see each other's work, ask each other and hand each other work.`); return;
+    }
+    case "disconnect": {
+      const g = findGroup(w, a._[0]), o = findGroup(w, a._[1]);
+      const d = await api.get(`/api/groups/${g.id}/departments`);
+      const c = d.connections.find((x) => x.group.id === o.id);
+      if (!c) fail(`#${g.name} isn't connected to #${o.name}`);
+      await api.del(`/api/group-connections/${c.id}`);
+      out(`Disconnected #${g.name} and #${o.name}.`); return;
+    }
+    case "departments": {
+      if (!a._[0]) {
+        const d = await api.get("/api/departments");
+        if (a.flags.json) return json(d);
+        const name = (id) => `#${d.groups.find((x) => x.id === id)?.name ?? "?"}`;
+        if (!d.connections.length) out(dim("No departments connected. agentbox group connect #a #b"));
+        for (const c of d.connections) out(`${name(c.a)} ↔ ${name(c.b)}`);
+        return;
+      }
+      const g = findGroup(w, a._[0]);
+      const d = await api.get(`/api/groups/${g.id}/departments`);
+      if (a.flags.json) return json(d);
+      out(bold(`#${g.name}'s connected departments`));
+      if (!d.connections.length) out(dim("  none: agentbox group connect #" + g.name + " #other"));
+      for (const c of d.connections) out(`  #${c.group.name} ${dim(`led by ${c.group.lead?.name ?? "—"}`)}${c.workspaces.length ? `  ${c.workspaces.map((x) => x.title).join(", ")}` : dim("  no live workspaces")}`);
+      if (d.requests.length) {
+        out(bold("Requests"));
+        table(d.requests.map((r) => [r.direction === "out" ? `→ #${r.other.name}` : `← #${r.other.name}`, r.kind, cut(r.title, 50), r.status === "done" || r.status === "answered" ? green(r.status) : r.status === "failed" ? red(r.status) : yellow(r.status), dim(ago(r.updated_at))]));
+      }
+      return;
+    }
     case "workspaces": {
       const g = findGroup(w, a._[0]);
       const d = await api.get(`/api/groups/${g.id}/workspaces`);

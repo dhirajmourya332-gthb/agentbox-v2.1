@@ -35,6 +35,7 @@ import { GroupWorkspaceList, useGroupWorkspaces } from "../components/GroupWorks
 import { RoadmapStrip } from "../components/Roadmap.tsx";
 import { LinkWorkButton, LinkedStrip } from "../components/LinkedWork.tsx";
 import { ShareButton } from "../components/Share.tsx";
+import { DepartmentsPanel, useDepartments } from "../components/Departments.tsx";
 
 export function GroupChat({ id }: { id: string }) {
   const { groups, agents, everyone, threads, live, loadThread, progress } = useStore();
@@ -48,7 +49,9 @@ export function GroupChat({ id }: { id: string }) {
   const running = thread?.tasks.filter((t) => t.status === "running") ?? [];
   useEscToStop(running.length > 0, () => running.forEach((t) => api.stop(t.id)));
   const [docs, setDocs] = useState(false);
-  const [side, setSide] = useState<"workspaces" | "documents">("workspaces");
+  const [side, setSide] = useState<"workspaces" | "documents" | "departments">("workspaces");
+  const depts = useDepartments(id);
+  const openReqs = depts?.requests.filter((r) => r.status === "open" || r.status === "accepted").length ?? 0;
   const program = useGroupWorkspaces(id);
   const liveWs = program?.workspaces.filter((w) => w.lead && w.lead.status !== "done").length ?? 0;
 
@@ -85,6 +88,10 @@ export function GroupChat({ id }: { id: string }) {
             onClick={() => { setSide("workspaces"); setDocs(!(docs && side === "workspaces")); }}>
             <Icon name="room" size={14} />Workspaces{liveWs ? <span className="tab-count">{liveWs}</span> : null}
           </button>
+          <button className="btn sm" aria-pressed={docs && side === "departments"} title="Departments: other groups connected to this one (they see each other's work, ask each other and hand each other work)"
+            onClick={() => { setSide("departments"); setDocs(!(docs && side === "departments")); }}>
+            <Icon name="team" size={14} />Departments{depts?.connections.length ? <span className="tab-count">{depts.connections.length}</span> : null}
+          </button>
           <button className="icon-btn" aria-pressed={docs && side === "documents"} aria-label="Group documents" title="Documents" onClick={() => { setSide("documents"); setDocs(!(docs && side === "documents")); }}><Icon name="doc" /></button>
           <a className="icon-btn" href={`#/groups/${id}/settings`} aria-label="Group settings" title="Group settings"><Icon name="panel" /></a>
         </div>
@@ -115,6 +122,9 @@ export function GroupChat({ id }: { id: string }) {
           <button role="tab" aria-selected={side === "workspaces"} onClick={() => setSide("workspaces")}>
             Workspaces{liveWs ? <span className="tab-count">{liveWs}</span> : null}
           </button>
+          <button role="tab" aria-selected={side === "departments"} onClick={() => setSide("departments")}>
+            Departments{openReqs ? <span className="tab-count">{openReqs}</span> : null}
+          </button>
           <button role="tab" aria-selected={side === "documents"} onClick={() => setSide("documents")}>Documents</button>
           <button className="icon-btn" style={{ marginLeft: "auto", alignSelf: "center" }} aria-label="Close" onClick={() => setDocs(false)}><Icon name="close" /></button>
         </div>
@@ -125,6 +135,7 @@ export function GroupChat({ id }: { id: string }) {
               <GroupWorkspaceList workspaces={program?.workspaces ?? []} />
             </>
           )}
+          {side === "departments" && <DepartmentsPanel groupId={group.id} data={depts} />}
           {side === "documents" && <WorkDocuments load={() => api.groupDocuments(group.id)} empty="No documents from this group yet." />}
         </div>
       </aside>

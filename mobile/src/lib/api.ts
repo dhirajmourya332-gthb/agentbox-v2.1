@@ -205,6 +205,7 @@ export const api = {
   /** Newest first (the portal's board). Top-level work is depth 0. */
   tasks: (limit = 60) => json<Task[]>("GET", `/m/v1/tasks?limit=${Math.max(1, Math.min(200, Math.floor(limit)))}`),
   roomDocuments: (rootId: string) => json<DocumentInfo[]>("GET", `/m/v1/work/${seg(rootId)}/documents`),
+  departments: (groupId: string) => json<{ connections: { id: string; group: { id: string; name: string } }[]; requests: { id: string; status: string }[] }>("GET", `/m/v1/groups/${seg(groupId)}/departments`),
   groupDocuments: (groupId: string) => json<DocumentInfo[]>("GET", `/m/v1/groups/${seg(groupId)}/documents`),
   // Contract G: routine runs. `active` returns them all; `archive` is newest first, paged with `before`.
   routineRuns: (opts: { state: "active" | "archive"; routineId?: string; before?: string; limit?: number }) => {
