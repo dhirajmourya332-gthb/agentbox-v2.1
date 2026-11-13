@@ -269,6 +269,35 @@ test("worktrees: closing a task removes clean ones, keeps unpushed work (flagged
   assert.equal(typeof s.closed, "number");
 });
 
+test("worktrees: deleted 24 hours after the task is done, unpushed work or not; kept work is spared", async () => {
+  const mk = async (label: string) => {
+    const t = task(coder.id, label);
+    const w = await R.ensureWorktree(t, "web");
+    fs.writeFileSync(path.join(w.path!, "f.txt"), "x\n");
+    sh("git", ["add", "."], w.path!);
+    sh("git", ["commit", "-q", "-m", "wip"], w.path!);
+    fs.writeFileSync(path.join(w.path!, "dirty.txt"), "y\n");
+    A.retireReplica(t.id);
+    await waitFor(() => R.getWorktree(w.id)!.status === "kept");
+    return { t, w };
+  };
+  const old = await mk("Old");
+  const pinned = await mk("Pinned");
+  A.setInstanceMeta(pinned.t.id, { kept: true });
+  const DAY = 24 * 3600_000;
+  // Under 24 hours: nothing happens.
+  assert.equal(await R.expireWorktrees(Date.now() + DAY - 60_000), 0);
+  assert.ok(fs.existsSync(old.w.path!));
+  // Past 24 hours: the folder goes (the branch stays); the kept work's stays.
+  assert.equal(await R.expireWorktrees(Date.now() + DAY + 60_000), 1);
+  assert.ok(!fs.existsSync(old.w.path!));
+  assert.equal(R.getWorktree(old.w.id)!.status, "removed");
+  assert.match(R.getWorktree(old.w.id)!.note!, /24 hours/);
+  assert.equal(sh("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${old.w.branch}`], R.clonePath("web")).length > 0, true);
+  assert.ok(fs.existsSync(pinned.w.path!));
+  assert.equal(R.getWorktree(pinned.w.id)!.status, "kept");
+});
+
 // --- guards -------------------------------------------------------------------------------------
 test("guard: the canonical clone is read-only (edit tools and shell); worktrees are fine", async () => {
   const canon = R.clonePath("web");

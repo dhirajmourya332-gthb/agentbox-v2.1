@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { all, get, newId, now, run } from "./db.ts";
 import { publish, subscribe } from "./bus.ts";
 import { paths } from "./config.ts";
-import { dmThreadOf, getAgent, listAgents, slugify, spawnInstance, type Agent } from "./agents.ts";
+import { KEEP_DONE_MS, dmThreadOf, getAgent, listAgents, rootOf, slugify, spawnInstance, type Agent } from "./agents.ts";
 import { redactSecrets } from "./redact.ts";
 import { crewIdOf, crewName, getCrew } from "./crews.ts";
 import { setupRole } from "./setup.ts";
@@ -683,6 +683,47 @@ export async function discardWorktree(id: string): Promise<Worktree> {
 }
 
 /**
+ * The simple rule: 24 hours after a task is done (when its work leaves the list), its worktrees are
+ * deleted, whatever is in them. Only work the owner chose to keep is spared. The local branch stays
+ * (it costs nothing; the sweep deletes it once a remote has its commits).
+ */
+export async function expireWorktrees(at = Date.now()): Promise<number> {
+  const cutoff = new Date(at - KEEP_DONE_MS).toISOString();
+  let n = 0;
+  for (const row of all<Worktree>(`SELECT * FROM repo_worktrees WHERE status IN ('pending', 'active', 'kept', 'error')`)) {
+    const a = getAgent(row.instance_id);
+    if (a && !a.retired_at) continue;                       // still open
+    if (a && a.retired_at! > cutoff) continue;              // done less than 24 hours ago
+    if (!a && (row.closed_at ?? row.created_at) > cutoff) continue;
+    if (a && (a.kept || rootOf(a).kept)) continue;          // the owner kept this work
+    const repo = getRepoById(row.repo_id);
+    if (!repo) continue;
+    await withLock(repo.id, () => deleteWorktreeFolder(row, repo));
+    n++;
+  }
+  return n;
+}
+
+async function deleteWorktreeFolder(row: Worktree, repo: Repo) {
+  if (row.path) {
+    let p: string | null = null;
+    try { p = inside(worktreesRoot(), path.relative(worktreesRoot(), row.path)); } catch { p = null; }
+    if (p) {
+      const canon = repo.status === "archived" && repo.archive_path ? repo.archive_path : clonePath(repo.name);
+      const hasClone = fs.existsSync(path.join(canon, ".git"));
+      if (hasClone && fs.existsSync(p)) {
+        await git(["worktree", "unlock", "--", p], { cwd: canon });
+        await git(["worktree", "remove", "--force", "--force", "--", p], { cwd: canon, timeoutMs: TIMEOUTS.worktree });
+      }
+      if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
+      if (hasClone) await git(["worktree", "prune"], { cwd: canon });
+    }
+  }
+  run(`UPDATE repo_worktrees SET status = 'removed', closed_at = COALESCE(closed_at, ?), note = 'deleted 24 hours after the task was done' WHERE id = ?`, now(), row.id);
+  changed(repo.id);
+}
+
+/**
  * The daily sweep: `git worktree prune` on every clone, close worktrees of tasks that are gone or
  * closed (missed events, restarts), remove orphaned clean worktree folders nobody tracks, and delete
  * local agentbox/* branches of removed worktrees that have nothing unpushed.
@@ -997,7 +1038,7 @@ export function worktreeDirs(agent: Agent): string[] {
   return worktreesFor(agent.id).filter((w) => w.status === "active" && w.path && fs.existsSync(w.path)).map((w) => w.path!);
 }
 
-// --- background: fetch every 15 min, sweep daily, clean up on task close ----------------------------------
+// --- background: fetch every 15 min, expire worktrees hourly, sweep daily, clean up on task close ----------------------------------
 
 let timers: NodeJS.Timeout[] = [];
 let unsub: (() => void) | null = null;
@@ -1012,13 +1053,15 @@ export function startRepos(opts: { log?: (m: string) => void } = {}) {
   });
   const fetchMs = Number(process.env.AGENTBOX_REPO_FETCH_MS ?? 15 * 60_000);
   const sweepMs = Number(process.env.AGENTBOX_REPO_SWEEP_MS ?? 24 * 3600_000);
+  const expireMs = Number(process.env.AGENTBOX_REPO_EXPIRE_MS ?? 3600_000);
   timers.forEach(clearInterval);
   timers = [
     setInterval(() => { void fetchAll().catch(() => {}); }, fetchMs),
+    setInterval(() => { void expireWorktrees().then((n) => n && log(`repos: deleted ${n} worktree(s) of work done over 24 hours ago`)).catch(() => {}); }, expireMs),
     setInterval(() => { void sweep().then((s) => (s.closed || s.orphans || s.branches) && log(`repos: sweep ${JSON.stringify(s)}`)).catch(() => {}); }, sweepMs),
   ];
   for (const t of timers) t.unref();
-  setTimeout(() => { void sweep().catch(() => {}); }, 30_000).unref();
+  setTimeout(() => { void expireWorktrees().catch(() => {}).then(() => sweep()).catch(() => {}); }, 30_000).unref();
   return { stop: () => { timers.forEach(clearInterval); timers = []; unsub?.(); unsub = null; } };
 }
 

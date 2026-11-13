@@ -434,6 +434,9 @@ one git worktree per task. Server: `repos.ts` (store, git, worktrees, maps, laye
   and before a worktree is made from a fetch older than 5 min. A daily sweep (`AGENTBOX_REPO_SWEEP_MS`)
   runs `git worktree prune`, closes worktrees of closed or deleted tasks, removes clean untracked
   worktree folders and deletes local `agentbox/*` branches of removed worktrees with nothing unpushed.
+  Hourly (`AGENTBOX_REPO_EXPIRE_MS`), `expireWorktrees` deletes the worktree folder of every task done
+  over 24 hours ago (`KEEP_DONE_MS`, when done work leaves the list), unpushed work or not; only work
+  the owner kept is spared. The branch stays.
 - **Worktrees and the runner:** a task is bound to repos by the New-task form (`repos` on
   `POST /api/work`), `delegate_task(repos)` (each helper gets its own) or `use_repo`. Before every
   turn the runner creates missing worktrees (`prepareWorktrees`) and passes them as Claude

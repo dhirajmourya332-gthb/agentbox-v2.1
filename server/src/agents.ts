@@ -297,6 +297,9 @@ export function instanceTree(rootId: string): Agent[] {
   );
 }
 
+/** How long a finished piece of work stays listed (and keeps its worktrees), unless the owner keeps it. */
+export const KEEP_DONE_MS = 24 * 3600_000;
+
 /** The top of the task room an instance belongs to. */
 export function rootOf(a: Agent): Agent {
   let cur = a;

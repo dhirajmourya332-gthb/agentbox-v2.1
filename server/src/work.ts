@@ -1,5 +1,5 @@
 import { all, now, run } from "./db.ts";
-import { dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, spawnInstance, type Agent } from "./agents.ts";
+import { KEEP_DONE_MS, dmThreadOf, getAgent, instanceTree, listAgents, retireReplica, spawnInstance, type Agent } from "./agents.ts";
 import { agentStatus, openTasksOf, sendMessage } from "./runner.ts";
 import { bindRepo, getRepo, roleAllowed } from "./repos.ts";
 import { setGate } from "./plans.ts";
@@ -12,7 +12,6 @@ import { normalizeTags, tagsOf } from "./tags.ts";
  * group, not here. A finished room stays listed for 24 hours, or until un-kept.
  */
 
-const KEEP_DONE_MS = 24 * 3600_000;
 
 const isTopLevel = (a: Agent) =>
   !!a.base_agent_id && !a.parent_instance_id && !a.created_by?.startsWith("routine:") && !a.created_by?.startsWith("group:");
