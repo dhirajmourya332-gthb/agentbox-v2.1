@@ -58,6 +58,7 @@ import { registerDepartmentRoutes } from "./departments.ts";
 import { routeHelperPlans, setGate } from "./plans.ts";
 import { bindRepo, getRepo, roleAllowed, startRepos } from "./repos.ts";
 import { startSetupRequests } from "./setupRequests.ts";
+import { startWatchdog } from "./watchdog.ts";
 import { roomServices, running as hostedRunning, serviceById, startHosting, stopService, view as hostedView } from "./hosting.ts";
 import { registerShareRoutes, startSharing } from "./shares.ts";
 import { startShareServer } from "./shareServer.ts";
@@ -608,7 +609,8 @@ ensureBuiltinSkill("onshape"); // the Onshape integration's skill
 ensureBuiltinSkill("host-service"); // hosting what agents build (hosting.ts): every agent but the helper
 const repos = startRepos({ log: (m) => app.log.info(m) }); // periodic fetch, daily sweep, cleanup on task close
 const setupRequests = startSetupRequests(); // requests complete when their check / integration / repo turns true
-app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); });
+const watchdog = startWatchdog({ log: (m) => app.log.info(m) }); // a service down or the browser hung: a helper starts by itself
+app.addHook("onClose", async () => { repos.stop(); setupRequests.stop(); watchdog.stop(); });
 startRoutineRuns(); // backfills runs from before run tracking, then settles runs as tasks finish
 routeHelperPlans(); // helper plans that waited on the owner go to their lead
 startWakeups(); // agents' one-time wake-ups (overdue ones fire now)

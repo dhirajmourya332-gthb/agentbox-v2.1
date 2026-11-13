@@ -49,12 +49,15 @@ run(`CREATE TABLE IF NOT EXISTS setup_request_waiters (
   PRIMARY KEY (request_id, instance_id)
 )`);
 
+// Who raised it: NULL (an agent or the owner) | 'watchdog' (agentbox itself, a service down or hung).
+try { run(`ALTER TABLE setup_requests ADD COLUMN source TEXT`); } catch { /* already there */ }
+
 export type RequestStatus = "pending" | "in_progress" | "done" | "rejected" | "cancelled" | "failed";
 export type SetupRequest = {
   id: string; requester_id: string | null; task_id: string | null; thread_id: string | null;
   title: string; why: string; for_setup_agent: string; integration: string | null; repo: string | null; repo_url: string | null;
   check_cmd: string | null; status: RequestStatus; setup_instance_id: string | null; result_note: string | null;
-  attention_id: string | null; created_at: string; updated_at: string; decided_at: string | null; completed_at: string | null;
+  attention_id: string | null; source?: string | null; created_at: string; updated_at: string; decided_at: string | null; completed_at: string | null;
 };
 export const OPEN: RequestStatus[] = ["pending", "in_progress"];
 export const MAX_OPEN_PER_INSTANCE = 3;
@@ -172,9 +175,10 @@ export function requestSetup(agent: Agent, taskId: string | null, input: Request
 }
 
 /** A request the owner raises (e.g. a repo URL agentbox can't reach): no requester to call back. */
-export function ownerRequest(input: RequestInput): SetupRequest {
+export function ownerRequest(input: RequestInput, source: "watchdog" | null = null): SetupRequest {
   const v = validate(input);
   const id = insert(v, { requester: null, taskId: null, threadId: null });
+  if (source) run(`UPDATE setup_requests SET source = ? WHERE id = ?`, source, id);
   return announce(id);
 }
 
@@ -192,7 +196,10 @@ export function setupPrompt(r: SetupRequest) {
     r.repo_url ? `- Repo URL: ${r.repo_url} (agentbox can't reach it yet: plan read access, e.g. a deploy key or the provider account's login)` : "",
     r.check_cmd ? `- Done when this check passes: \`${r.check_cmd}\`` : "",
   ].filter(Boolean).join("\n");
-  return `[agentbox] Setup request ${r.id}. ${who ? "A teammate asked for this; the owner approved starting it." : "The owner raised this from the portal."}
+  const origin = who ? "A teammate asked for this; the owner approved starting it."
+    : r.source === "watchdog" ? "agentbox's watchdog raised this itself (a service is down or hung) and started you without waiting for the owner: troubleshoot and fix it."
+    : "The owner raised this from the portal.";
+  return `[agentbox] Setup request ${r.id}. ${origin}
 ${who ? `Asked by ${who.name} (${who.title}) while working on "${who.label ?? "a task"}"${waiters.length > 1 ? `; also waiting: ${waiters.filter((n) => n !== who.name).join(", ")}` : ""}.` : ""}
 ${target}
 
